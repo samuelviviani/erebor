@@ -36,7 +36,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Verify version
         shell: bash
-        run: grep -q "\"version\": \"${{ inputs.version }}\"" apps/desktop/src-tauri/tauri.conf.json
+        run: |
+          grep -q "\"version\": \"${{ inputs.version }}\"" apps/desktop/src-tauri/tauri.conf.json
       - name: Linux system dependencies
         if: runner.os == 'Linux'
         run: |
