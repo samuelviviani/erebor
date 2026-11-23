@@ -7,7 +7,7 @@ name: Release (manual)
 #   EREBOR_DEV_FEE_WALLET  public Monero address of the project (optional; without it
 #                          the build applies no Erebor fee and says so in the UI)
 #   TAURI_SIGNING_PRIVATE_KEY / TAURI_SIGNING_PRIVATE_KEY_PASSWORD
-#                          only once the Tauri updater is enabled (see docs/RELEASE.md)
+#                          signs the update bundles and latest.json (see docs/RELEASE.md)
 # Variables: EREBOR_REPO_URL (shown in the About section)
 
 on:
@@ -68,7 +68,8 @@ jobs:
           releaseName: Erebor v${{ inputs.version }}
           releaseBody: "Draft: add changelog and verify SHA-256 hashes before publishing."
           releaseDraft: true
-          prerelease: true
+          # Installed apps update from /releases/latest, which skips pre-releases.
+          prerelease: false
 
   checksums:
     needs: build

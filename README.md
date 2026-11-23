@@ -1,66 +1,172 @@
+<div align="center">
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="brand/erebor-mark-dark.svg">
+  <img src="brand/erebor-mark-light.svg" alt="Erebor" width="120">
+</picture>
+
 # Erebor
 
-**Mining, under your control.**
+### Mining, under your control.
 
-Erebor è un mining manager desktop open source, non-custodial e local-first. Gestisce il mining CPU di Monero tramite [XMRig](https://github.com/xmrig/xmrig), mostra hashrate reale, share, ricompense stimate, consumi e commissioni, e non tocca mai i tuoi fondi: la pool paga direttamente il tuo wallet.
+Il mining manager **open source**, **non-custodial** e **local-first**.<br>
+Avvia, osserva e guadagna dal tuo computer, senza mai cedere il controllo del tuo wallet.
 
-> Stato: **pre-release (0.1.0)**. Non pronto per la produzione — vedi [PROGRESS.md](PROGRESS.md).
+[![Release](https://img.shields.io/github/v/release/samuelviviani/erebor?style=flat-square&color=E6A93C&label=release)](https://github.com/samuelviviani/erebor/releases/latest)
+[![CI](https://img.shields.io/github/actions/workflow/status/samuelviviani/erebor/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/samuelviviani/erebor/actions/workflows/ci.yml)
+[![Downloads](https://img.shields.io/github/downloads/samuelviviani/erebor/total?style=flat-square&color=0a0a0a)](https://github.com/samuelviviani/erebor/releases)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
+<br>
+![Windows](https://img.shields.io/badge/Windows-0078D4?style=flat-square&logo=windows&logoColor=white)
+![Linux](https://img.shields.io/badge/Linux-FCC624?style=flat-square&logo=linux&logoColor=black)
+![macOS](https://img.shields.io/badge/macOS-000000?style=flat-square&logo=apple&logoColor=white)
+![Rust](https://img.shields.io/badge/Rust-000000?style=flat-square&logo=rust&logoColor=white)
+![Tauri](https://img.shields.io/badge/Tauri_2-24C8DB?style=flat-square&logo=tauri&logoColor=white)
+![React](https://img.shields.io/badge/React-20232A?style=flat-square&logo=react&logoColor=61DAFB)
 
-## Principi
+[**⬇️ Scarica**](https://github.com/samuelviviani/erebor/releases/latest) ·
+[**💻 Da terminale**](#-da-terminale) ·
+[**📚 Documentazione**](#-documentazione) ·
+[**🤝 Contribuisci**](CONTRIBUTING.md)
 
-- **Non-custodial** — solo indirizzi pubblici; mai seed phrase o chiavi private.
-- **Trasparente** — commissione Erebor (1% del tempo di mining effettivo), donazione XMRig (1%) e fee della pool mostrate e accettate prima del primo avvio.
-- **Locale** — configurazione e statistiche solo sul tuo computer; nessun account, nessuna telemetria.
-- **Nessun mining nascosto** — il mining parte solo con un'azione esplicita e si arresta quando chiudi l'app.
+</div>
 
-## Struttura
+---
+
+## ✨ Perché Erebor
+
+<table>
+<tr>
+<td width="50%" valign="top">
+
+### 🔐 Non-custodial
+Solo indirizzi pubblici. Mai seed phrase, mai chiavi private: la pool paga **direttamente** il tuo wallet.
+
+</td>
+<td width="50%" valign="top">
+
+### 🔍 Trasparente
+Commissione Erebor (2% del tempo di mining effettivo), donazione XMRig e fee della pool dichiarate in chiaro, prima di iniziare.
+
+</td>
+</tr>
+<tr>
+<td valign="top">
+
+### 🏠 Locale
+Configurazione e statistiche restano sul tuo computer. Nessun account, nessuna telemetria.
+
+</td>
+<td valign="top">
+
+### 🛑 Niente mining nascosto
+Il mining parte solo con una tua azione esplicita e si ferma quando chiudi l'app.
+
+</td>
+</tr>
+</table>
+
+## 🚀 Cosa fa
+
+- ⛏️ **CPU e GPU**: [XMRig](https://github.com/xmrig/xmrig) per il processore, [SRBMiner-MULTI](https://github.com/doktor83/SRBMiner-Multi) per le schede video NVIDIA/AMD, scaricati dalle release ufficiali e verificati con SHA-256.
+- 🧠 **Moneta automatica**: prova le monete compatibili con il tuo PC, misura l'hashrate reale e mina la più redditizia.
+- 💸 **Ricevi come preferisci**: account Kryptex, wallet Bitcoin (via unMineable) o indirizzo Monero.
+- 📊 **Tutto sotto gli occhi**: hashrate, share, guadagni stimati, temperature, consumi e costo dell'energia.
+- 🌡️ **Protezioni**: soglie termiche ed economiche, programmazione oraria, ripresa automatica dopo un crash.
+- 📱 **Dal telefono**: accesso remoto dalla rete di casa o via VPN.
+- 🔄 **Aggiornamenti automatici**: l'app si aggiorna da sola dalle release firmate su GitHub.
+- 🌍 Italiano e inglese · tema chiaro e scuro · **modalità demo** per provare senza minare.
+
+## ⬇️ Installazione
+
+Scarica l'ultima versione dalla pagina **[Releases](https://github.com/samuelviviani/erebor/releases/latest)**:
+
+| Sistema | File | |
+|---|---|---|
+| 🪟 **Windows 10/11** | `Erebor_x.y.z_x64-setup.exe` · `.msi` | consigliato il `setup.exe` |
+| 🐧 **Linux** | `Erebor_x.y.z_amd64.AppImage` · `.deb` | l'AppImage si aggiorna da solo |
+| 🍎 **macOS** | `Erebor_x.y.z_universal.dmg` | Apple Silicon e Intel |
+
+> [!TIP]
+> Verifica sempre l'integrità del file scaricato con `SHA256SUMS`, allegato a ogni release. Dettagli in [INSTALLATION.md](INSTALLATION.md).
+
+## 💻 Da terminale
+
+CLI, dashboard testuale e agent in background per **Linux, macOS e WSL2**. Un solo comando compila, installa in `~/.local/bin` (senza root) e avvia il setup guidato:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/samuelviviani/erebor/main/scripts/install.sh \
+  | sh -s -- --repo https://github.com/samuelviviani/erebor.git
+```
+
+Poi:
+
+```bash
+erebor onboard                # setup guidato: wallet, miner, agent
+erebor doctor                 # diagnostica dell'ambiente
+erebor mining start           # avvia il mining
+erebor status                 # stato attuale
+erebor monitor                # dashboard live (S/P/X/R, Q esce lasciando il mining attivo)
+erebor demo on                # miner simulato, nessun mining reale
+```
+
+CLI, TUI e app desktop comandano **lo stesso motore**: un solo miner, un solo stato.
+Guide: [CLI](docs/CLI.md) · [Agent](docs/AGENT.md) · [TUI](docs/TUI.md) · [Fleet](docs/FLEET.md)
+
+## 🧱 Architettura
+
+```mermaid
+flowchart LR
+    GUI["🖥️ App desktop<br/>Tauri + React"] --> CORE
+    CLI["⌨️ CLI / TUI<br/>erebor"] -- socket locale --> AGENT["⚙️ Agent"]
+    AGENT --> CORE
+    PHONE["📱 Telefono / altro PC"] -- HTTP + token --> CORE
+    CORE["🦀 erebor-core"] --> MINERS["⛏️ XMRig · SRBMiner"]
+    MINERS -- stratum --> POOL["🌐 Pool"]
+    POOL -- pagamenti --> WALLET["👛 Il tuo wallet"]
+```
 
 | Percorso | Contenuto |
 |---|---|
-| `crates/erebor-core` | Libreria Rust: XMRig, dev fee, guadagni, pool, hardware, SQLite, orchestrazione, IPC locale, Fleet |
-| `crates/erebor-agent` | Agent: possiede il motore e i miner, socket locale, servizio systemd utente opzionale |
-| `crates/erebor-cli` | CLI `erebor` (status, doctor, mining, wallet, pool, hardware, agent) |
+| `crates/erebor-core` | Libreria Rust: miner, dev fee, guadagni, pool, hardware, SQLite, IPC locale, Fleet |
+| `crates/erebor-agent` | Agent: possiede motore e miner, socket locale, servizio systemd utente opzionale |
+| `crates/erebor-cli` | CLI `erebor`: status, doctor, mining, wallet, pool, hardware, agent |
 | `crates/erebor-tui` | Dashboard da terminale (`erebor monitor`) |
-| `apps/desktop` | App Tauri 2 (React + TypeScript + Tailwind); `src-tauri` = comandi tipizzati |
-| `apps/website` | Sito pubblico Next.js (export statico, compatibile Vercel) |
-| `scripts/` | `update-xmrig-manifest.mjs`: fissa una release XMRig con hash verificati |
-| `docs/` | Rilascio, pool, checklist legale |
+| `apps/desktop` | App Tauri 2 (React + TypeScript + Tailwind) |
+| `apps/website` | Sito pubblico Next.js (export statico) |
 
 Dettagli in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
-## Avvio rapido
+## 🛠️ Sviluppo
 
 ```bash
 pnpm install
 pnpm --filter @erebor/desktop tauri dev   # app desktop (richiede Rust + dipendenze Tauri)
-pnpm --filter @erebor/desktop dev         # solo UI nel browser, backend simulato (demo)
+pnpm --filter @erebor/desktop dev         # solo UI nel browser, backend simulato
 pnpm --filter @erebor/website dev         # sito
 pnpm test && cargo test --workspace       # test
 ```
 
-Vedi [DEVELOPMENT.md](DEVELOPMENT.md) e [INSTALLATION.md](INSTALLATION.md).
+Guida completa in [DEVELOPMENT.md](DEVELOPMENT.md). Le pull request sono benvenute: leggi prima [CONTRIBUTING.md](CONTRIBUTING.md). 💛
 
-## Da terminale (Ubuntu/Linux, macOS)
+## 📚 Documentazione
 
-```bash
-sh scripts/install.sh         # installa in ~/.local/bin e avvia il setup guidato (erebor onboard)
+| | |
+|---|---|
+| 🏗️ [Architettura](docs/ARCHITECTURE.md) | ⌨️ [CLI](docs/CLI.md) · [Agent](docs/AGENT.md) · [TUI](docs/TUI.md) |
+| 📦 [Installazione](INSTALLATION.md) | 🛰️ [Fleet](docs/FLEET.md) · [Pool](docs/POOLS.md) |
+| 🧑‍💻 [Sviluppo](DEVELOPMENT.md) | 🚢 [Rilascio](docs/RELEASE.md) · [Changelog](CHANGELOG.md) |
+| 🔒 [Sicurezza](SECURITY.md) · [Privacy](PRIVACY.md) | 📜 [Licenze di terze parti](THIRD_PARTY_NOTICES.md) |
 
-erebor doctor                 # diagnostica dell'ambiente
-erebor agent start            # agent in background (non avvia il mining)
-erebor demo on                # miner simulato, nessun mining reale
-erebor mining start && erebor status
-erebor monitor                # TUI: S/P/X/R, Q esce lasciando il mining attivo
-erebor agent stop
-```
+## 📄 Licenza
 
-CLI, TUI e app desktop comandano lo stesso motore: un solo miner, un solo stato. Il mining reale richiede `erebor consent --accept`, un wallet (`erebor wallet set`) e il miner (`erebor miner install`). Guide: [CLI](docs/CLI.md) · [Agent](docs/AGENT.md) · [TUI](docs/TUI.md) · [Fleet](docs/FLEET.md).
+Erebor è distribuito con licenza **MIT** ([LICENSE](LICENSE)).
+XMRig (GPLv3) e SRBMiner sono progetti separati e **non sono inclusi** nei pacchetti: vengono scaricati dalle release ufficiali e verificati con SHA-256.
 
-## Documenti
+> [!WARNING]
+> Il mining comporta costi energetici e **non garantisce alcun rendimento**. Controlla il prezzo dell'elettricità prima di iniziare.
 
-[ARCHITECTURE](docs/ARCHITECTURE.md) · [CLI](docs/CLI.md) · [AGENT](docs/AGENT.md) · [TUI](docs/TUI.md) · [FLEET](docs/FLEET.md) · [DEVELOPMENT](DEVELOPMENT.md) · [INSTALLATION](INSTALLATION.md) · [PRIVACY](PRIVACY.md) · [SECURITY](SECURITY.md) · [CONTRIBUTING](CONTRIBUTING.md) · [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES.md) · [PROGRESS](PROGRESS.md) · [CHANGELOG](CHANGELOG.md)
-
-## Licenza
-
-MIT ([LICENSE](LICENSE)). XMRig è un progetto separato, GPLv3, non incluso nei pacchetti: viene scaricato dalla release ufficiale e verificato con SHA-256.
-
-Il mining comporta costi energetici e non garantisce alcun rendimento.
+<div align="center">
+<br>
+<sub>Fatto con 🦀 e ☕ · se Erebor ti è utile, lascia una ⭐</sub>
+</div>

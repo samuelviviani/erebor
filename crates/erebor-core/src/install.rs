@@ -144,7 +144,8 @@ pub fn extract_binary_named(
             zip::ZipArchive::new(std::io::Cursor::new(archive)).map_err(|e| e.to_string())?;
         for i in 0..z.len() {
             let mut f = z.by_index(i).map_err(|e| e.to_string())?;
-            if f.is_file() && is_binary_entry(f.name(), name) {
+            let entry = f.name().map_err(|e| e.to_string())?.into_owned();
+            if f.is_file() && is_binary_entry(&entry, name) {
                 f.read_to_end(&mut bytes).map_err(|e| e.to_string())?;
                 break;
             }

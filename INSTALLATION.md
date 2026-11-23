@@ -1,6 +1,6 @@
 # Installazione
 
-> Nessuna release è ancora pubblicata. Fino ad allora: compila dai sorgenti ([DEVELOPMENT.md](DEVELOPMENT.md)).
+> Scarica l'ultima versione da [GitHub Releases](https://github.com/samuelviviani/erebor/releases/latest). Dopo l'installazione l'app si aggiorna da sola.
 
 ## Windows 10/11 (x64)
 

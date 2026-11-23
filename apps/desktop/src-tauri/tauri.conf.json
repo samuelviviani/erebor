@@ -27,6 +27,7 @@
   },
   "bundle": {
     "active": true,
+    "createUpdaterArtifacts": true,
     "targets": ["deb", "appimage", "nsis", "msi", "dmg"],
     "icon": [
       "icons/32x32.png",
@@ -39,5 +40,12 @@
     "license": "MIT",
     "shortDescription": "Mining manager: transparent, non-custodial, local-first.",
     "longDescription": "Erebor manages CPU mining through XMRig. It never holds funds or private keys; rewards are paid by the pool directly to the user's wallet."
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDAxMERENTdGREY4RTJBOUQKUldTZEtvN2ZmOVVOQVMzTlJvRmYrNVdJZFZQeW5GVzRic0ZNTXl5bStMNWJXR0VIRjFCQUNLOHUK",
+      "endpoints": ["https://github.com/samuelviviani/erebor/releases/latest/download/latest.json"],
+      "windows": { "installMode": "passive" }
+    }
   }
 }

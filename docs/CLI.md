@@ -26,8 +26,9 @@ Come OpenClaw: un comando installa e avvia subito la procedura guidata.
 
 ```bash
 sh scripts/install.sh                 # dal checkout del repository
-# oppure, quando il repository sarà pubblico:
-curl -fsSL <URL raw>/scripts/install.sh | sh -s -- --repo <URL git>
+# oppure, senza clonare a mano:
+curl -fsSL https://raw.githubusercontent.com/samuelviviani/erebor/main/scripts/install.sh \
+  | sh -s -- --repo https://github.com/samuelviviani/erebor.git
 ```
 
 L'installer controlla sistema e compilatore C (su Ubuntu suggerisce `sudo apt install -y build-essential`), installa Rust con rustup se manca (chiedendo prima), compila `erebor` ed `erebor-agent` in release, li copia in `~/.local/bin` (senza root), indica come aggiungerlo al `PATH` e lancia `erebor onboard`. Opzioni: `--no-onboard`, `--prefix DIR`, `--repo URL`, `--ref REF`, `--yes`.

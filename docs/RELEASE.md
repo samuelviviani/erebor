@@ -9,17 +9,14 @@
 7. Prova gli installer su Windows e Ubuntu puliti (checklist in `PROGRESS.md`).
 8. Aggiorna `apps/website/releases.json` con file, URL e SHA-256, poi pubblica la release e il sito.
 
-## Aggiornamenti firmati (Tauri updater) — da attivare
+## Aggiornamenti automatici (Tauri updater)
 
-Non ancora attivo: richiede una chiave che non deve stare nel repository.
+L'app installata legge `releases/latest/download/latest.json` all'avvio e ogni ora; se trova una versione nuova la scarica, verifica la firma, la installa e si riavvia. Se fallisce mostra un banner con il pulsante "Aggiorna".
 
-```bash
-pnpm --filter @erebor/desktop tauri signer generate -w ~/.tauri/erebor.key
-```
-
-- Salva la chiave privata e la password come secret `TAURI_SIGNING_PRIVATE_KEY` / `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.
-- Aggiungi `tauri-plugin-updater`, la chiave **pubblica** e l'endpoint (`latest.json` delle release GitHub) in `tauri.conf.json` (`plugins.updater`), `bundle.createUpdaterArtifacts: true`, permesso `updater:default`.
-- Collega il toggle "Controlla aggiornamenti" (oggi disattivato) e chiedi conferma prima di installare.
+- La chiave privata è in `~/.tauri/erebor.key` (generata senza password), la pubblica in `tauri.conf.json` (`plugins.updater.pubkey`). **Non perderla**: senza, le app già installate non accettano più aggiornamenti.
+- Secret: `TAURI_SIGNING_PRIVATE_KEY` = contenuto di `~/.tauri/erebor.key`, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` = vuoto.
+- L'aggiornamento parte quando la bozza viene **pubblicata** (non come pre-release): da lì `latest` punta alla nuova versione.
+- Linux: si aggiorna da solo l'AppImage; chi ha installato il `.deb` aggiorna a mano.
 
 ## Firma del codice
 

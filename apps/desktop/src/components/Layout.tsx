@@ -12,7 +12,10 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
+import { relaunch } from "@tauri-apps/plugin-process";
+import { check } from "@tauri-apps/plugin-updater";
 import { useEffect, useState, type ReactNode } from "react";
+import { inApp } from "../lib/api";
 import { useT } from "../lib/i18n";
 import { useApp, useResolvedTheme, type Page } from "../lib/store";
 import { Guide } from "./Guide";
@@ -240,6 +243,54 @@ function Toasts() {
   );
 }
 
+/**
+ * Self-update from signed GitHub releases: checks at launch and every hour, installs
+ * on its own and restarts. If that fails, a banner offers to retry by hand.
+ */
+function Updater() {
+  const t = useT();
+  const [state, setState] = useState<"idle" | "installing" | "failed">("idle");
+  const [version, setVersion] = useState("");
+  const run = async () => {
+    try {
+      const update = await check();
+      if (!update) return;
+      setVersion(update.version);
+      setState("installing");
+      await update.downloadAndInstall();
+      await relaunch();
+    } catch {
+      setState((s) => (s === "installing" ? "failed" : s)); // offline check: retry later, quietly
+    }
+  };
+  useEffect(() => {
+    if (!inApp()) return;
+    void run();
+    const id = setInterval(run, 60 * 60 * 1000);
+    return () => clearInterval(id);
+  }, []);
+  if (state === "idle") return null;
+  return (
+    <div
+      className="flex items-center justify-between gap-3 border-b border-accent/30 bg-accent/10 px-6 py-2 text-xs text-accent"
+      role="status"
+    >
+      <span>
+        {t(state === "installing" ? "update.installing" : "update.failed")} (v
+        {version})
+      </span>
+      {state === "failed" && (
+        <button
+          className="shrink-0 rounded-lg border border-accent/40 px-2.5 py-1 font-medium hover:bg-accent/15"
+          onClick={() => void run()}
+        >
+          {t("update.button")}
+        </button>
+      )}
+    </div>
+  );
+}
+
 export function Layout({ children }: { children: ReactNode }) {
   const t = useT();
   const demo = useApp((s) => s.status?.demo);
@@ -249,6 +300,7 @@ export function Layout({ children }: { children: ReactNode }) {
     <div className="flex h-full overflow-hidden">
       <Sidebar />
       <main className="min-w-0 flex-1 overflow-y-auto">
+        <Updater />
         {demo && (
           <div
             className="flex items-center justify-between gap-3 border-b border-warn/30 bg-warn/10 px-6 py-2 text-xs text-warn"
