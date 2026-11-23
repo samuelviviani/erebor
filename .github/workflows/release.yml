@@ -71,8 +71,54 @@ jobs:
           # Installed apps update from /releases/latest, which skips pre-releases.
           prerelease: false
 
-  checksums:
+  # The `erebor` terminal program: one binary per OS/CPU, signed with the same key as
+  # the desktop updater. Installed CLIs update themselves from these assets.
+  cli:
     needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            asset: erebor-linux-x86_64
+          - os: ubuntu-22.04-arm
+            target: aarch64-unknown-linux-gnu
+            asset: erebor-linux-aarch64
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            asset: erebor-macos-aarch64
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            asset: erebor-macos-x86_64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Build
+        env:
+          EREBOR_DEV_FEE_WALLET: ${{ secrets.EREBOR_DEV_FEE_WALLET }}
+          EREBOR_REPO_URL: ${{ vars.EREBOR_REPO_URL }}
+        run: |
+          cargo build --release --locked -p erebor-cli --target ${{ matrix.target }}
+          cp target/${{ matrix.target }}/release/erebor ${{ matrix.asset }}
+      - name: Sign and upload
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          npx --yes @tauri-apps/cli@2.12.4 signer sign ${{ matrix.asset }}
+          gh release upload "v${{ inputs.version }}" ${{ matrix.asset }} ${{ matrix.asset }}.sig --repo "${{ github.repository }}" --clobber
+
+  checksums:
+    needs: [build, cli]
     runs-on: ubuntu-22.04
     steps:
       - name: Publish SHA256SUMS to the draft release

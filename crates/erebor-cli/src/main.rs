@@ -13,7 +13,7 @@ use erebor_core::hardware::Monitor;
 use erebor_core::ipc::{self, Action};
 use erebor_core::miner::MinerKind;
 use erebor_core::{autostart, coins, devfee, install, pools, wallet, xmrig};
-use erebor_tui::fmt;
+use erebor_tui::fmt::{self, explain};
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
@@ -24,7 +24,18 @@ use std::time::{Duration, Instant};
     name = "erebor",
     version,
     about = "Erebor mining manager — terminal interface",
-    after_help = "Exit codes: 0 ok, 1 command failed, 2 usage error, 3 agent not reachable.\nDocs: docs/CLI.md"
+    after_help = "\
+Quick start:
+  erebor               live dashboard (first time: guided setup)
+  erebor start         start mining (keeps running in the background)
+  erebor stop          stop mining
+  erebor status        one-shot summary
+  erebor demo on       try it with a simulated miner first
+  erebor service on    mine always, also after the computer restarts
+  erebor update        install the latest version (also automatic in the background)
+
+Exit codes: 0 ok, 1 command failed, 2 usage error, 3 Erebor not running.
+Docs: docs/CLI.md"
 )]
 struct Cli {
     /// Data folder shared with the desktop app (default: the app's data folder).
@@ -33,24 +44,35 @@ struct Cli {
     /// Machine-readable output (stable, documented in docs/CLI.md).
     #[arg(long, global = true)]
     json: bool,
-    /// Without a command: the guided setup on first run, the status afterwards.
+    /// Without a command: the guided setup on first run, the live dashboard afterwards.
     #[command(subcommand)]
     cmd: Option<Cmd>,
 }
 
 #[derive(Subcommand, Debug)]
 enum Cmd {
-    /// Guided setup: wallet, terms, miner, agent, health check (like a first run).
-    Onboard(onboard::Opts),
+    /// Start mining. Erebor keeps running in the background after this terminal closes.
+    Start,
+    /// Stop mining.
+    Stop,
     /// Mining state, hashrate, pool, shares, temperature, power.
     Status,
+    /// Live dashboard: hashrate chart, earnings, temperatures, controls.
+    #[command(visible_alias = "dashboard")]
+    Monitor,
+    /// Guided setup: wallet, terms, miner, health check (like a first run).
+    Onboard(onboard::Opts),
+    /// Mine always: start Erebor and mining with the computer (on), or stop that (off).
+    Service { state: Option<OnOff> },
+    /// Install the latest signed release of this program.
+    Update,
     /// Check OS, hardware, permissions, miners, wallet, pool and agent.
     Doctor {
         /// Skip the pool connectivity test.
         #[arg(long)]
         offline: bool,
     },
-    /// Start, stop, pause, resume or restart mining.
+    /// Start, stop, pause, resume or restart mining (start/stop also as `erebor start`).
     Mining {
         #[command(subcommand)]
         action: MiningCmd,
@@ -70,8 +92,6 @@ enum Cmd {
         #[command(subcommand)]
         cmd: PoolsCmd,
     },
-    /// Open the interactive terminal dashboard.
-    Monitor,
     /// The background process that owns mining.
     Agent {
         #[command(subcommand)]
@@ -100,10 +120,15 @@ enum Cmd {
 
 #[derive(Subcommand, Debug, Clone, Copy)]
 enum MiningCmd {
+    /// Start mining.
     Start,
+    /// Stop mining.
     Stop,
+    /// Pause mining (the miner stays loaded; resume is instant).
     Pause,
+    /// Resume paused mining.
     Resume,
+    /// Stop and start again.
     Restart,
 }
 
@@ -117,6 +142,7 @@ enum HardwareCmd {
 
 #[derive(Subcommand, Debug)]
 enum WalletCmd {
+    /// The payout address and per-coin wallets.
     Show,
     /// Set the payout address (validated), or a coin's own wallet with --coin.
     Set {
@@ -128,6 +154,7 @@ enum WalletCmd {
 
 #[derive(Subcommand, Debug)]
 enum PoolsCmd {
+    /// The pool catalog (* = in use).
     List,
     /// Test compatibility and connectivity of the configured pool (or all).
     Test {
@@ -135,9 +162,7 @@ enum PoolsCmd {
         all: bool,
     },
     /// Use a pool from the catalog.
-    Set {
-        pool_id: String,
-    },
+    Set { pool_id: String },
 }
 
 #[derive(Subcommand, Debug)]
@@ -149,9 +174,11 @@ enum AgentCmd {
     },
     /// Stop mining and the agent.
     Stop,
+    /// Whether the agent runs, its pid, version and uptime.
     Status,
     /// Start the agent at login (systemd user unit / LaunchAgent). Off by default.
     InstallService,
+    /// Remove the login service.
     UninstallService,
 }
 
@@ -172,11 +199,10 @@ enum Kind {
 
 #[derive(Subcommand, Debug)]
 enum DeviceCmd {
+    /// Name, id, OS and CPU of this device.
     Show,
     /// Set the name other Erebor instances will show for this device.
-    Name {
-        name: String,
-    },
+    Name { name: String },
 }
 
 #[derive(ValueEnum, Debug, Clone, Copy, PartialEq)]
@@ -211,98 +237,6 @@ fn fail<T>(code: &str) -> Result<T, Fail> {
     Err(Fail { code: code.into() })
 }
 
-/// Message and hint for the error codes users meet most.
-fn explain(code: &str) -> (String, Option<&'static str>) {
-    let (m, h) = match code {
-        "agent_unreachable" => (
-            "the Erebor agent is not running",
-            Some("start it: erebor agent start"),
-        ),
-        "consent_required" => (
-            "the fees have not been accepted yet: real mining is blocked",
-            Some("read them and accept: erebor consent --accept"),
-        ),
-        "wallet_missing" => (
-            "no payout wallet configured",
-            Some("erebor wallet set <ADDRESS>   (or try first: erebor demo on)"),
-        ),
-        "miner_not_configured" => (
-            "the miner is not installed",
-            Some("erebor miner install xmrig"),
-        ),
-        "miner_binary_changed" => (
-            "the miner binary changed since it was installed",
-            Some("reinstall it: erebor miner install"),
-        ),
-        "job_running" => (
-            "an install or benchmark is in progress",
-            Some("wait for it to finish (erebor status)"),
-        ),
-        "not_running" => ("mining is not running", Some("erebor mining start")),
-        "not_paused" => ("mining is not paused", None),
-        "pause_unsupported" => ("this miner cannot pause", Some("use erebor mining stop")),
-        "stop_mining_first" => ("stop mining first", Some("erebor mining stop")),
-        "kryptex_pool_required" => (
-            "a Kryptex ID only works on the Kryptex pool",
-            Some("erebor pools set kryptex"),
-        ),
-        "protocol_version" => (
-            "CLI and agent are different versions",
-            Some("restart the agent: erebor agent stop && erebor agent start"),
-        ),
-        "not_agent" => (
-            "the engine belongs to the Erebor desktop app or node, not to an agent",
-            Some("close the desktop app (it stops mining) or stop the node"),
-        ),
-        "ipc_unsupported_platform" => (
-            "the local agent socket is not available on this OS yet",
-            Some("use the desktop app"),
-        ),
-        "agent_untrusted" => (
-            "the agent socket belongs to another user: refused",
-            Some("check who started it (erebor agent status) and the data folder owner"),
-        ),
-        "pool_check_failed" => (
-            "the configured pool is not reachable or not compatible with the wallet",
-            Some("check network/DNS/firewall, or pick another: erebor pools set <id>"),
-        ),
-        "accept_risk_required" => (
-            "real mining needs the terms accepted explicitly",
-            Some("read them with erebor consent, then add --accept-risk (or use --mode demo)"),
-        ),
-        "onboarding_cancelled" => (
-            "setup cancelled: nothing was changed",
-            Some("run erebor onboard again, or try erebor onboard --mode demo"),
-        ),
-        "onboarding_needs_terminal" => (
-            "the guided setup needs an interactive terminal",
-            Some(
-                "in scripts use: erebor onboard --non-interactive --accept-risk --wallet <ADDRESS>",
-            ),
-        ),
-        "invalid_address" => (
-            "not a valid payout address (public Monero address, Kryptex ID or Bitcoin address)",
-            None,
-        ),
-        "state_unchanged" => (
-            "the miner did not change state",
-            Some("check erebor status and the agent log"),
-        ),
-        "unknown_pool" => ("no pool with that id", Some("see: erebor pools list")),
-        "unknown_coin" => ("no coin with that id", None),
-        "invalid_device_name" => (
-            "device name must be 1-64 characters, no control characters",
-            None,
-        ),
-        _ if code.starts_with("engine_busy") => (
-            "another Erebor (agent, desktop app or node) already owns this data folder",
-            Some("the CLI talks to it directly: erebor status"),
-        ),
-        _ => return (code.to_string(), None),
-    };
-    (m.to_string(), h)
-}
-
 fn main() {
     let cli = Cli::parse();
     let json = cli.json;
@@ -312,7 +246,7 @@ fn main() {
         .unwrap_or_else(erebor_core::default_data_dir);
     if let Err(f) = run(cli, &dir) {
         let (msg, mut hint) = explain(&f.code);
-        if f.code == "agent_unreachable" && !dir.join("config.json").exists() {
+        if f.code == "agent_unreachable" && onboard::needs_setup(&dir) {
             hint = Some("first time? run the guided setup: erebor onboard");
         }
         if json {
@@ -370,9 +304,17 @@ fn run(cli: Cli, dir: &Path) -> Result<(), Fail> {
             println!("Erebor is not set up yet. Run: erebor onboard   (or: erebor --help)");
             return Ok(());
         }
+        None if onboard::interactive() && !json => Cmd::Monitor,
         None => Cmd::Status,
     };
+    if needs_engine(&cmd) {
+        ensure_agent(dir, json)?;
+    }
     match cmd {
+        Cmd::Start => mining(dir, MiningCmd::Start, json),
+        Cmd::Service { state } => service(dir, state, json),
+        Cmd::Update => update(dir, json),
+        Cmd::Stop => mining(dir, MiningCmd::Stop, json),
         Cmd::Onboard(o) => onboard::run(dir, o, json),
         Cmd::Status => status(dir, json),
         Cmd::Doctor { offline } => {
@@ -429,7 +371,7 @@ fn run(cli: Cli, dir: &Path) -> Result<(), Fail> {
             if json {
                 print_json(&s);
             } else if s.demo {
-                println!("Demo mode on: a simulated miner, no real mining and no network.\nTry: erebor mining start");
+                println!("Demo mode on: a simulated miner, no real mining and no network.\nTry: erebor start");
             } else {
                 println!("Demo mode off: real mining mode.");
                 if let Some(b) = &s.start_blocker {
@@ -476,6 +418,41 @@ fn run(cli: Cli, dir: &Path) -> Result<(), Fail> {
             }
             Ok(())
         }
+    }
+}
+
+/// Commands that change or watch the engine: Erebor starts in the background for them.
+/// Read-only ones (status, doctor, lists) never start anything.
+fn needs_engine(cmd: &Cmd) -> bool {
+    matches!(
+        cmd,
+        Cmd::Start
+            | Cmd::Monitor
+            | Cmd::Demo { .. }
+            | Cmd::Miner { .. }
+            | Cmd::Device { .. }
+            | Cmd::Wallet {
+                cmd: WalletCmd::Set { .. }
+            }
+            | Cmd::Pools {
+                cmd: PoolsCmd::Set { .. }
+            }
+            | Cmd::Mining {
+                action: MiningCmd::Start | MiningCmd::Restart
+            }
+    ) || matches!(cmd, Cmd::Consent { accept, revoke } if *accept || *revoke)
+}
+
+/// Start the agent in the background when nothing owns the engine yet.
+fn ensure_agent(dir: &Path, json: bool) -> Result<(), Fail> {
+    match ipc::call(dir, "agent_info", &Value::Null) {
+        Err(e) if e == "agent_unreachable" => {
+            if !json {
+                eprintln!("Starting Erebor in the background…");
+            }
+            spawn_agent(dir).map(|_| ())
+        }
+        _ => Ok(()),
     }
 }
 
@@ -573,6 +550,15 @@ fn status(dir: &Path, json: bool) -> Result<(), Fail> {
     if let Some(o) = info["owner"].as_str() {
         row("Engine", format!("{o} · pid {}", info["pid"]));
     }
+    let service = autostart::is_installed(autostart::AGENT_LABEL, autostart::Kind::Service);
+    row(
+        "At startup",
+        if service {
+            "starts with the computer (erebor service)"
+        } else {
+            "manual · mine always: erebor service on"
+        },
+    );
     Ok(())
 }
 
@@ -584,7 +570,18 @@ fn mining(dir: &Path, cmd: MiningCmd, json: bool) -> Result<(), Fail> {
         MiningCmd::Resume => Action::Resume,
         MiningCmd::Restart => Action::Restart,
     };
-    let o = ipc::control(dir, action)?;
+    let o = match ipc::control(dir, action) {
+        // Nothing runs in the background, so nothing is mining.
+        Err(e) if e == "agent_unreachable" && action == Action::Stop => {
+            if json {
+                print_json(&json!({"changed": false, "snapshot": null}));
+            } else {
+                println!("Nothing to do: mining is not running.");
+            }
+            return Ok(());
+        }
+        r => r?,
+    };
     if json {
         print_json(&json!({"changed": o.changed, "snapshot": o.snapshot}));
         return Ok(());
@@ -606,6 +603,9 @@ fn mining(dir: &Path, cmd: MiningCmd, json: bool) -> Result<(), Fail> {
             Action::Restart => "restarted",
         };
         println!("Mining {verb}{demo}. State: {}.", fmt::state(&s.state));
+        if matches!(action, Action::Start | Action::Restart | Action::Resume) {
+            println!("Watch it live: erebor   ·   stop: erebor stop");
+        }
         if s.dev_fee.enabled && action == Action::Start && !s.demo {
             println!(
                 "Dev fee: {}% of mining time, shown in `erebor status`.",
@@ -921,20 +921,13 @@ fn agent(dir: &Path, cmd: AgentCmd, json: bool) -> Result<(), Fail> {
                     "Agent started · pid {pid} · log {}",
                     dir.join("agent.log").display()
                 );
-                println!("Mining is not started automatically: erebor mining start");
+                println!("Mining is not started automatically: erebor start");
             }
             Ok(())
         }
         AgentCmd::Stop => {
             info.map_err(Fail::from)?;
-            call(dir, "shutdown", Value::Null)?;
-            let t = Instant::now();
-            while ipc::call(dir, "agent_info", &Value::Null).is_ok() {
-                if t.elapsed() > Duration::from_secs(15) {
-                    return fail("agent_stop_timeout");
-                }
-                std::thread::sleep(Duration::from_millis(100));
-            }
+            stop_agent(dir)?;
             if json {
                 print_json(&json!({"stopped": true}));
             } else {
@@ -958,7 +951,7 @@ fn agent(dir: &Path, cmd: AgentCmd, json: bool) -> Result<(), Fail> {
                                 ""
                             }
                         );
-                        println!("Start it: erebor agent start");
+                        println!("It starts by itself when needed (erebor start, erebor), or: erebor agent start");
                     }
                     std::process::exit(3);
                 }
@@ -1003,6 +996,129 @@ fn agent(dir: &Path, cmd: AgentCmd, json: bool) -> Result<(), Fail> {
             Ok(())
         }
     }
+}
+
+/// `erebor service on|off`: Erebor and mining start with the computer, or not.
+fn service(dir: &Path, state: Option<OnOff>, json: bool) -> Result<(), Fail> {
+    let installed = || autostart::is_installed(autostart::AGENT_LABEL, autostart::Kind::Service);
+    match state {
+        Some(OnOff::On) => {
+            ensure_agent(dir, json)?;
+            let mut c = load_config_live(dir)?;
+            c.start_on_launch = true;
+            save_config(dir, &c)?;
+            // The service runs its own agent: hand over from a plain background one.
+            if !installed() {
+                let info = call(dir, "agent_info", Value::Null)?;
+                if info["owner"] != "agent" {
+                    return fail("not_agent");
+                }
+                stop_agent(dir)?;
+                install_service(dir)?;
+            }
+            let linger = enable_linger();
+            if json {
+                print_json(&json!({"service": true, "startOnLaunch": true, "linger": linger}));
+                return Ok(());
+            }
+            println!("✓ Erebor now starts with the computer and mines automatically.");
+            match linger {
+                Some(true) | None => {}
+                Some(false) => println!(
+                    "! On Linux it starts at login. To start right at boot, before anyone logs in:\n    sudo loginctl enable-linger \"$USER\""
+                ),
+            }
+            if let Ok(s) = ipc::snapshot(dir) {
+                if let (Some(b), false) = (&s.start_blocker, s.is_active()) {
+                    let (m, h) = explain(b);
+                    println!("! Mining cannot start yet: {m}");
+                    if let Some(h) = h {
+                        println!("  → {h}");
+                    }
+                }
+            }
+            println!("Turn it off: erebor service off");
+            Ok(())
+        }
+        Some(OnOff::Off) => {
+            if let Ok(mut c) = load_config_live(dir) {
+                c.start_on_launch = false;
+                save_config(dir, &c)?;
+            }
+            autostart::uninstall(autostart::AGENT_LABEL, autostart::Kind::Service)?;
+            if json {
+                print_json(&json!({"service": false, "startOnLaunch": false}));
+            } else {
+                println!("Erebor no longer starts with the computer; background mining stopped.");
+                println!("Start by hand any time: erebor start");
+            }
+            Ok(())
+        }
+        None => {
+            let on = installed();
+            let start = load_config(dir)?.start_on_launch;
+            if json {
+                print_json(&json!({"service": on, "startOnLaunch": start}));
+            } else if on && start {
+                println!("On: Erebor starts with the computer and mines automatically.\nTurn off: erebor service off");
+            } else if on {
+                println!("Erebor starts with the computer but does not mine by itself.\nMine always: erebor service on");
+            } else {
+                println!("Off: Erebor does not start with the computer.\nMine always, also after a restart: erebor service on");
+            }
+            Ok(())
+        }
+    }
+}
+
+/// Linux: let the user's services run from boot, without a login. `None` elsewhere.
+fn enable_linger() -> Option<bool> {
+    if !cfg!(target_os = "linux") {
+        return None;
+    }
+    let user = std::env::var("USER").unwrap_or_default();
+    let ok = std::process::Command::new("loginctl")
+        .args(["enable-linger", &user])
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_ok_and(|s| s.success());
+    Some(ok)
+}
+
+/// `erebor update`: install the latest signed release over this executable.
+fn update(dir: &Path, json: bool) -> Result<(), Fail> {
+    let exe = std::env::current_exe().map_err(|e| Fail::from(e.to_string()))?;
+    if !json {
+        eprintln!("Checking for updates…");
+    }
+    let installed = erebor_core::update::update(&exe)?;
+    if json {
+        print_json(&json!({"updated": installed, "current": env!("CARGO_PKG_VERSION")}));
+        return Ok(());
+    }
+    match installed {
+        None => println!("Erebor is up to date (v{}).", env!("CARGO_PKG_VERSION")),
+        Some(v) => {
+            println!("✓ Updated to v{v} (signature verified).");
+            if ipc::call(dir, "agent_info", &Value::Null).is_ok_and(|i| i["owner"] == "agent") {
+                println!("Erebor in the background switches to it within a few seconds; mining continues.");
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Ask the agent to stop (mining stops with it) and wait until it is gone.
+fn stop_agent(dir: &Path) -> Result<(), Fail> {
+    call(dir, "shutdown", Value::Null)?;
+    let t = Instant::now();
+    while ipc::call(dir, "agent_info", &Value::Null).is_ok() {
+        if t.elapsed() > Duration::from_secs(15) {
+            return fail("agent_stop_timeout");
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    Ok(())
 }
 
 /// Register the agent as a per-user login service and start it (no root).
@@ -1250,6 +1366,21 @@ mod tests {
                 cmd: MinerCmd::Install { kind: Kind::Xmrig }
             }
         ));
+        assert!(matches!(
+            p(&["service", "on"]).unwrap().cmd.unwrap(),
+            Cmd::Service {
+                state: Some(OnOff::On)
+            }
+        ));
+        assert!(matches!(
+            p(&["service"]).unwrap().cmd.unwrap(),
+            Cmd::Service { state: None }
+        ));
+        assert!(matches!(
+            p(&["dashboard"]).unwrap().cmd.unwrap(),
+            Cmd::Monitor
+        ));
+        assert!(matches!(p(&["start"]).unwrap().cmd.unwrap(), Cmd::Start));
         assert!(p(&["mining"]).is_err());
         assert!(p(&[]).unwrap().cmd.is_none());
         assert!(p(&["demo", "maybe"]).is_err());

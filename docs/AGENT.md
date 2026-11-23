@@ -36,10 +36,15 @@ Windows: il trasporto named pipe non è ancora implementato (`ipc_unsupported_pl
 
 Il processo che possiede il motore: Agent (`owner: "agent"`), app desktop (`"desktop"`) o `erebor-node` (`"node"`). Quindi `erebor status` funziona anche con la sola app aperta. Se l'agent è attivo quando apri l'app desktop, l'app non crea un secondo motore: si collega all'agent tramite socket e mostra stato, hashrate, pool, ricompense, temperature e consumi dell'agent; uno stop dalla GUI si vede subito in CLI e TUI.
 
+## Aggiornamento automatico
+
+Solo per il binario `erebor` compilato in release, su Unix. Ogni ora (primo controllo dopo 60 s) l'agent legge `latest.json` dell'ultima release, scarica `erebor-<os>-<arch>` e la sua `.sig`, verifica la firma minisign con la chiave pubblica del progetto e sostituisce il file in modo atomico (scrittura accanto + `rename`). Ogni 10 s controlla se il proprio eseguibile è cambiato (aggiornamento, `erebor update`, reinstallazione): in quel caso ferma il mining in modo pulito, scrive `<cartella dati>/resume-mining` se stava minando e fa `exec` del nuovo binario con gli stessi argomenti. Stesso PID, quindi systemd/launchd non vedono un'uscita; il nuovo agent riprende il mining e cancella il file.
+
 ## Servizio systemd (utente, opzionale)
 
 ```bash
-erebor agent install-service     # ~/.config/systemd/user/org.erebor.agent.service, enable --now
+erebor service on                # consigliato: servizio + startOnLaunch + linger (mina sempre)
+erebor agent install-service     # solo il servizio: ~/.config/systemd/user/org.erebor.agent.service, enable --now
 systemctl --user status org.erebor.agent
 journalctl --user -u org.erebor.agent
 erebor agent uninstall-service

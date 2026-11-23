@@ -1294,7 +1294,7 @@ dependencies = [
 
 [[package]]
 name = "erebor-agent"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "ctrlc",
  "erebor-core",
@@ -1304,7 +1304,7 @@ dependencies = [
 
 [[package]]
 name = "erebor-cli"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "clap",
  "dialoguer",
@@ -1319,11 +1319,13 @@ dependencies = [
 
 [[package]]
 name = "erebor-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
+ "base64 0.22.1",
  "chrono",
  "flate2",
  "libc",
+ "minisign-verify",
  "rand",
  "rusqlite",
  "serde",
@@ -1340,7 +1342,7 @@ dependencies = [
 
 [[package]]
 name = "erebor-desktop"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "erebor-core",
  "serde",
@@ -1355,7 +1357,7 @@ dependencies = [
 
 [[package]]
 name = "erebor-tui"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "crossterm",
  "erebor-core",

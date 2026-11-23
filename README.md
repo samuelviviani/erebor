@@ -74,7 +74,7 @@ Il mining parte solo con una tua azione esplicita e si ferma quando chiudi l'app
 - 📊 **Tutto sotto gli occhi**: hashrate, share, guadagni stimati, temperature, consumi e costo dell'energia.
 - 🌡️ **Protezioni**: soglie termiche ed economiche, programmazione oraria, ripresa automatica dopo un crash.
 - 📱 **Dal telefono**: accesso remoto dalla rete di casa o via VPN.
-- 🔄 **Aggiornamenti automatici**: l'app si aggiorna da sola dalle release firmate su GitHub.
+- 🔄 **Aggiornamenti automatici**: app e versione da terminale si aggiornano da sole dalle release firmate su GitHub.
 - 🌍 Italiano e inglese · tema chiaro e scuro · **modalità demo** per provare senza minare.
 
 ## ⬇️ Installazione
@@ -102,13 +102,17 @@ curl -fsSL https://raw.githubusercontent.com/samuelviviani/erebor/main/scripts/i
 Poi:
 
 ```bash
-erebor onboard                # setup guidato: wallet, miner, agent
-erebor doctor                 # diagnostica dell'ambiente
-erebor mining start           # avvia il mining
-erebor status                 # stato attuale
-erebor monitor                # dashboard live (S/P/X/R, Q esce lasciando il mining attivo)
-erebor demo on                # miner simulato, nessun mining reale
+erebor                        # dashboard live (al primo avvio: setup guidato)
+erebor start                  # avvia il mining, che continua in background
+erebor stop                   # ferma il mining
+erebor status                 # riepilogo veloce
+erebor service on             # mina sempre, anche dopo un riavvio del computer
+erebor demo on                # prova con un miner simulato
 ```
+
+- 📊 **Dashboard** con logo, grafico live dell'hashrate, guadagni, temperature e tasti rapidi.
+- 🔁 **Mina sempre**: con `erebor service on` Erebor riparte da solo a ogni accensione.
+- 🔄 **Si aggiorna da sola**, come l'app: ogni ora controlla le release firmate su GitHub (oppure `erebor update`).
 
 CLI, TUI e app desktop comandano **lo stesso motore**: un solo miner, un solo stato.
 Guide: [CLI](docs/CLI.md) · [Agent](docs/AGENT.md) · [TUI](docs/TUI.md) · [Fleet](docs/FLEET.md)

@@ -16,6 +16,7 @@ pub mod rpc;
 pub mod server;
 pub mod srbminer;
 pub mod store;
+pub mod update;
 pub mod wallet;
 pub mod xmrig;
 

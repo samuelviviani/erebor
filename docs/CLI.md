@@ -2,6 +2,27 @@
 
 Interfaccia da terminale di Erebor. Legge e comanda lo **stesso motore** dell'app desktop: ogni comando che riguarda il mining passa dal processo che possiede il motore (Agent, app desktop o `erebor-node`) tramite il socket locale. CLI, TUI e GUI vedono quindi sempre lo stesso stato.
 
+## In breve
+
+```bash
+erebor               # dashboard live (al primo avvio: setup guidato)
+erebor start         # avvia il mining; Erebor resta attivo in background anche chiudendo il terminale
+erebor stop          # ferma il mining
+erebor status        # riepilogo
+erebor service on    # mina sempre: Erebor e il mining partono con il computer (off per disattivare)
+erebor update        # installa l'ultima versione firmata (lo fa anche da solo, vedi sotto)
+```
+
+Non serve avviare l'agent a mano: i comandi che ne hanno bisogno (`start`, dashboard, `wallet set`, `demo`, …) lo avviano da soli. Quelli di sola lettura (`status`, `doctor`, elenchi) non avviano nulla.
+
+### Mina sempre, anche dopo un riavvio
+
+`erebor service on` registra Erebor come servizio utente (systemd `--user` su Linux, LaunchAgent su macOS, senza root), imposta `startOnLaunch` e riavvia l'agent sotto il servizio: dopo ogni riavvio del computer il mining riparte da solo. Su Linux attiva anche `loginctl enable-linger` per partire al boot senza login; se il sistema lo nega, la CLI indica il comando con `sudo`. Su macOS parte al login dell'utente. `erebor service` mostra lo stato, `erebor service off` lo disattiva (e ferma il mining in background). Il mining reale resta soggetto a consenso e configurazione valida.
+
+### Aggiornamenti automatici
+
+La CLI installata dai binari di release (o compilata in release con `scripts/install.sh`) si aggiorna da sola: l'agent controlla ogni ora le release GitHub, scarica il binario per il tuo sistema e lo installa **solo se la firma minisign corrisponde alla chiave del progetto** (la stessa dell'app desktop). Poi si riavvia sulla nuova versione mantenendo lo stesso processo (anche sotto systemd/launchd) e, se stava minando, riprende. `erebor update` fa lo stesso a mano. Le build di debug e il binario `erebor-agent` non si aggiornano da soli. Se la cartella del programma non è scrivibile (es. installato con `sudo` in `/usr/local/bin`), l'aggiornamento fallisce senza toccare nulla.
+
 ## Compilazione su Ubuntu
 
 ```bash

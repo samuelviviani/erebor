@@ -2,7 +2,15 @@
 
 Formato: [Keep a Changelog](https://keepachangelog.com/it/1.1.0/), versioni [SemVer](https://semver.org/lang/it/).
 
-## [Unreleased]
+## [0.1.1] - 2026-11-23
+
+### Added
+- Aggiornamento automatico: l'app desktop (Tauri updater, banner con pulsante "Aggiorna" se fallisce) e la CLI (`erebor update`, e ogni ora dall'agent, con riavvio sulla nuova versione e ripresa del mining). Binari CLI firmati nelle release.
+- `erebor service on|off`: mina sempre, anche dopo un riavvio (servizio utente, `startOnLaunch`, linger su Linux); proposto anche nel setup guidato.
+- Dashboard da terminale ridisegnata: logo ASCII (splash all'apertura e intestazione nei terminali alti), grafico live dell'hashrate con media e picco, guadagni al giorno e al mese, temperature a barre, tasti contestuali, errori spiegati con il comando per risolverli.
+- CLI più semplice: `erebor` apre la dashboard, `erebor start` / `erebor stop`, l'agent parte da solo quando serve, help con esempi.
+
+## [0.1.0] - 2026-11-23
 
 ### Added
 - Setup guidato `erebor onboard` sul modello di OpenClaw (Quick start / Personalizzata / Demo, condizioni, wallet validato, installazione del miner, agent in background, controllo di salute, riepilogo; modalità `--non-interactive`) e installer `scripts/install.sh` che lo avvia dopo l'installazione. `erebor` senza argomenti apre il setup al primo avvio.

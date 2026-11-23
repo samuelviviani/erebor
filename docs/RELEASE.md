@@ -17,6 +17,7 @@ L'app installata legge `releases/latest/download/latest.json` all'avvio e ogni o
 - Secret: `TAURI_SIGNING_PRIVATE_KEY` = contenuto di `~/.tauri/erebor.key`, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` = vuoto.
 - L'aggiornamento parte quando la bozza viene **pubblicata** (non come pre-release): da lì `latest` punta alla nuova versione.
 - Linux: si aggiorna da solo l'AppImage; chi ha installato il `.deb` aggiorna a mano.
+- CLI: il job `cli` pubblica `erebor-{linux,macos}-{x86_64,aarch64}` con la loro `.sig` (stessa chiave). Le CLI installate controllano `latest.json` ogni ora e si aggiornano da sole (`docs/AGENT.md`).
 
 ## Firma del codice
 

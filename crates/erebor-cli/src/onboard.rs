@@ -39,7 +39,8 @@ pub struct Opts {
     /// Do not download the miner now.
     #[arg(long)]
     pub no_install_miner: bool,
-    /// Start the agent at login (systemd user unit / LaunchAgent).
+    /// Mine always: Erebor and mining start with the computer (systemd user unit /
+    /// LaunchAgent, `startOnLaunch`).
     #[arg(long)]
     pub install_service: bool,
     /// Start mining at the end of the setup.
@@ -409,8 +410,11 @@ fn ask(dir: &Path, o: &Opts, current: &AppConfig) -> Result<Option<Plan>, Fail> 
 
     println!("  The agent runs mining in the background. It never mines on its own.");
     p.background = confirm("Keep the agent running after the setup?", true)?;
-    if p.background && mode == Mode::Custom {
-        p.service = confirm("Also start the agent automatically at login?", false)?;
+    if p.background {
+        p.service = confirm(
+            "Mine always, also after the computer restarts? (erebor service off to undo)",
+            false,
+        )?;
     }
     p.start = confirm("Start mining at the end of the setup?", false)?;
     if p.start && !p.background {
@@ -486,6 +490,9 @@ fn apply(dir: &Path, p: &Plan, json: bool) -> Result<(), Fail> {
             c.safety.auto_restart = r;
         }
     }
+    if p.service {
+        c.start_on_launch = true;
+    }
     crate::save_config(dir, &c)?;
     if let Some(n) = &p.device_name {
         crate::call(dir, "set_device_name", json!({ "name": n }))?;
@@ -525,12 +532,15 @@ fn apply(dir: &Path, p: &Plan, json: bool) -> Result<(), Fail> {
 
     if p.service {
         if owner == "agent" {
-            step(json, "Installing the login service");
+            step(json, "Setting Erebor to start with the computer");
             // The service starts its own agent: hand over from the one we started.
             crate::call(dir, "shutdown", Value::Null)?;
             wait(dir, false)?;
             crate::install_service(dir)?;
             wait(dir, true)?;
+            if crate::enable_linger() == Some(false) && !json {
+                println!("  ! To start right at boot, before anyone logs in: sudo loginctl enable-linger \"$USER\"");
+            }
         } else {
             step(
                 json,
@@ -652,9 +662,9 @@ fn summary(dir: &Path, done: Option<(&Plan, Vec<&str>)>, json: bool) -> Result<(
         snap.map_or("-".into(), |s| erebor_tui::fmt::state(&s.state).into()),
     );
     println!("\nNext steps:");
-    println!("  erebor status          state, hashrate and earnings");
-    println!("  erebor monitor         live dashboard (Q leaves mining running)");
-    println!("  erebor mining start    start mining · erebor mining stop to stop");
+    println!("  erebor                 live dashboard (Q leaves mining running)");
+    println!("  erebor start           start mining · erebor stop to stop");
+    println!("  erebor status          one-shot summary");
     println!("  erebor doctor          diagnostics · erebor onboard to change this setup");
     println!("  The Erebor desktop app uses this same setup.");
     Ok(())

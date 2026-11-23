@@ -3,37 +3,57 @@
 Dashboard da terminale (ratatui + crossterm), funziona in qualsiasi terminale Ubuntu (anche via SSH). È collegata all'Agent tramite il socket locale: mostra lo **stesso stato** della GUI e della CLI.
 
 ```bash
-erebor agent start    # se non è già attivo (o app desktop aperta)
-erebor monitor
+erebor            # apre la dashboard (al primo avvio: setup guidato)
+erebor dashboard  # stessa cosa (alias di erebor monitor)
 ```
+
+Se Erebor non è già attivo in background, parte da solo. All'apertura compare per un secondo il logo (qualsiasi tasto lo salta); nei terminali alti almeno 32 righe resta in cima alla dashboard.
 
 ```text
-┌───────────────────────────────────────────────────────────────DEMO  ● Paused ┐
-│ EREBOR                                                                       │
-└──────────────────────────────────────────────────────────────────────────────┘
-┌ Metrics ─────────────────────────────────────────────────────────────────────┐
-│ Hashrate         0.00 H/s                                                    │
-│ Earnings         0.07 EUR / day (estimate)                                   │
-│ CPU temperature  42 °C                                                       │
-│ Power            n/a                                                         │
-│ Uptime           1m 19s                                                      │
-└──────────────────────────────────────────────────────────────────────────────┘
-┌ Miner ───────────────────────────────────────────────────────────────────────┐
-│ Miner            Demo (simulated) demo                                       │
-│ Coin             Monero · rx/0                                               │
-│ Pool             Connected                                                   │
-│ Pool address     xmr.kryptex.network:7029                                    │
-│ Accepted shares  2                                                           │
-│ Rejected shares  0                                                           │
-│ Dev fee          2% · now: user                                              │
-└──────────────────────────────────────────────────────────────────────────────┘
-┌──────────────────────────────────────────────────────────────────────────────┐
-│ pause: done                                                                  │
-│ [S] Start  [P] Resume  [X] Stop  [R] Restart  [?] Help  [Q] Quit             │
-└──────────────────────────────────────────────────────────────────────────────┘
+
+             /\                ███████ ██████  ███████ ██████   ██████  ██████
+            /::\               ██      ██   ██ ██      ██   ██ ██    ██ ██   ██
+    /\     /::o:\      /\      █████   ██████  █████   ██████  ██    ██ ██████
+   /::\   /:::|::\    /::\     ██      ██   ██ ██      ██   ██ ██    ██ ██   ██
+  /::::\ /:o--':::\  /:o::\    ███████ ██   ██ ███████ ██████   ██████  ██   ██
+ /:o::::/:::.--.:::\/::|:::\
+/::|::::::::|  |:::::::|::::\  Mining, under your control.  v0.1.0
+
+  DEMO · simulated, nothing is mined                     ● Running · 1h 02m 03s
+╭ Hashrate ────────────────────────────────────────────────────────────────────╮
+│ 4.25 kH/s   avg 4.14 kH/s · peak 4.33 kH/s                                   │
+│             ▃▂▂▅▅▇▆▅▇▅▃▅▃▄▁                              ▃▃▆▅▄▇▅█▆▄▅▃▁▂      │
+│        ▃▃▃▇▇███████████████▇▇▄▅▂                   ▄▄▄█████████████████▇█▅▂▃ │
+│ ▂▁▄▄█▇████████████████████████████▆▃▄▂▃▂ ▂▁▃▂▂▅▅▄███████████████████████████ │
+│ ████████████████████████████████████████████████████████████████████████████ │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭ Mining ──────────────────────────────╮╭ This computer ───────────────────────╮
+│ Coin      Monero · rx/0              ││ Earnings  0.82 EUR / day             │
+│ Pool      ● xmr.kryptex.network:7029 ││           ≈ 24.60 EUR / month        │
+│ Shares    148 ✓  2 ✗  98.7%          ││ CPU       ███████░░░ 67 °C           │
+│ Miner     XMRig 6.26.0               ││ Power     n/a                        │
+│ Dev fee   2% of time · now for you   ││                                      │
+╰──────────────────────────────────────╯╰──────────────────────────────────────╯
+╭ Log ─────────────────────────────────────────────────────────────────────────╮
+│ [12:01:03] miner  speed 10s/60s/15m 4251.3 4248.9 n/a H/s                    │
+│ [12:01:05] pool   accepted (148/2) diff 120001 (41 ms)                       │
+│ [12:01:09] devfee mining for: user                                           │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+ Q closes the dashboard; mining keeps running in the background.
+  P  Pause    X  Stop    R  Restart    ↑↓  Logs    ?  Help    Q  Quit
 ```
 
-(Schermata reale, 80×24, modalità demo, dopo aver premuto `P`. Con terminali più alti compare il pannello Logs; da 100 colonne i pannelli sono affiancati.)
+(Schermata reale, 80×34, modalità demo.)
+
+- **Hashrate**: valore attuale, media e picco della sessione, grafico live (un campione al secondo, ultimi 10 minuti).
+- **Mining**: moneta, pool (● connessa, ◌ in connessione), share accettate/rifiutate con percentuale, miner, dev fee in tempo reale.
+- **This computer**: guadagni stimati al giorno e al mese, temperatura CPU/GPU a barre (verde, giallo da 70 °C, rosso da 80 °C), consumo.
+- **Riga sotto**: esito dell'ultima azione, oppure cosa impedisce di avviare il mining e il comando per risolverlo.
+- **Tasti**: mostrati solo quelli che servono nello stato attuale.
 
 ## Tasti
 

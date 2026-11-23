@@ -48,9 +48,7 @@ fn cli_agent_demo_lifecycle() {
     // No agent yet: exit code 3 and a JSON error.
     let (code, v) = json(dir, &["status"]);
     assert_eq!((code, v["error"].as_str()), (3, Some("agent_unreachable")));
-    assert!(
-        String::from_utf8_lossy(&erebor(dir, &["status"]).stderr).contains("erebor agent start")
-    );
+    assert!(String::from_utf8_lossy(&erebor(dir, &["status"]).stderr).contains("erebor start"));
 
     // Agent in the foreground, as a child we control.
     let mut agent = Guard(
@@ -164,6 +162,31 @@ fn background_agent_start_and_stop() {
     assert_eq!(json(dir, &["agent", "stop"]).0, 0);
     let (code, v) = json(dir, &["agent", "status"]);
     assert_eq!((code, v["running"].as_bool()), (3, Some(false)));
+}
+
+#[test]
+fn start_runs_erebor_in_the_background_by_itself() {
+    let d = tempfile::tempdir().unwrap();
+    let dir = d.path();
+    std::fs::write(dir.join("config.json"), r#"{"demoMode":true}"#).unwrap();
+    let _cleanup = Stop(dir.to_path_buf());
+
+    // Nothing running: stop has nothing to do and starts nothing.
+    let o = erebor(dir, &["stop"]);
+    assert_eq!(o.status.code(), Some(0));
+    assert!(String::from_utf8_lossy(&o.stdout).contains("not running"));
+    assert_eq!(json(dir, &["agent", "status"]).0, 3);
+
+    // start brings the agent up first, then mines (demo).
+    let o = erebor(dir, &["start"]);
+    assert_eq!(o.status.code(), Some(0), "{o:?}");
+    assert!(String::from_utf8_lossy(&o.stderr).contains("Starting Erebor in the background"));
+    assert_eq!(json(dir, &["status"]).1["state"], "running");
+    let (code, v) = json(dir, &["stop"]);
+    assert_eq!(
+        (code, v["snapshot"]["state"].as_str()),
+        (0, Some("stopped"))
+    );
 }
 
 #[test]
