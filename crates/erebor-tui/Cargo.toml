@@ -1,0 +1,12 @@
+[package]
+name = "erebor-tui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Erebor terminal dashboard (ratatui + crossterm), opened by `erebor monitor`"
+
+[dependencies]
+erebor-core = { path = "../erebor-core" }
+ratatui = "0.29"
+crossterm = "0.28"
+serde_json = "1"

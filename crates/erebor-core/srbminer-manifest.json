@@ -1,0 +1,14 @@
+{
+  "version": "3.8.8",
+  "source": "https://github.com/doktor83/SRBMiner-Multi/releases/tag/3.8.8",
+  "assets": {
+    "linux-x86_64": {
+      "url": "https://github.com/doktor83/SRBMiner-Multi/releases/download/3.8.8/SRBMiner-Multi-3-8-8-Linux.tar.gz",
+      "sha256": "c203e79e9dc467ec5daaa1e1771e08561a70d2c9dcc397364b8ae7ae558e50d8"
+    },
+    "windows-x86_64": {
+      "url": "https://github.com/doktor83/SRBMiner-Multi/releases/download/3.8.8/SRBMiner-Multi-3-8-8-win64.zip",
+      "sha256": "818d16784c759db0ab647ba612a3b85d5137fcac1a79d715fac2f4248d47d879"
+    }
+  }
+}

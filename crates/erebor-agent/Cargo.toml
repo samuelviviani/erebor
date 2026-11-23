@@ -1,0 +1,14 @@
+[package]
+name = "erebor-agent"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Erebor agent: owns the mining engine and serves the local control socket"
+
+[dependencies]
+erebor-core = { path = "../erebor-core" }
+ctrlc = { version = "3.4", features = ["termination"] }
+
+[dev-dependencies]
+tempfile = "3"
+serde_json = "1"
