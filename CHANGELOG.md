@@ -2,13 +2,21 @@
 
 Formato: [Keep a Changelog](https://keepachangelog.com/it/1.1.0/), versioni [SemVer](https://semver.org/lang/it/).
 
-## [0.1.1] - 2026-11-23
+## [0.1.2] - 2026-11-23
 
 ### Added
+- `erebor power eco|balanced|max`: quanta CPU usa il mining; se sta minando, il miner riparte da solo con il nuovo livello.
+- Output del terminale a colori (help, stato, doctor, setup); i colori si disattivano da soli fuori da un terminale o con `NO_COLOR`. Help riordinato: comandi principali in alto, gli altri sotto "More commands".
 - Aggiornamento automatico: l'app desktop (Tauri updater, banner con pulsante "Aggiorna" se fallisce) e la CLI (`erebor update`, e ogni ora dall'agent, con riavvio sulla nuova versione e ripresa del mining). Binari CLI firmati nelle release.
 - `erebor service on|off`: mina sempre, anche dopo un riavvio (servizio utente, `startOnLaunch`, linger su Linux); proposto anche nel setup guidato.
-- Dashboard da terminale ridisegnata: logo ASCII (splash all'apertura e intestazione nei terminali alti), grafico live dell'hashrate con media e picco, guadagni al giorno e al mese, temperature a barre, tasti contestuali, errori spiegati con il comando per risolverli.
+- Dashboard da terminale ridisegnata: logo ASCII (splash all'apertura e intestazione nei terminali alti), guadagni al giorno e al mese, temperature a barre, tasti contestuali, errori spiegati con il comando per risolverli.
 - CLI più semplice: `erebor` apre la dashboard, `erebor start` / `erebor stop`, l'agent parte da solo quando serve, help con esempi.
+
+### Changed
+- Niente più accettazione delle commissioni nel software (motore, `erebor consent`, setup, schermata iniziale dell'app): commissioni e condizioni sono descritte sul sito e nel README. Stato e dashboard continuano a mostrare la dev fee in tempo reale.
+
+### Fixed
+- GPU NVIDIA/AMD mai usata dalla CLI: `gpu_mining_supported` era sempre falso, quindi il setup non installava SRBMiner. Ora il setup lo installa quando c'è una GPU supportata e `erebor doctor` segnala la GPU non usata.
 
 ## [0.1.0] - 2026-11-23
 

@@ -111,14 +111,17 @@ fn cli_agent_demo_lifecycle() {
     assert_eq!(json(dir, &["wallet", "show"]).1["wallet"], "krxABC123");
     assert_eq!(json(dir, &["pools", "set", "nope"]).0, 1);
 
-    // Real mode without accepted fees: start is refused by the engine, state verified.
+    // Real mode without a miner installed: start is refused by the engine, state verified.
     assert_eq!(
         json(dir, &["mining", "stop"]).1["snapshot"]["state"],
         "stopped"
     );
     json(dir, &["demo", "off"]);
     let (code, v) = json(dir, &["mining", "start"]);
-    assert_eq!((code, v["error"].as_str()), (1, Some("consent_required")));
+    assert_eq!(
+        (code, v["error"].as_str()),
+        (1, Some("miner_not_configured"))
+    );
     assert_eq!(json(dir, &["status"]).1["state"], "stopped");
     json(dir, &["demo", "on"]);
 
@@ -195,15 +198,9 @@ fn onboard_non_interactive() {
     let dir = d.path();
     let _cleanup = Stop(dir.to_path_buf());
 
-    // Real mining: refused without explicit acceptance; nothing is created.
-    let (code, v) = json(
-        dir,
-        &["onboard", "--non-interactive", "--wallet", "krxABC123"],
-    );
-    assert_eq!(
-        (code, v["error"].as_str()),
-        (1, Some("accept_risk_required"))
-    );
+    // Invalid payout: refused; nothing is created.
+    let (code, v) = json(dir, &["onboard", "--non-interactive", "--wallet", "nope"]);
+    assert_eq!((code, v["error"].as_str()), (1, Some("invalid_address")));
     assert!(!dir.join("config.json").exists());
 
     // Accepted, without download or network; the agent it started is stopped again.
@@ -212,7 +209,6 @@ fn onboard_non_interactive() {
         &[
             "onboard",
             "--non-interactive",
-            "--accept-risk",
             "--wallet",
             "krxABC123",
             "--no-install-miner",
@@ -222,7 +218,7 @@ fn onboard_non_interactive() {
     );
     assert_eq!(code, 0, "{v}");
     assert_eq!(
-        (v["termsAccepted"].as_bool(), v["pool"].as_str()),
+        (v["setupCompleted"].as_bool(), v["pool"].as_str()),
         (Some(true), Some("kryptex"))
     );
     assert_eq!(v["agentRunning"], false);

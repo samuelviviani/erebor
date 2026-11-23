@@ -10,16 +10,13 @@ use ratatui::crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Clear, Paragraph, Sparkline, Wrap};
+use ratatui::widgets::{Block, Clear, Paragraph, Wrap};
 use ratatui::Frame;
 use serde_json::Value;
-use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 const REFRESH: Duration = Duration::from_secs(1);
-/// Hashrate samples kept for the chart (one per second).
-const HISTORY: usize = 600;
 const BG: Color = Color::Black;
 const FG: Color = Color::Gray;
 const DIM: Color = Color::DarkGray;
@@ -114,10 +111,6 @@ pub mod fmt {
                 "Erebor is not running in the background",
                 Some("start mining: erebor start · live dashboard: erebor"),
             ),
-            "consent_required" => (
-                "the fees have not been accepted yet: real mining is blocked",
-                Some("read them and accept: erebor consent --accept"),
-            ),
             "wallet_missing" => (
                 "no payout wallet configured",
                 Some("erebor wallet set <ADDRESS>   (or try first: erebor demo on)"),
@@ -162,19 +155,13 @@ pub mod fmt {
                 "the configured pool is not reachable or not compatible with the wallet",
                 Some("check network/DNS/firewall, or pick another: erebor pools set <id>"),
             ),
-            "accept_risk_required" => (
-                "real mining needs the terms accepted explicitly",
-                Some("read them with erebor consent, then add --accept-risk (or use --mode demo)"),
-            ),
             "onboarding_cancelled" => (
                 "setup cancelled: nothing was changed",
                 Some("run erebor onboard again, or try erebor onboard --mode demo"),
             ),
             "onboarding_needs_terminal" => (
                 "the guided setup needs an interactive terminal",
-                Some(
-                    "in scripts use: erebor onboard --non-interactive --accept-risk --wallet <ADDRESS>",
-                ),
+                Some("in scripts use: erebor onboard --non-interactive --wallet <ADDRESS>"),
             ),
             "invalid_address" => (
                 "not a valid payout address (public Monero address, Kryptex ID or Bitcoin address)",
@@ -222,8 +209,6 @@ pub struct App {
     scroll: usize,
     msg: Option<(String, bool)>,
     help: bool,
-    /// Hashrate in H/s, oldest first; 0 while not mining.
-    history: VecDeque<u64>,
 }
 
 enum Flow {
@@ -241,22 +226,12 @@ impl App {
             scroll: 0,
             msg: None,
             help: false,
-            history: VecDeque::with_capacity(HISTORY),
         }
-    }
-
-    fn sample(&mut self, s: &Snapshot) {
-        if self.history.len() == HISTORY {
-            self.history.pop_front();
-        }
-        let h = if s.is_active() { s.hashrate } else { None };
-        self.history.push_back(h.unwrap_or(0.0).round() as u64);
     }
 
     fn refresh(&mut self) {
         match ipc::snapshot(&self.dir) {
             Ok(s) => {
-                self.sample(&s);
                 self.snap = Some(s);
                 self.unreachable = None;
                 if let Ok(Value::Array(l)) = ipc::call(&self.dir, "get_logs", &Value::Null) {
@@ -615,60 +590,9 @@ fn draw_keys(f: &mut Frame, area: Rect, app: &App) {
 }
 
 fn draw_body(f: &mut Frame, area: Rect, s: &Snapshot, app: &App) {
-    let panel_h = 2 + 5.max(4 + s.gpus.len().min(3) as u16);
-    let [chart, panels, logs] = Layout::vertical([
-        Constraint::Length(7),
-        Constraint::Length(panel_h),
-        Constraint::Min(0),
-    ])
-    .areas(area);
-
-    // Hashrate: current value, average and peak of this session, live chart.
-    let chart_block = block("Hashrate");
-    let inner = chart_block.inner(chart);
-    f.render_widget(chart_block, chart);
-    let [value, spark] = Layout::vertical([Constraint::Length(1), Constraint::Min(0)]).areas(inner);
-    let mining: Vec<u64> = app.history.iter().copied().filter(|&h| h > 0).collect();
-    let mut head = vec![Span::styled(
-        format!(" {}", fmt::hashrate(s.hashrate.filter(|_| s.is_active()))),
-        Style::new().fg(ACCENT).add_modifier(Modifier::BOLD),
-    )];
-    if !mining.is_empty() {
-        let avg = mining.iter().sum::<u64>() as f64 / mining.len() as f64;
-        let peak = *mining.iter().max().unwrap_or(&0) as f64;
-        head.push(Span::styled(
-            format!(
-                "   avg {} · peak {}",
-                fmt::hashrate(Some(avg)),
-                fmt::hashrate(Some(peak))
-            ),
-            Style::new().fg(DIM),
-        ));
-    }
-    f.render_widget(Paragraph::new(Line::from(head)), value);
-    let w = spark.width.saturating_sub(2) as usize;
-    // Bars start just below the lowest mining value, so changes are visible; idle stays 0.
-    let (lo, hi) = (
-        mining.iter().min().copied().unwrap_or(0),
-        mining.iter().max().copied().unwrap_or(0),
-    );
-    let base = if hi > lo {
-        lo.saturating_sub((hi - lo) / 3)
-    } else {
-        lo / 2
-    };
-    let data: Vec<u64> = app
-        .history
-        .iter()
-        .skip(app.history.len().saturating_sub(w))
-        .map(|&h| if h > 0 { h - base } else { 0 })
-        .collect();
-    f.render_widget(
-        Sparkline::default()
-            .data(&data)
-            .style(Style::new().fg(ACCENT)),
-        spark.inner(ratatui::layout::Margin::new(1, 0)),
-    );
+    let panel_h = 2 + 6.max(4 + s.gpus.len().min(3) as u16);
+    let [panels, logs] =
+        Layout::vertical([Constraint::Length(panel_h), Constraint::Min(0)]).areas(area);
 
     // Mining and this computer, side by side.
     let [left, right] = Layout::horizontal([Constraint::Percentage(50); 2]).areas(panels);
@@ -710,7 +634,15 @@ fn draw_body(f: &mut Frame, area: Rect, s: &Snapshot, app: &App) {
         "off".into()
     };
     let auto = if s.auto_coin { " · auto" } else { "" };
+    let hashrate = fmt::hashrate(s.hashrate.filter(|_| s.is_active()));
     let lines = vec![
+        row(
+            "Hashrate",
+            vec![Span::styled(
+                hashrate,
+                Style::new().fg(ACCENT).add_modifier(Modifier::BOLD),
+            )],
+        ),
         row(
             "Coin",
             text(format!("{} · {}{auto}", s.coin_name, s.algo), FG),
@@ -830,9 +762,6 @@ mod tests {
 
     fn app_with(s: Snapshot) -> App {
         let mut a = App::new("/nonexistent".into());
-        for _ in 0..30 {
-            a.sample(&s);
-        }
         a.snap = Some(s);
         a.logs = (0..50).map(|i| format!("log line {i}")).collect();
         a
@@ -876,7 +805,6 @@ mod tests {
                 "● Running",
                 "DEMO",
                 "4.25 kH/s",
-                "avg 4.25 kH/s",
                 "0.82 EUR / day",
                 "24.60 EUR / month",
                 "1h 02m 03s",
@@ -886,7 +814,6 @@ mod tests {
                 "log line 49",
                 " P  Pause",
                 " Q  Quit",
-                "█",
             ] {
                 assert!(out.contains(s), "{w}x{h}: missing {s:?}\n{out}");
             }
@@ -966,19 +893,6 @@ mod tests {
             Flow::Quit
         ));
         assert!(a.msg.is_none());
-    }
-
-    #[test]
-    fn history_is_bounded_and_idle_is_zero() {
-        let mut a = App::new("/nonexistent".into());
-        let mut s = running();
-        for _ in 0..HISTORY + 5 {
-            a.sample(&s);
-        }
-        assert_eq!(a.history.len(), HISTORY);
-        s.state = "stopped".into();
-        a.sample(&s);
-        assert_eq!(a.history.back(), Some(&0));
     }
 
     #[test]

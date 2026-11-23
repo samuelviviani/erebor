@@ -65,13 +65,27 @@ pub fn run(dir: &Path, cfg: &AppConfig, offline: bool) -> Vec<Check> {
         check("gpu", Ok, "no GPU detected: CPU coins only", None)
     } else {
         let names: Vec<_> = hw.gpus.iter().map(|g| g.name.as_str()).collect();
-        check(
-            "gpu",
-            if hw.gpu_mining_supported { Ok } else { Warn },
-            names.join(", "),
-            (!hw.gpu_mining_supported)
-                .then_some("GPU mining is not supported for this GPU/OS: CPU coins only"),
-        )
+        let srb = cfg
+            .miner_for(erebor_core::miner::MinerKind::Srbminer)
+            .path
+            .is_some();
+        match (hw.gpu_mining_supported, srb) {
+            (true, true) => check("gpu", Ok, names.join(", "), None),
+            (true, false) => check(
+                "gpu",
+                Warn,
+                format!("{}: not used, its miner is not installed", names.join(", ")),
+                Some(
+                    "erebor miner install srbminer (GPU coins usually earn much more than the CPU)",
+                ),
+            ),
+            (false, _) => check(
+                "gpu",
+                Warn,
+                names.join(", "),
+                Some("GPU mining is not supported for this GPU/OS: CPU coins only"),
+            ),
+        }
     });
     v.push(match live.cpu_temp_c {
         Some(t) => check("temperature", Ok, format!("CPU {t:.0} °C"), None),
@@ -160,18 +174,6 @@ pub fn run(dir: &Path, cfg: &AppConfig, offline: bool) -> Vec<Check> {
         },
         None,
     ));
-    if !demo {
-        v.push(if cfg.onboarding_completed {
-            check("consent", Ok, "fees accepted", None)
-        } else {
-            check(
-                "consent",
-                Warn,
-                "fees not accepted yet: real mining is blocked",
-                Some("read and accept: erebor consent --accept"),
-            )
-        });
-    }
     v.push(match (cfg.wallet.as_str(), demo) {
         ("", true) => check("wallet", Ok, "not set (not needed in demo mode)", None),
         ("", false) => check(

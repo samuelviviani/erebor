@@ -28,7 +28,7 @@ Scelte:
 - **Una sola fonte di stato**: il motore vive in un solo processo per cartella dati (lock). Chi lo possiede serve il socket; tutti gli altri lo comandano con gli stessi comandi di `rpc::call`. Nessuna configurazione divergente: le modifiche passano da `update_config` del motore.
 - **Agent proprietario del ciclo di vita** quando è attivo: l'app desktop aperta dopo l'agent non crea un secondo motore e non avvia un secondo miner.
 - **Protocollo nel core, non in un crate separato** (`erebor-protocol` del piano): oggi ogni consumatore dipende già dal core; si separerà quando un consumatore non dovrà dipendere dal motore (vedi [FLEET.md](FLEET.md)).
-- **Consenso e dev fee nel motore**: `can_start` rifiuta il mining reale senza consenso (`onboardingCompleted`, impostato dall'onboarding GUI o da `erebor consent --accept`); il `DevFeeManager` è unico. Nessun frontend duplica queste regole.
+- **Dev fee nel motore**: il `DevFeeManager` è unico; `can_start` rifiuta il mining reale senza wallet o miner. Nessun frontend duplica queste regole.
 - **Controllo verificato** (`ipc::control`): CLI e TUI riportano successo solo se lo stato del motore è davvero cambiato.
 
 Documenti: [CLI](CLI.md) · [AGENT](AGENT.md) · [TUI](TUI.md) · [FLEET](FLEET.md)

@@ -427,13 +427,13 @@ mod tests {
             handle(&host, r#"{"v":1,"cmd":"shutdown"}"#),
             Reply::Err("not_agent".into())
         );
-        // Real mining without accepted fees is refused by the engine itself.
+        // Real mining without a wallet is refused by the engine itself.
         let mut c = host.engine.lock().unwrap().config().clone();
         c.demo_mode = false;
         host.engine.lock().unwrap().update_config(c).unwrap();
         assert_eq!(
             control(d.path(), Action::Start),
-            Err(json!("consent_required"))
+            Err(json!("wallet_missing"))
         );
     }
 

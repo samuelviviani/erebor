@@ -15,7 +15,7 @@ test("onboarding: three simple steps, Kryptex ID, miner installed automatically,
   const backend = installMockBackend();
   render(<App />);
   expect(await screen.findByText("Guadagna Bitcoin con il tuo computer")).toBeInTheDocument();
-  expect(screen.getByText(/il 2% del tempo di mining sostiene il progetto/)).toBeInTheDocument();
+  expect(screen.queryByText(/del tempo di mining sostiene il progetto/)).not.toBeInTheDocument();
   expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
   next();
 

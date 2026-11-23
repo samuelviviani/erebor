@@ -9,6 +9,7 @@ erebor               # dashboard live (al primo avvio: setup guidato)
 erebor start         # avvia il mining; Erebor resta attivo in background anche chiudendo il terminale
 erebor stop          # ferma il mining
 erebor status        # riepilogo
+erebor power max     # usa tutta la CPU (eco 25% · balanced 50%, predefinito · max 100%); erebor power mostra il livello
 erebor service on    # mina sempre: Erebor e il mining partono con il computer (off per disattivare)
 erebor update        # installa l'ultima versione firmata (lo fa anche da solo, vedi sotto)
 ```
@@ -60,24 +61,21 @@ Parte da sola anche lanciando `erebor` senza argomenti la prima volta. Passi:
 
 1. **Setup esistente**: se Erebor è già configurato, propone *Mantieni* / *Modifica* / *Ricomincia dai valori predefiniti* (le statistiche restano).
 2. **Modalità**: *Quick start* (consigliata: wallet, miner ufficiale, valori sicuri), *Personalizzata* (anche pool, prestazioni, nome worker e dispositivo, temperatura massima, riavvio automatico, GPU, avvio al login), *Demo* (miner simulato).
-3. **Condizioni**: dev fee, donazione XMRig, fee della pool, modello non-custodial, consumi. Rifiutare annulla senza modificare nulla.
-4. **Wallet**: indirizzo pubblico (Monero, ID Kryptex o Bitcoin), validato subito; le seed phrase vengono riconosciute e rifiutate.
-5. **Miner**: offre di installare XMRig fissato e verificato (SRBMiner solo in Personalizzata, se la GPU è supportata).
-6. **Agent**: tenerlo attivo in background (predefinito sì), avvio al login (predefinito no), avviare il mining subito (predefinito **no**).
-7. **Applicazione e controllo**: avvia l'agent, salva la configurazione tramite il motore, installa il miner, esegue il controllo di salute (come `doctor`), poi riepilogo e prossimi passi.
+3. **Wallet**: indirizzo pubblico (Monero, ID Kryptex o Bitcoin), validato subito; le seed phrase vengono riconosciute e rifiutate.
+4. **Miner**: XMRig fissato e verificato per la CPU; con una GPU NVIDIA/AMD supportata anche SRBMiner-MULTI (in Quick start automaticamente).
+5. **Agent**: tenerlo attivo in background (predefinito sì), minare sempre anche dopo un riavvio (predefinito no), avviare il mining subito (predefinito **no**).
+6. **Applicazione e controllo**: avvia l'agent, salva la configurazione tramite il motore, installa il miner, esegue il controllo di salute (come `doctor`), poi riepilogo e prossimi passi.
 
 Tutte le risposte vengono raccolte prima: interrompere la procedura (Ctrl-C) non cambia nulla.
 
 Senza prompt (script, provisioning):
 
 ```bash
-erebor onboard --non-interactive --accept-risk --wallet <INDIRIZZO> [--pool ID] \
+erebor onboard --non-interactive --wallet <INDIRIZZO> [--pool ID] \
   [--performance eco|balanced|performance] [--no-install-miner] [--install-service] \
   [--start] [--no-background] [--skip-health] [--reset]
 erebor onboard --non-interactive --mode demo --start
 ```
-
-Senza `--accept-risk` il mining reale viene rifiutato (`accept_risk_required`).
 
 ## Prova rapida (modalità demo)
 
@@ -94,19 +92,17 @@ erebor agent stop        # ferma mining e agent
 
 ## Mining reale
 
-Parte solo con configurazione valida **e** consenso esplicito:
+Parte solo con configurazione valida (wallet e miner):
 
 ```bash
 erebor demo off
-erebor consent                   # legge commissioni e condizioni
-erebor consent --accept          # (equivale all'onboarding della GUI)
 erebor wallet set <INDIRIZZO>    # indirizzo pubblico Monero, ID Kryptex (krx…) o indirizzo BTC
 erebor miner install xmrig       # release fissata, SHA-256 verificato
 erebor pools test
 erebor mining start
 ```
 
-Senza consenso il motore rifiuta l'avvio (`consent_required`), anche se richiesto dalla GUI remota, dalla programmazione o da `startOnLaunch`.
+Commissioni e condizioni sono descritte sul sito e nel README; `erebor status` e la dashboard mostrano la dev fee in tempo reale.
 
 ## Cartella dati
 
@@ -132,7 +128,6 @@ Condivisa con l'app desktop: `~/.local/share/org.erebor.desktop` (Linux), `~/Lib
 | `erebor agent stop\|status` | Ferma (con il mining) / stato dell'agent | ✓ |
 | `erebor agent install-service\|uninstall-service` | Avvio al login, opzionale, disattivato di default | |
 | `erebor demo on\|off` | Modalità demo esplicita | ✓ |
-| `erebor consent [--accept\|--revoke]` | Commissioni e condizioni; `--revoke` ferma il mining reale | ✓ |
 | `erebor miner install [xmrig\|srbminer]` | Scarica e verifica il miner fissato | ✓ |
 | `erebor device show` / `device name <NOME>` | Identità del dispositivo (Fleet) | ✓ |
 
@@ -152,7 +147,7 @@ Condivisa con l'app desktop: `~/.local/share/org.erebor.desktop` (Linux), `~/Lib
 Stabile e versionato. In caso di errore, con `--json`, su stdout:
 
 ```json
-{"error": "consent_required", "message": "…", "hint": "erebor consent --accept"}
+{"error": "wallet_missing", "message": "…", "hint": "erebor wallet set <ADDRESS>   (or try first: erebor demo on)"}
 ```
 
 `erebor status --json` restituisce lo **Snapshot** (schema 1, definito in `crates/erebor-core/src/fleet.rs`):
@@ -193,7 +188,6 @@ Regole di compatibilità: nuovi campi possono essere aggiunti senza cambiare `sc
 |---|---|
 | `agent_unreachable` (exit 3) | `erebor agent start`; se fallisce, leggi `<cartella dati>/agent.log` |
 | `engine_busy` | Un altro Erebor (app desktop, nodo o agent) possiede già la cartella dati: la CLI lo comanda direttamente, non serve un secondo agent |
-| `consent_required` | `erebor consent`, poi `erebor consent --accept` |
 | `wallet_missing` | `erebor wallet set <INDIRIZZO>` oppure prova prima con `erebor demo on` |
 | `miner_not_configured` / `miner_binary_changed` | `erebor miner install xmrig` |
 | `protocol_version` | CLI e agent di versioni diverse: `erebor agent stop && erebor agent start` |

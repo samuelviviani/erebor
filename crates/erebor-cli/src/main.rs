@@ -6,13 +6,16 @@
 
 mod doctor;
 mod onboard;
+mod ui;
+
+use anstream::{eprint, eprintln, println};
 
 use clap::{Parser, Subcommand, ValueEnum};
 use erebor_core::config::{AppConfig, PoolConfig, AUTO_COIN};
 use erebor_core::hardware::Monitor;
 use erebor_core::ipc::{self, Action};
 use erebor_core::miner::MinerKind;
-use erebor_core::{autostart, coins, devfee, install, pools, wallet, xmrig};
+use erebor_core::{autostart, coins, install, pools, wallet};
 use erebor_tui::fmt::{self, explain};
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -24,18 +27,8 @@ use std::time::{Duration, Instant};
     name = "erebor",
     version,
     about = "Erebor mining manager — terminal interface",
-    after_help = "\
-Quick start:
-  erebor               live dashboard (first time: guided setup)
-  erebor start         start mining (keeps running in the background)
-  erebor stop          stop mining
-  erebor status        one-shot summary
-  erebor demo on       try it with a simulated miner first
-  erebor service on    mine always, also after the computer restarts
-  erebor update        install the latest version (also automatic in the background)
-
-Exit codes: 0 ok, 1 command failed, 2 usage error, 3 Erebor not running.
-Docs: docs/CLI.md"
+    styles = ui::HELP,
+    after_help = ui::after_help(),
 )]
 struct Cli {
     /// Data folder shared with the desktop app (default: the app's data folder).
@@ -57,61 +50,63 @@ enum Cmd {
     Stop,
     /// Mining state, hashrate, pool, shares, temperature, power.
     Status,
-    /// Live dashboard: hashrate chart, earnings, temperatures, controls.
+    /// Live dashboard: hashrate, earnings, temperatures, controls.
     #[command(visible_alias = "dashboard")]
     Monitor,
-    /// Guided setup: wallet, terms, miner, health check (like a first run).
-    Onboard(onboard::Opts),
-    /// Mine always: start Erebor and mining with the computer (on), or stop that (off).
-    Service { state: Option<OnOff> },
-    /// Install the latest signed release of this program.
-    Update,
-    /// Check OS, hardware, permissions, miners, wallet, pool and agent.
-    Doctor {
-        /// Skip the pool connectivity test.
-        #[arg(long)]
-        offline: bool,
-    },
-    /// Start, stop, pause, resume or restart mining (start/stop also as `erebor start`).
-    Mining {
-        #[command(subcommand)]
-        action: MiningCmd,
-    },
-    /// Detected CPU, GPUs and sensors.
-    Hardware {
-        #[command(subcommand)]
-        cmd: HardwareCmd,
-    },
+    /// How much of the CPU mining uses: eco (25%), balanced (50%, default) or max (100%).
+    Power { level: Option<onboard::Perf> },
     /// Payout wallet (public address only).
     Wallet {
         #[command(subcommand)]
         cmd: WalletCmd,
     },
+    /// Mine always: start Erebor and mining with the computer (on), or stop that (off).
+    Service { state: Option<OnOff> },
+    /// Install the latest signed release of this program.
+    Update,
+    /// Check OS, hardware, miners, GPU, wallet, pool and agent.
+    Doctor {
+        /// Skip the pool connectivity test.
+        #[arg(long)]
+        offline: bool,
+    },
+    /// Guided setup: wallet, miners, background, health check (like a first run).
+    Onboard(onboard::Opts),
+    /// Start, stop, pause, resume or restart mining.
+    #[command(hide = true)]
+    Mining {
+        #[command(subcommand)]
+        action: MiningCmd,
+    },
+    /// Detected CPU, GPUs and sensors.
+    #[command(hide = true)]
+    Hardware {
+        #[command(subcommand)]
+        cmd: HardwareCmd,
+    },
     /// Mining pools.
+    #[command(hide = true)]
     Pools {
         #[command(subcommand)]
         cmd: PoolsCmd,
     },
     /// The background process that owns mining.
+    #[command(hide = true)]
     Agent {
         #[command(subcommand)]
         cmd: AgentCmd,
     },
     /// Demo mode: a simulated miner, no CPU/GPU mining, no network.
+    #[command(hide = true)]
     Demo { state: OnOff },
-    /// Show the fees and terms; accept or revoke them for real mining.
-    Consent {
-        #[arg(long, conflicts_with = "revoke")]
-        accept: bool,
-        #[arg(long)]
-        revoke: bool,
-    },
     /// Miner programs (pinned releases, SHA-256 verified).
+    #[command(hide = true)]
     Miner {
         #[command(subcommand)]
         cmd: MinerCmd,
     },
     /// This device's identity (Erebor Fleet).
+    #[command(hide = true)]
     Device {
         #[command(subcommand)]
         cmd: DeviceCmd,
@@ -252,12 +247,12 @@ fn main() {
         if json {
             println!("{}", json!({"error": f.code, "message": msg, "hint": hint}));
         } else {
-            eprintln!("error: {msg}");
+            eprintln!("{} {msg}", ui::paint("✗ error:", ui::ERR));
             if msg != f.code {
-                eprintln!("  code: {}", f.code);
+                eprintln!("  {}", ui::paint(format!("code: {}", f.code), ui::DIM));
             }
             if let Some(h) = hint {
-                eprintln!("  hint: {h}");
+                eprintln!("  → {}", ui::paint(h, ui::CMD));
             }
         }
         std::process::exit(if f.code == "agent_unreachable" { 3 } else { 1 });
@@ -290,7 +285,7 @@ fn save_config(dir: &Path, c: &AppConfig) -> Result<AppConfig, Fail> {
 }
 
 fn row(label: &str, value: impl std::fmt::Display) {
-    println!("{label:<15} {value}");
+    println!("{} {value}", ui::label(label, 15));
 }
 
 fn run(cli: Cli, dir: &Path) -> Result<(), Fail> {
@@ -301,7 +296,11 @@ fn run(cli: Cli, dir: &Path) -> Result<(), Fail> {
             Cmd::Onboard(onboard::Opts::default())
         }
         None if onboard::needs_setup(dir) => {
-            println!("Erebor is not set up yet. Run: erebor onboard   (or: erebor --help)");
+            println!(
+                "Erebor is not set up yet. Run: {}   (or: {})",
+                ui::paint("erebor onboard", ui::CMD),
+                ui::paint("erebor --help", ui::CMD)
+            );
             return Ok(());
         }
         None if onboard::interactive() && !json => Cmd::Monitor,
@@ -313,6 +312,7 @@ fn run(cli: Cli, dir: &Path) -> Result<(), Fail> {
     match cmd {
         Cmd::Start => mining(dir, MiningCmd::Start, json),
         Cmd::Service { state } => service(dir, state, json),
+        Cmd::Power { level } => power(dir, level, json),
         Cmd::Update => update(dir, json),
         Cmd::Stop => mining(dir, MiningCmd::Stop, json),
         Cmd::Onboard(o) => onboard::run(dir, o, json),
@@ -328,27 +328,27 @@ fn run(cli: Cli, dir: &Path) -> Result<(), Fail> {
                 print_json(&json!({"ok": failed == 0, "checks": checks}));
             } else {
                 println!(
-                    "Erebor {} · data folder {}\n",
-                    env!("CARGO_PKG_VERSION"),
-                    dir.display()
+                    "{} {}\n",
+                    ui::paint(format!("Erebor {}", env!("CARGO_PKG_VERSION")), ui::BRAND),
+                    ui::paint(format!("· data folder {}", dir.display()), ui::DIM)
                 );
                 for c in &checks {
                     let mark = match c.status {
-                        doctor::Level::Ok => "✓",
-                        doctor::Level::Warn => "!",
-                        doctor::Level::Fail => "✗",
+                        doctor::Level::Ok => ui::paint("✓", ui::OK),
+                        doctor::Level::Warn => ui::paint("!", ui::WARN),
+                        doctor::Level::Fail => ui::paint("✗", ui::ERR),
                     };
-                    println!("{mark} {:<15} {}", c.id, c.message);
+                    println!("{mark} {} {}", ui::label(c.id, 15), c.message);
                     if let Some(h) = &c.hint {
-                        println!("  {:<15} → {h}", "");
+                        println!("  {:<15} → {}", "", ui::paint(h, ui::CMD));
                     }
                 }
                 println!(
                     "\n{}",
                     if failed == 0 {
-                        "No blocking problems.".to_string()
+                        ui::ok("No blocking problems.")
                     } else {
-                        format!("{failed} problem(s) to fix.")
+                        ui::paint(format!("✗ {failed} problem(s) to fix."), ui::ERR)
                     }
                 );
             }
@@ -371,9 +371,13 @@ fn run(cli: Cli, dir: &Path) -> Result<(), Fail> {
             if json {
                 print_json(&s);
             } else if s.demo {
-                println!("Demo mode on: a simulated miner, no real mining and no network.\nTry: erebor start");
+                println!(
+                    "{}\nTry: {}",
+                    ui::ok("Demo mode on: a simulated miner, no real mining and no network."),
+                    ui::paint("erebor start", ui::CMD)
+                );
             } else {
-                println!("Demo mode off: real mining mode.");
+                println!("{}", ui::ok("Demo mode off: real mining mode."));
                 if let Some(b) = &s.start_blocker {
                     let (m, h) = explain(b);
                     println!(
@@ -384,7 +388,6 @@ fn run(cli: Cli, dir: &Path) -> Result<(), Fail> {
             }
             Ok(())
         }
-        Cmd::Consent { accept, revoke } => consent(dir, accept, revoke, json),
         Cmd::Miner {
             cmd: MinerCmd::Install { kind },
         } => miner_install(dir, kind, json),
@@ -428,6 +431,7 @@ fn needs_engine(cmd: &Cmd) -> bool {
         cmd,
         Cmd::Start
             | Cmd::Monitor
+            | Cmd::Power { level: Some(_) }
             | Cmd::Demo { .. }
             | Cmd::Miner { .. }
             | Cmd::Device { .. }
@@ -440,7 +444,7 @@ fn needs_engine(cmd: &Cmd) -> bool {
             | Cmd::Mining {
                 action: MiningCmd::Start | MiningCmd::Restart
             }
-    ) || matches!(cmd, Cmd::Consent { accept, revoke } if *accept || *revoke)
+    )
 }
 
 /// Start the agent in the background when nothing owns the engine yet.
@@ -448,7 +452,10 @@ fn ensure_agent(dir: &Path, json: bool) -> Result<(), Fail> {
     match ipc::call(dir, "agent_info", &Value::Null) {
         Err(e) if e == "agent_unreachable" => {
             if !json {
-                eprintln!("Starting Erebor in the background…");
+                eprintln!(
+                    "{}",
+                    ui::paint("Starting Erebor in the background…", ui::DIM)
+                );
             }
             spawn_agent(dir).map(|_| ())
         }
@@ -469,13 +476,13 @@ fn status(dir: &Path, json: bool) -> Result<(), Fail> {
         return Ok(());
     }
     let info = ipc::call(dir, "agent_info", &Value::Null).unwrap_or(Value::Null);
-    let mut state = format!("● {}", fmt::state(&s.state));
+    let mut state = ui::paint(format!("● {}", fmt::state(&s.state)), ui::state(&s.state));
     if s.demo {
-        state += "  [DEMO: simulated, nothing is mined]";
+        state += &ui::paint("  DEMO · simulated, nothing is mined", ui::WARN);
     }
     row("State", state);
     if let Some(e) = &s.error {
-        row("Error", explain(e).0);
+        row("Error", ui::paint(explain(e).0, ui::ERR));
     }
     if let Some(r) = s.restart_in_secs {
         row("Auto-restart", format!("in {r} s"));
@@ -510,7 +517,7 @@ fn status(dir: &Path, json: bool) -> Result<(), Fail> {
             None => format!("{} (configured)", s.pool_id),
         },
     );
-    row("Hashrate", fmt::hashrate(s.hashrate));
+    row("Hashrate", ui::paint(fmt::hashrate(s.hashrate), ui::BRAND));
     row(
         "Uptime",
         if s.is_active() {
@@ -521,14 +528,21 @@ fn status(dir: &Path, json: bool) -> Result<(), Fail> {
     );
     row(
         "Shares",
-        format!("{} accepted · {} rejected", s.accepted, s.rejected),
+        format!(
+            "{} · {}",
+            ui::paint(format!("{} accepted", s.accepted), ui::OK),
+            ui::paint(
+                format!("{} rejected", s.rejected),
+                if s.rejected > 0 { ui::WARN } else { ui::DIM }
+            )
+        ),
     );
     row("Temperature", fmt::temp(s.cpu_temp_c));
     for g in &s.gpus {
         row("", format!("{}: {}", g.name, fmt::temp(g.temp_c)));
     }
     row("Power", fmt::power(s.power_w, &s.power_source));
-    row("Earnings", fmt::earnings(&s));
+    row("Earnings", ui::paint(fmt::earnings(&s), ui::BRAND));
     row(
         "Dev fee",
         if s.dev_fee.enabled {
@@ -544,7 +558,12 @@ fn status(dir: &Path, json: bool) -> Result<(), Fail> {
         let (m, h) = explain(b);
         row(
             "Cannot start",
-            format!("{m}{}", h.map(|h| format!(" → {h}")).unwrap_or_default()),
+            format!(
+                "{}{}",
+                ui::paint(m, ui::WARN),
+                h.map(|h| format!(" → {}", ui::paint(h, ui::CMD)))
+                    .unwrap_or_default()
+            ),
         );
     }
     if let Some(o) = info["owner"].as_str() {
@@ -576,7 +595,10 @@ fn mining(dir: &Path, cmd: MiningCmd, json: bool) -> Result<(), Fail> {
             if json {
                 print_json(&json!({"changed": false, "snapshot": null}));
             } else {
-                println!("Nothing to do: mining is not running.");
+                println!(
+                    "{}",
+                    ui::paint("Nothing to do: mining is not running.", ui::DIM)
+                );
             }
             return Ok(());
         }
@@ -593,7 +615,13 @@ fn mining(dir: &Path, cmd: MiningCmd, json: bool) -> Result<(), Fail> {
         ""
     };
     if !o.changed {
-        println!("Nothing to do: mining is already {}.", s.state);
+        println!(
+            "{}",
+            ui::paint(
+                format!("Nothing to do: mining is already {}.", s.state),
+                ui::DIM
+            )
+        );
     } else {
         let verb = match action {
             Action::Start => "started",
@@ -602,14 +630,18 @@ fn mining(dir: &Path, cmd: MiningCmd, json: bool) -> Result<(), Fail> {
             Action::Resume => "resumed",
             Action::Restart => "restarted",
         };
-        println!("Mining {verb}{demo}. State: {}.", fmt::state(&s.state));
+        println!(
+            "{} State: {}.",
+            ui::ok(format!("Mining {verb}{demo}.")),
+            ui::paint(fmt::state(&s.state), ui::state(&s.state))
+        );
         if matches!(action, Action::Start | Action::Restart | Action::Resume) {
-            println!("Watch it live: erebor   ·   stop: erebor stop");
-        }
-        if s.dev_fee.enabled && action == Action::Start && !s.demo {
             println!(
-                "Dev fee: {}% of mining time, shown in `erebor status`.",
-                s.dev_fee.percent
+                "{} {}   {} {}",
+                ui::paint("Watch it live:", ui::DIM),
+                ui::paint("erebor", ui::CMD),
+                ui::paint("· stop:", ui::DIM),
+                ui::paint("erebor stop", ui::CMD)
             );
         }
     }
@@ -773,7 +805,7 @@ fn wallet_cmd(dir: &Path, cmd: WalletCmd, json: bool) -> Result<(), Fail> {
                 );
                 return Ok(());
             }
-            println!("Wallet saved and validated.");
+            println!("{}", ui::ok("Wallet saved and validated."));
             if saved.coin != before_coin {
                 println!("The selected coin cannot be paid to this wallet: coin set to automatic.");
             }
@@ -921,7 +953,10 @@ fn agent(dir: &Path, cmd: AgentCmd, json: bool) -> Result<(), Fail> {
                     "Agent started · pid {pid} · log {}",
                     dir.join("agent.log").display()
                 );
-                println!("Mining is not started automatically: erebor start");
+                println!(
+                    "Mining is not started automatically: {}",
+                    ui::paint("erebor start", ui::CMD)
+                );
             }
             Ok(())
         }
@@ -931,7 +966,7 @@ fn agent(dir: &Path, cmd: AgentCmd, json: bool) -> Result<(), Fail> {
             if json {
                 print_json(&json!({"stopped": true}));
             } else {
-                println!("Agent stopped (mining stopped with it).");
+                println!("{}", ui::ok("Agent stopped (mining stopped with it)."));
             }
             Ok(())
         }
@@ -998,6 +1033,67 @@ fn agent(dir: &Path, cmd: AgentCmd, json: bool) -> Result<(), Fail> {
     }
 }
 
+/// `erebor power [eco|balanced|max]`: show or change how much CPU mining uses.
+fn power(dir: &Path, level: Option<onboard::Perf>, json: bool) -> Result<(), Fail> {
+    use erebor_core::config::Preset;
+    let describe = |p: &erebor_core::config::Performance| {
+        let (threads, _) = p.limits();
+        let name = match p.preset {
+            Preset::Eco => "eco",
+            Preset::Balanced => "balanced",
+            Preset::Performance => "max",
+            Preset::Custom => "custom",
+        };
+        (name, threads)
+    };
+    let c = match level {
+        None => load_config(dir)?,
+        Some(l) => {
+            let mut c = load_config_live(dir)?;
+            c.performance.preset = l.into();
+            save_config(dir, &c)?
+        }
+    };
+    let (name, threads) = describe(&c.performance);
+    if json {
+        print_json(&json!({"power": name, "threadsPercent": threads}));
+        return Ok(());
+    }
+    match level {
+        None => {
+            println!(
+                "{} {} {}",
+                ui::label("Power", 7),
+                ui::paint(name, ui::BRAND),
+                ui::paint(format!("({threads}% of CPU threads)"), ui::DIM)
+            );
+            println!(
+                "Change it: {}",
+                ui::paint("erebor power eco | balanced | max", ui::CMD)
+            );
+        }
+        Some(_) => {
+            println!(
+                "{}",
+                ui::ok(format!("Power set to {name}: {threads}% of CPU threads."))
+            );
+            if ipc::snapshot(dir).is_ok_and(|s| s.is_active()) {
+                println!("{}", ui::paint("Mining restarted to apply it.", ui::DIM));
+            }
+            if c.performance.preset == Preset::Performance {
+                println!(
+                    "{}",
+                    ui::warn(format!(
+                        "The computer may get slower, louder and hotter. Mining stops by itself above {:.0} °C.",
+                        c.safety.max_temp_c
+                    ))
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
 /// `erebor service on|off`: Erebor and mining start with the computer, or not.
 fn service(dir: &Path, state: Option<OnOff>, json: bool) -> Result<(), Fail> {
     let installed = || autostart::is_installed(autostart::AGENT_LABEL, autostart::Kind::Service);
@@ -1021,7 +1117,10 @@ fn service(dir: &Path, state: Option<OnOff>, json: bool) -> Result<(), Fail> {
                 print_json(&json!({"service": true, "startOnLaunch": true, "linger": linger}));
                 return Ok(());
             }
-            println!("✓ Erebor now starts with the computer and mines automatically.");
+            println!(
+                "{}",
+                ui::ok("Erebor now starts with the computer and mines automatically.")
+            );
             match linger {
                 Some(true) | None => {}
                 Some(false) => println!(
@@ -1031,13 +1130,13 @@ fn service(dir: &Path, state: Option<OnOff>, json: bool) -> Result<(), Fail> {
             if let Ok(s) = ipc::snapshot(dir) {
                 if let (Some(b), false) = (&s.start_blocker, s.is_active()) {
                     let (m, h) = explain(b);
-                    println!("! Mining cannot start yet: {m}");
+                    println!("{}", ui::warn(format!("Mining cannot start yet: {m}")));
                     if let Some(h) = h {
-                        println!("  → {h}");
+                        println!("  → {}", ui::paint(h, ui::CMD));
                     }
                 }
             }
-            println!("Turn it off: erebor service off");
+            println!("Turn it off: {}", ui::paint("erebor service off", ui::CMD));
             Ok(())
         }
         Some(OnOff::Off) => {
@@ -1049,8 +1148,14 @@ fn service(dir: &Path, state: Option<OnOff>, json: bool) -> Result<(), Fail> {
             if json {
                 print_json(&json!({"service": false, "startOnLaunch": false}));
             } else {
-                println!("Erebor no longer starts with the computer; background mining stopped.");
-                println!("Start by hand any time: erebor start");
+                println!(
+                    "{}",
+                    ui::ok("Erebor no longer starts with the computer; background mining stopped.")
+                );
+                println!(
+                    "Start by hand any time: {}",
+                    ui::paint("erebor start", ui::CMD)
+                );
             }
             Ok(())
         }
@@ -1060,11 +1165,23 @@ fn service(dir: &Path, state: Option<OnOff>, json: bool) -> Result<(), Fail> {
             if json {
                 print_json(&json!({"service": on, "startOnLaunch": start}));
             } else if on && start {
-                println!("On: Erebor starts with the computer and mines automatically.\nTurn off: erebor service off");
+                println!(
+                    "{} Erebor starts with the computer and mines automatically.\nTurn off: {}",
+                    ui::paint("● On:", ui::OK),
+                    ui::paint("erebor service off", ui::CMD)
+                );
             } else if on {
-                println!("Erebor starts with the computer but does not mine by itself.\nMine always: erebor service on");
+                println!(
+                    "{} Erebor starts with the computer but does not mine by itself.\nMine always: {}",
+                    ui::paint("◐", ui::WARN),
+                    ui::paint("erebor service on", ui::CMD)
+                );
             } else {
-                println!("Off: Erebor does not start with the computer.\nMine always, also after a restart: erebor service on");
+                println!(
+                    "{} Erebor does not start with the computer.\nMine always, also after a restart: {}",
+                    ui::paint("○ Off:", ui::DIM),
+                    ui::paint("erebor service on", ui::CMD)
+                );
             }
             Ok(())
         }
@@ -1089,7 +1206,7 @@ fn enable_linger() -> Option<bool> {
 fn update(dir: &Path, json: bool) -> Result<(), Fail> {
     let exe = std::env::current_exe().map_err(|e| Fail::from(e.to_string()))?;
     if !json {
-        eprintln!("Checking for updates…");
+        eprintln!("{}", ui::paint("Checking for updates…", ui::DIM));
     }
     let installed = erebor_core::update::update(&exe)?;
     if json {
@@ -1097,9 +1214,18 @@ fn update(dir: &Path, json: bool) -> Result<(), Fail> {
         return Ok(());
     }
     match installed {
-        None => println!("Erebor is up to date (v{}).", env!("CARGO_PKG_VERSION")),
+        None => println!(
+            "{}",
+            ui::ok(format!(
+                "Erebor is up to date (v{}).",
+                env!("CARGO_PKG_VERSION")
+            ))
+        ),
         Some(v) => {
-            println!("✓ Updated to v{v} (signature verified).");
+            println!(
+                "{}",
+                ui::ok(format!("Updated to v{v} (signature verified)."))
+            );
             if ipc::call(dir, "agent_info", &Value::Null).is_ok_and(|i| i["owner"] == "agent") {
                 println!("Erebor in the background switches to it within a few seconds; mining continues.");
             }
@@ -1191,69 +1317,6 @@ fn spawn_agent(dir: &Path) -> Result<u32, Fail> {
             return fail("agent_start_timeout");
         }
         std::thread::sleep(Duration::from_millis(100));
-    }
-}
-
-fn consent(dir: &Path, accept: bool, revoke: bool, json: bool) -> Result<(), Fail> {
-    let pct = devfee::DEFAULT_FEE_PERCENT;
-    let fee_wallet = devfee::build_wallet().is_some() || devfee::build_btc_wallet().is_some();
-    if accept || revoke {
-        let mut c = load_config_live(dir)?;
-        if revoke {
-            let s = ipc::snapshot(dir)?;
-            if s.is_active() && !s.demo {
-                ipc::control(dir, Action::Stop)?;
-            }
-        }
-        c.onboarding_completed = accept;
-        save_config(dir, &c)?;
-    }
-    let c = load_config(dir)?;
-    if json {
-        print_json(&json!({
-            "accepted": c.onboarding_completed,
-            "devFeePercent": pct,
-            "devFeeActiveInThisBuild": fee_wallet,
-            "xmrigDonatePercent": xmrig::XMRIG_DONATE_LEVEL,
-        }));
-        return Ok(());
-    }
-    if !accept && !revoke {
-        print_terms();
-    }
-    println!(
-        "Status: {}",
-        if c.onboarding_completed {
-            "accepted. Revoke with: erebor consent --revoke"
-        } else {
-            "not accepted. Accept with: erebor consent --accept"
-        }
-    );
-    Ok(())
-}
-
-/// Fees and conditions, shown before any real mining (consent and onboarding).
-fn print_terms() {
-    let pct = devfee::DEFAULT_FEE_PERCENT;
-    let fee_wallet = devfee::build_wallet().is_some() || devfee::build_btc_wallet().is_some();
-    {
-        println!("Erebor — fees and terms for real mining\n");
-        println!("  • Erebor dev fee: {pct}% of effective mining time is mined for the Erebor");
-        println!(
-            "    project, in short slots you can see live (`erebor status`, Dev fee: now ...)."
-        );
-        if !fee_wallet {
-            println!("    This build has no project wallet configured: the fee is inactive.");
-        }
-        println!(
-            "  • XMRig donation: {}% to XMRig's developers (built into the miner).",
-            xmrig::XMRIG_DONATE_LEVEL
-        );
-        println!("  • Pool fee: set by the pool (`erebor pools list`).");
-        println!("  • Non-custodial: the pool pays your wallet directly. Erebor never asks for");
-        println!("    seed phrases or private keys and never moves funds.");
-        println!("  • Mining uses CPU/GPU and electricity. It starts only when you ask, and");
-        println!("    stops when you stop it (or the agent).\n");
     }
 }
 
@@ -1381,17 +1444,22 @@ mod tests {
             Cmd::Monitor
         ));
         assert!(matches!(p(&["start"]).unwrap().cmd.unwrap(), Cmd::Start));
+        assert!(matches!(
+            p(&["power", "max"]).unwrap().cmd.unwrap(),
+            Cmd::Power {
+                level: Some(onboard::Perf::Performance)
+            }
+        ));
+        assert!(p(&["power", "turbo"]).is_err());
         assert!(p(&["mining"]).is_err());
         assert!(p(&[]).unwrap().cmd.is_none());
         assert!(p(&["demo", "maybe"]).is_err());
-        assert!(p(&["consent", "--accept", "--revoke"]).is_err());
     }
 
     #[test]
     fn error_codes_have_hints() {
         for code in [
             "agent_unreachable",
-            "consent_required",
             "wallet_missing",
             "miner_not_configured",
             "engine_busy: x",

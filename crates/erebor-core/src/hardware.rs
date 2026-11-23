@@ -122,6 +122,7 @@ impl Monitor {
     }
 
     pub fn detect(&mut self) -> HardwareInfo {
+        let gpus = detect_gpus();
         self.sys.refresh_cpu();
         self.sys.refresh_memory();
         let live = self.live();
@@ -138,10 +139,13 @@ impl Monitor {
             ram_total_bytes: self.sys.total_memory(),
             os_name: System::name().unwrap_or_else(|| std::env::consts::OS.into()),
             os_version: System::os_version().unwrap_or_default(),
-            gpus: detect_gpus(),
+            gpu_mining_supported: mining_gpu(&gpus)
+                && crate::install::manifest_for(crate::miner::MinerKind::Srbminer)
+                    .asset_for_platform()
+                    .is_ok(),
+            gpus,
             temperature_supported: live.cpu_temp_c.is_some(),
             power_supported: self.rapl.supported(),
-            gpu_mining_supported: false,
         }
     }
 
@@ -158,6 +162,16 @@ impl Monitor {
             gpus: self.live_gpus(),
         }
     }
+}
+
+/// An NVIDIA or AMD GPU: the vendors SRBMiner supports for every catalog coin.
+pub fn mining_gpu(gpus: &[GpuInfo]) -> bool {
+    gpus.iter().any(|g| {
+        let s = format!("{} {}", g.vendor.as_deref().unwrap_or(""), g.name).to_ascii_lowercase();
+        ["nvidia", "geforce", "amd", "radeon"]
+            .iter()
+            .any(|k| s.contains(k))
+    })
 }
 
 fn cpu_temperature(components: &Components) -> Option<f32> {
@@ -430,6 +444,23 @@ fn platform_gpus() -> Vec<GpuInfo> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mining_gpus_are_nvidia_or_amd() {
+        let g = |name: &str, vendor: Option<&str>| GpuInfo {
+            name: name.into(),
+            vendor: vendor.map(String::from),
+            driver: None,
+            vram_mb: None,
+            source: "test",
+        };
+        // nvidia-smi gives no vendor: the name is enough.
+        assert!(mining_gpu(&[g("NVIDIA GeForce RTX 4070", None)]));
+        assert!(mining_gpu(&[g("Radeon RX 7800 XT", Some("AMD"))]));
+        assert!(!mining_gpu(&[g("Apple M3", Some("sppci_vendor_Apple"))]));
+        assert!(!mining_gpu(&[g("Intel UHD Graphics 770", Some("Intel"))]));
+        assert!(!mining_gpu(&[]));
+    }
 
     #[test]
     fn parses_nvidia_smi_csv() {

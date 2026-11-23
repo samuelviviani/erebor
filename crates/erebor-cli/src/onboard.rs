@@ -1,11 +1,13 @@
 //! `erebor onboard`: guided first-run setup, modelled on OpenClaw's onboarding wizard
-//! (setup mode → terms → payout → miner → background agent → health check → summary).
+//! (setup mode → payout → miner → background agent → health check → summary).
 //!
 //! Every answer is collected first; nothing is changed until the last question, so
-//! leaving half-way (Ctrl-C, "no" to the terms) changes nothing. Changes go through
+//! leaving half-way (Ctrl-C) changes nothing. Changes go through
 //! the engine (`update_config`), with the same validation as the desktop app.
 
+use crate::ui::{self, paint};
 use crate::{doctor, Fail};
+use anstream::println;
 use clap::{Args, ValueEnum};
 use dialoguer::theme::ColorfulTheme;
 use dialoguer::{Confirm, Input, Select};
@@ -21,12 +23,9 @@ use std::time::{Duration, Instant};
 
 #[derive(Args, Debug, Default, Clone)]
 pub struct Opts {
-    /// No prompts (scripts, provisioning). Real mining also needs --accept-risk.
+    /// No prompts (scripts, provisioning).
     #[arg(long)]
     pub non_interactive: bool,
-    /// Accept the fees and terms (`erebor consent` shows them).
-    #[arg(long)]
-    pub accept_risk: bool,
     #[arg(long, value_enum)]
     pub mode: Option<Mode>,
     /// Payout: Monero address, Kryptex ID (krx…) or Bitcoin address. Public only.
@@ -68,6 +67,7 @@ pub enum Mode {
 pub enum Perf {
     Eco,
     Balanced,
+    #[value(alias = "max")]
     Performance,
 }
 
@@ -167,9 +167,6 @@ fn from_flags(o: &Opts, c: &AppConfig) -> Result<Plan, Fail> {
     if mode == Mode::Demo {
         return Ok(p);
     }
-    if !o.accept_risk {
-        return Err("accept_risk_required".to_string().into());
-    }
     let w = o.wallet.clone().unwrap_or_else(|| c.wallet.clone());
     if w.trim().is_empty() {
         return Err("wallet_missing".to_string().into());
@@ -183,6 +180,12 @@ fn from_flags(o: &Opts, c: &AppConfig) -> Result<Plan, Fail> {
     p.preset = o.performance.map(Into::into);
     if !o.no_install_miner && !installed(c, MinerKind::Xmrig) && available(MinerKind::Xmrig) {
         p.install.push(MinerKind::Xmrig);
+    }
+    if !o.no_install_miner
+        && !installed(c, MinerKind::Srbminer)
+        && Monitor::new().detect().gpu_mining_supported
+    {
+        p.install.push(MinerKind::Srbminer);
     }
     Ok(p)
 }
@@ -210,9 +213,18 @@ fn ask(dir: &Path, o: &Opts, current: &AppConfig) -> Result<Option<Plan>, Fail> 
             .map_err(cancelled)
     };
 
-    println!("\n  EREBOR  ·  mining, under your control\n");
-    println!("  This setup takes about a minute. Nothing changes until the last step,");
-    println!("  and nothing is mined unless you ask for it.\n");
+    println!(
+        "\n  {}  {}\n",
+        paint("▲ EREBOR", ui::BRAND),
+        paint("·  mining, under your control", ui::DIM)
+    );
+    println!(
+        "{}\n",
+        paint(
+            "  This setup takes about a minute. Nothing changes until the last step,\n  and nothing is mined unless you ask for it.",
+            ui::DIM
+        )
+    );
 
     let configured = current.onboarding_completed || current.demo_mode;
     let mut reset = o.reset;
@@ -276,13 +288,6 @@ fn ask(dir: &Path, o: &Opts, current: &AppConfig) -> Result<Option<Plan>, Fail> 
         return Ok(Some(p));
     }
 
-    println!();
-    crate::print_terms();
-    if !confirm("I have read and accept these terms", false)? {
-        println!("\nSetup cancelled: nothing was changed. Try it risk-free with: erebor onboard --mode demo");
-        return Err("onboarding_cancelled".to_string().into());
-    }
-
     println!("\n  Where should the pool pay you? Public address only, never a seed phrase:");
     println!("   • Kryptex ID (krx…): paid in BTC to your kryptex.com account");
     println!("   • Monero address (4… / 8…): paid in XMR by the pool");
@@ -297,7 +302,10 @@ fn ask(dir: &Path, o: &Opts, current: &AppConfig) -> Result<Option<Plan>, Fail> 
         .interact_text()
         .map_err(cancelled)?;
     let kind = wallet::payout_kind(w.trim());
-    println!("  ✓ {} payout", check_wallet(&w).unwrap_or_default());
+    println!(
+        "  {}",
+        ui::ok(format!("{} payout", check_wallet(&w).unwrap_or_default()))
+    );
     p.wallet = Some(w.trim().into());
 
     if mode == Mode::Custom {
@@ -382,7 +390,7 @@ fn ask(dir: &Path, o: &Opts, current: &AppConfig) -> Result<Option<Plan>, Fail> 
     }
 
     if installed(current, MinerKind::Xmrig) {
-        println!("  ✓ XMRig already installed");
+        println!("  {}", ui::ok("XMRig already installed"));
     } else if available(MinerKind::Xmrig) {
         let v = install::manifest_for(MinerKind::Xmrig).version;
         if confirm(
@@ -399,13 +407,20 @@ fn ask(dir: &Path, o: &Opts, current: &AppConfig) -> Result<Option<Plan>, Fail> 
             install::platform_key()
         );
     }
-    if mode == Mode::Custom
-        && !installed(current, MinerKind::Srbminer)
-        && available(MinerKind::Srbminer)
-        && Monitor::new().detect().gpu_mining_supported
-        && confirm("Install SRBMiner-MULTI too, for GPU coins?", false)?
-    {
-        p.install.push(MinerKind::Srbminer);
+    // A supported GPU earns far more than the CPU: Quick start installs its miner too.
+    if !installed(current, MinerKind::Srbminer) && Monitor::new().detect().gpu_mining_supported {
+        let yes = if mode == Mode::Custom {
+            confirm("Install SRBMiner-MULTI too, for GPU coins?", true)?
+        } else {
+            println!(
+                "  {}",
+                ui::ok("GPU found: SRBMiner-MULTI will be installed for GPU coins.")
+            );
+            true
+        };
+        if yes {
+            p.install.push(MinerKind::Srbminer);
+        }
     }
 
     println!("  The agent runs mining in the background. It never mines on its own.");
@@ -437,7 +452,7 @@ fn short(w: &str) -> String {
 
 fn step(json: bool, msg: &str) {
     if !json {
-        println!("◇ {msg}");
+        println!("{} {msg}", paint("◇", ui::BRAND));
     }
 }
 
@@ -463,7 +478,7 @@ fn apply(dir: &Path, p: &Plan, json: bool) -> Result<(), Fail> {
     };
     c.demo_mode = p.mode == Some(Mode::Demo);
     if !c.demo_mode {
-        c.onboarding_completed = true; // terms accepted in this setup
+        c.onboarding_completed = true; // setup completed
         if let Some(w) = &p.wallet {
             c.wallet = w.clone();
         }
@@ -518,9 +533,14 @@ fn apply(dir: &Path, p: &Plan, json: bool) -> Result<(), Fail> {
                     } else {
                         "!"
                     };
-                    println!("  {mark} {}: {}", ch.id, ch.message);
+                    println!(
+                        "  {} {}: {}",
+                        paint(mark, if mark == "✗" { ui::ERR } else { ui::WARN }),
+                        ch.id,
+                        ch.message
+                    );
                     if let Some(h) = &ch.hint {
-                        println!("      → {h}");
+                        println!("      → {}", paint(h, ui::CMD));
                     }
                 }
                 if ch.status == doctor::Level::Fail {
@@ -539,7 +559,11 @@ fn apply(dir: &Path, p: &Plan, json: bool) -> Result<(), Fail> {
             crate::install_service(dir)?;
             wait(dir, true)?;
             if crate::enable_linger() == Some(false) && !json {
-                println!("  ! To start right at boot, before anyone logs in: sudo loginctl enable-linger \"$USER\"");
+                println!(
+                    "  {} {}",
+                    ui::warn("To start right at boot, before anyone logs in:"),
+                    paint("sudo loginctl enable-linger \"$USER\"", ui::CMD)
+                );
             }
         } else {
             step(
@@ -596,7 +620,7 @@ fn summary(dir: &Path, done: Option<(&Plan, Vec<&str>)>, json: bool) -> Result<(
         crate::print_json(&json!({
             "changed": done.is_some(),
             "demo": c.demo_mode,
-            "termsAccepted": c.onboarding_completed,
+            "setupCompleted": c.onboarding_completed,
             "wallet": c.wallet,
             "pool": c.pool.id,
             "xmrig": xmrig.path.is_some().then(|| xmrig.version.clone()),
@@ -607,14 +631,17 @@ fn summary(dir: &Path, done: Option<(&Plan, Vec<&str>)>, json: bool) -> Result<(
         }));
         return Ok(());
     }
-    let row = |l: &str, v: String| println!("  {l:<15} {v}");
+    let row = |l: &str, v: String| println!("  {} {v}", ui::label(l, 15));
     println!();
     println!(
         "{}",
         match &done {
-            Some((_, p)) if !p.is_empty() => "▲ Setup saved, with problems to fix (see above)",
-            Some(_) => "◆ Setup complete",
-            None => "◆ Current setup kept",
+            Some((_, p)) if !p.is_empty() => paint(
+                "▲ Setup saved, with problems to fix (see above)",
+                ui::WARN.bold()
+            ),
+            Some(_) => paint("◆ Setup complete", ui::OK.bold()),
+            None => paint("◆ Current setup kept", ui::OK.bold()),
         }
     );
     row(
@@ -644,6 +671,13 @@ fn summary(dir: &Path, done: Option<(&Plan, Vec<&str>)>, json: bool) -> Result<(
                 None => "not installed → erebor miner install".into(),
             },
         );
+        let srb = c.miner_for(MinerKind::Srbminer);
+        if srb.path.is_some() {
+            row(
+                "GPU miner",
+                format!("SRBMiner-MULTI {}", srb.version.clone().unwrap_or_default()),
+            );
+        }
     }
     row(
         "Agent",
@@ -654,19 +688,34 @@ fn summary(dir: &Path, done: Option<(&Plan, Vec<&str>)>, json: bool) -> Result<(
         },
     );
     row(
-        "Login service",
-        if service { "installed" } else { "off" }.into(),
+        "At startup",
+        if service {
+            paint("starts with the computer", ui::OK)
+        } else {
+            "manual (erebor service on to mine always)".into()
+        },
     );
     row(
         "Mining",
         snap.map_or("-".into(), |s| erebor_tui::fmt::state(&s.state).into()),
     );
-    println!("\nNext steps:");
-    println!("  erebor                 live dashboard (Q leaves mining running)");
-    println!("  erebor start           start mining · erebor stop to stop");
-    println!("  erebor status          one-shot summary");
-    println!("  erebor doctor          diagnostics · erebor onboard to change this setup");
-    println!("  The Erebor desktop app uses this same setup.");
+    println!("\n{}", paint("Next steps:", ui::BRAND));
+    for (cmd, what) in [
+        ("erebor", "live dashboard (Q leaves mining running)"),
+        ("erebor start", "start mining · erebor stop to stop"),
+        ("erebor power max", "use the whole CPU"),
+        ("erebor service on", "mine always, also after a restart"),
+        (
+            "erebor doctor",
+            "diagnostics · erebor onboard to change this setup",
+        ),
+    ] {
+        println!("  {}  {what}", paint(format!("{cmd:<19}"), ui::CMD));
+    }
+    println!(
+        "{}",
+        paint("  The Erebor desktop app uses this same setup.", ui::DIM)
+    );
     Ok(())
 }
 
@@ -686,13 +735,9 @@ mod tests {
     #[test]
     fn non_interactive_plans() {
         let c = AppConfig::default();
-        // Real mining needs explicit acceptance and a valid wallet.
+        // Real mining needs a valid wallet.
         let e = |o: &Opts| from_flags(o, &c).unwrap_err().code;
-        assert_eq!(e(&opts()), "accept_risk_required");
-        let mut o = Opts {
-            accept_risk: true,
-            ..opts()
-        };
+        let mut o = opts();
         assert_eq!(e(&o), "wallet_missing");
         o.wallet = Some("abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about".into());
         assert_eq!(e(&o), "invalid_address");
@@ -708,7 +753,7 @@ mod tests {
         o.start = true;
         assert!(from_flags(&o, &c).unwrap().background);
 
-        // Demo needs neither terms nor wallet.
+        // Demo needs no wallet.
         let d = from_flags(
             &Opts {
                 mode: Some(Mode::Demo),
@@ -739,6 +784,6 @@ mod tests {
         std::fs::write(d.path().join("config.json"), r#"{"demoMode":true}"#).unwrap();
         assert!(!needs_setup(d.path()));
         std::fs::write(d.path().join("config.json"), r#"{"wallet":"krxABC123"}"#).unwrap();
-        assert!(needs_setup(d.path()), "terms not accepted yet");
+        assert!(needs_setup(d.path()), "setup not completed yet");
     }
 }

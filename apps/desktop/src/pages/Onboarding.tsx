@@ -91,7 +91,6 @@ export default function Onboarding() {
     }
   };
 
-  const feePercent = info?.devFeeWalletConfigured ? info.devFeePercent : null;
 
   const steps = visible.map((id) => ({ id, label: t(`onb.nav.${id}`) }));
   const mode = draft.wallet ? payoutMode(draft.wallet) : "kryptex";
@@ -169,7 +168,6 @@ export default function Onboarding() {
                   <Zap className="mt-0.5 size-3.5 shrink-0 text-warn" />
                   {t("onb.welcome.energy")}
                 </p>
-                {feePercent != null && <p className="text-xs leading-relaxed text-faint">{t("onb.welcome.fee", { p: feePercent })}</p>}
               </Section>
             )}
 

@@ -216,14 +216,8 @@ fn xmr() -> &'static Coin {
     coins::find("XMR").expect("XMR in catalog")
 }
 
-/// NVIDIA or AMD GPU detected (the vendors SRBMiner supports for every catalog coin).
 fn has_mining_gpu(hw: &HardwareInfo) -> bool {
-    hw.gpus.iter().any(|g| {
-        let s = format!("{} {}", g.vendor.as_deref().unwrap_or(""), g.name).to_ascii_lowercase();
-        ["nvidia", "geforce", "amd", "radeon"]
-            .iter()
-            .any(|k| s.contains(k))
-    })
+    crate::hardware::mining_gpu(&hw.gpus)
 }
 
 #[derive(Default)]
@@ -801,10 +795,6 @@ impl Engine {
     pub fn can_start(&self) -> Result<(), String> {
         let coin = self.wanted_coin();
         if !self.config.demo_mode {
-            // Real mining needs the fees accepted first (GUI onboarding or `erebor consent`).
-            if !self.config.onboarding_completed {
-                return Err("consent_required".into());
-            }
             if self.config.wallet.is_empty() {
                 return Err("wallet_missing".into());
             }

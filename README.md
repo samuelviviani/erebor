@@ -46,7 +46,7 @@ Solo indirizzi pubblici. Mai seed phrase, mai chiavi private: la pool paga **dir
 <td width="50%" valign="top">
 
 ### 🔍 Trasparente
-Commissione Erebor (2% del tempo di mining effettivo), donazione XMRig e fee della pool dichiarate in chiaro, prima di iniziare.
+Commissione Erebor (2% del tempo di mining effettivo), donazione XMRig e fee della pool descritte sul sito; lo stato mostra in tempo reale per chi si sta minando.
 
 </td>
 </tr>
@@ -110,7 +110,7 @@ erebor service on             # mina sempre, anche dopo un riavvio del computer
 erebor demo on                # prova con un miner simulato
 ```
 
-- 📊 **Dashboard** con logo, grafico live dell'hashrate, guadagni, temperature e tasti rapidi.
+- 📊 **Dashboard** con logo, hashrate, guadagni, temperature e tasti rapidi.
 - 🔁 **Mina sempre**: con `erebor service on` Erebor riparte da solo a ogni accensione.
 - 🔄 **Si aggiorna da sola**, come l'app: ogni ora controlla le release firmate su GitHub (oppure `erebor update`).
 
