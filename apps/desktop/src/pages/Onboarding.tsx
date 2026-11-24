@@ -66,6 +66,7 @@ export default function Onboarding() {
   // Preparing the PC: detect hardware and install the pinned miners without asking:
   // XMRig for the CPU, plus SRBMiner when there is a usable GPU and a Kryptex ID.
   const tried = useRef<Set<string>>(new Set());
+  const [attempt, setAttempt] = useState(0); // "Retry" after a failed install
   // Windows: installing before the Defender choice would get the miner quarantined.
   const waitDefender =
     !!info?.platform.startsWith("windows") &&
@@ -110,6 +111,7 @@ export default function Onboarding() {
     live.miner.path,
     live.srbminer.path,
     live.lolminer.path,
+    attempt,
   ]);
   // GPU miners are a bonus: a failed download does not block the setup.
   const gpuDone = (k: "srbminer" | "lolminer") =>
@@ -356,6 +358,17 @@ export default function Onboarding() {
                   />
                 </ol>
                 {!pcReady && <JobProgress />}
+                {!pcReady && job?.done && job.error && (
+                  <Button
+                    variant="ghost"
+                    onClick={() => {
+                      tried.current.clear();
+                      setAttempt((n) => n + 1);
+                    }}
+                  >
+                    {t("computer.retry")}
+                  </Button>
+                )}
                 {hw && (
                   <p className="flex items-start gap-2.5 rounded-xl border border-accent/30 bg-accent-soft px-4 py-3 text-[13px] leading-relaxed">
                     {gpu ? (

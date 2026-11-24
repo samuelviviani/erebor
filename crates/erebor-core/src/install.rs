@@ -177,7 +177,7 @@ pub fn extract_binary_named(
     if bytes.is_empty() {
         return Err(format!("{name} not found in archive"));
     }
-    std::fs::write(&dest, &bytes).map_err(|e| e.to_string())?;
+    write_miner(&dest, &bytes)?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -185,6 +185,20 @@ pub fn extract_binary_named(
             .map_err(|e| e.to_string())?;
     }
     Ok(dest)
+}
+
+/// Write an extracted miner file. On Windows an antivirus that blocks it answers
+/// "access denied" (os error 5) or "virus detected" (225): say so instead.
+fn write_miner(dest: &Path, bytes: &[u8]) -> Result<(), String> {
+    std::fs::write(dest, bytes).map_err(|e| {
+        let blocked = e.kind() == std::io::ErrorKind::PermissionDenied
+            || e.raw_os_error() == Some(225);
+        if cfg!(windows) && blocked {
+            "blocked_by_antivirus".to_string()
+        } else {
+            e.to_string()
+        }
+    })
 }
 
 /// Extract every regular file of a .zip into `dest_dir`, flat (names only, never paths:
@@ -200,7 +214,7 @@ fn extract_zip_files(archive: &[u8], dest_dir: &Path) -> Result<(), String> {
         };
         let mut bytes = Vec::new();
         f.read_to_end(&mut bytes).map_err(|e| e.to_string())?;
-        std::fs::write(dest_dir.join(name), bytes).map_err(|e| e.to_string())?;
+        write_miner(&dest_dir.join(name), &bytes)?;
     }
     Ok(())
 }

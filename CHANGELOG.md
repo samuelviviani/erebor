@@ -2,6 +2,12 @@
 
 Formato: [Keep a Changelog](https://keepachangelog.com/it/1.1.0/), versioni [SemVer](https://semver.org/lang/it/).
 
+## [0.1.4] - 2026-11-24
+
+### Fixed
+- Windows: se l'antivirus blocca il miner durante l'installazione, l'app ora lo dice e spiega come consentirlo, invece di mostrare "Accesso negato (os error 5)".
+- Setup iniziale bloccato dopo un'installazione del miner fallita: ora c'è il pulsante "Riprova".
+
 ## [0.1.3] - 2026-11-24
 
 ### Added
