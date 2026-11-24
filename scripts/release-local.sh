@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # Local release from a Mac, without GitHub Actions: macOS (universal) + Windows (NSIS,
-# cross-compiled) + signed CLI binaries for macOS, latest.json, SHA256SUMS, and a DRAFT
+# cross-compiled) + signed CLI binaries for macOS and Linux, latest.json, SHA256SUMS, and a DRAFT
 # GitHub release. Linux (.deb/AppImage) needs a Linux machine: build it there and add the
 # files with `gh release upload` (and its entry to latest.json).
 #
 #   EREBOR_DEV_FEE_WALLET=krx... scripts/release-local.sh 0.1.3
 #
-# One-time setup: brew install nsis llvm lld; cargo install --locked cargo-xwin;
-# rustup target add x86_64-apple-darwin x86_64-pc-windows-msvc
+# One-time setup: brew install nsis llvm lld zig; cargo install --locked cargo-xwin cargo-zigbuild;
+# rustup target add x86_64-apple-darwin x86_64-pc-windows-msvc x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu
 set -euo pipefail
 
 V="${1:?usage: release-local.sh <version>}"
@@ -37,12 +37,17 @@ cp "$MAC/macos/Erebor.app.tar.gz" "$OUT/Erebor_${V}_universal.app.tar.gz"
 cp "$MAC/macos/Erebor.app.tar.gz.sig" "$OUT/Erebor_${V}_universal.app.tar.gz.sig"
 cp "$WIN/Erebor_${V}_x64-setup.exe" "$WIN/Erebor_${V}_x64-setup.exe.sig" "$OUT/"
 
-# CLI: one binary per macOS CPU, same names and key the CLI self-update expects.
+# CLI: one binary per OS/CPU, same names and key the CLI self-update expects.
+# Linux via zig, linked against glibc 2.31 (Ubuntu 20.04+).
 cd "$ROOT"
 for t in aarch64 x86_64; do
   cargo build --release --locked -p erebor-cli --target "$t-apple-darwin"
   cp "target/$t-apple-darwin/release/erebor" "$OUT/erebor-macos-$t"
-  (cd apps/desktop && pnpm tauri signer sign "$OUT/erebor-macos-$t" >/dev/null)
+  cargo zigbuild --release --locked -p erebor-cli --target "$t-unknown-linux-gnu.2.31"
+  cp "target/$t-unknown-linux-gnu/release/erebor" "$OUT/erebor-linux-$t"
+  for a in "macos-$t" "linux-$t"; do
+    (cd apps/desktop && pnpm tauri signer sign "$OUT/erebor-$a" >/dev/null)
+  done
 done
 
 # latest.json read by the desktop updater (and, for "version", by the CLI).
