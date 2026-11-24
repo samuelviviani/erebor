@@ -153,6 +153,7 @@ Shared with the desktop app: `~/.local/share/org.erebor.desktop` (Linux),
 | `erebor coins` | Coins: algorithm, CPU/GPU, hashrate measured here, estimated earnings per day, why a coin can't be mined (`*` = chosen) | ✓ |
 | `erebor coins set <COIN\|auto>` | Mine that coin (a missing miner installs itself) or go back to automatic | ✓ |
 | `erebor logs [-f]` | Engine log; `-f` keeps printing new lines | ✓ |
+| `erebor export [--days N]` | Mining history as CSV on stdout (default 30 days); works without the agent | ✓ |
 | `erebor doctor [--offline]` | OS, CPU/GPU, sensors, user/permissions, data folder, agent, config, wallet, miners, pool connectivity | ✓ |
 | `erebor mining start\|stop\|pause\|resume\|restart` | Verified control: success only if the state actually changed | ✓ |
 | `erebor hardware list` | CPU and GPUs | ✓ |
@@ -173,9 +174,17 @@ Shared with the desktop app: `~/.local/share/org.erebor.desktop` (Linux),
 Every command appears in `erebor --help`: none is hidden.
 
 Useful settings: `performance.preset` (`eco`, `balanced`, `performance`, `custom`) and
-`performance.customThreadsPercent`; `pool.worker`; `safety.maxTempC`, `safety.autoRestart`;
-`energy.pricePerKwh`, `energy.currency`, `energy.estimatedWatts`, `energy.stopIfUnprofitable`,
-`energy.minProfitPerDay`; `schedule.enabled`, `schedule.startMinute`, `schedule.endMinute`,
+`performance.customThreadsPercent`, `performance.idleMinutes` (mine only after N minutes
+without input; `null` = always), `performance.gpuPowerLimitW` (W per GPU, needs admin rights;
+`null` = untouched); `pool.worker`; `safety.maxTempC`, `safety.autoRestart`;
+`energy.pricePerKwh` (outside the bands), `energy.bands` (JSON list of
+`{"startMinute","endMinute","days","price"}` from your bill), `energy.heatingMonths` (12
+booleans, January first), `energy.heatingCreditPercent`, `energy.solar.*` (`enabled`, `url`,
+`token`, `field`, `exportPositive`, `feedInPrice`), `energy.currency`,
+`energy.stopIfUnprofitable` (mining waits while it loses money and resumes when it pays),
+`energy.minProfitPerDay`, `energy.thermostat.*` (`enabled`, `url`, `token`, `field`,
+`onBelowC`, `offAboveC`); `notify.ntfyUrl`, `notify.telegramToken`, `notify.telegramChat`;
+`schedule.enabled`, `schedule.startMinute`, `schedule.endMinute`,
 `schedule.days`; `autoUpdateMiners`; `startOnLaunch`.
 
 `pause`/`resume` work only if the miner supports it (`pause_unsupported` otherwise). `--json`

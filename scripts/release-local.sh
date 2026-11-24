@@ -5,7 +5,10 @@
 # signatures live in latest.json. Linux desktop (.deb) needs a Linux machine: build it there
 # and add it with `gh release upload` (and a "linux-x86_64-deb" entry in latest.json).
 #
-#   EREBOR_DEV_FEE_WALLET=krx... scripts/release-local.sh 0.1.3
+#   EREBOR_DEV_FEE_BTC=bc1... [EREBOR_DEV_FEE_WALLET=krx...] scripts/release-local.sh 0.1.3
+#
+# Erebor's 2% goes to EREBOR_DEV_FEE_BTC on unMineable for every coin unMineable mines,
+# and to the EREBOR_DEV_FEE_WALLET Kryptex account for the others (if set).
 #
 # One-time setup: brew install nsis llvm lld zig; cargo install --locked cargo-xwin cargo-zigbuild;
 # rustup target add x86_64-apple-darwin x86_64-pc-windows-msvc x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu
@@ -19,7 +22,8 @@ OUT="$ROOT/target/release-$V"
 
 grep -q "\"version\": \"$V\"" "$ROOT/apps/desktop/src-tauri/tauri.conf.json" \
   || { echo "tauri.conf.json is not at version $V"; exit 1; }
-[ -n "${EREBOR_DEV_FEE_WALLET:-}" ] || { echo "EREBOR_DEV_FEE_WALLET not set"; exit 1; }
+[ -n "${EREBOR_DEV_FEE_BTC:-}${EREBOR_DEV_FEE_WALLET:-}" ] \
+  || { echo "set EREBOR_DEV_FEE_BTC (bc1…) and/or EREBOR_DEV_FEE_WALLET (krx…)"; exit 1; }
 git -C "$ROOT" diff --quiet HEAD || { echo "commit and push first: the tag points at HEAD"; exit 1; }
 
 export PATH="$HOME/.cargo/bin:/opt/homebrew/opt/llvm/bin:/opt/homebrew/opt/lld/bin:$PATH"
@@ -59,18 +63,22 @@ done
 # its own signatures ("cli").
 APP="Erebor_${V}_universal.app.tar.gz"
 EXE="Erebor_${V}_x64-setup.exe"
+# The app shows these notes under "What's new": this version's CHANGELOG section.
+CHANGES="$SIGS/changes.md"
+awk -v v="$V" '/^## \[/{on = index($0, "## [" v "]") == 1; next} on' "$ROOT/CHANGELOG.md" > "$CHANGES"
+[ -s "$CHANGES" ] || { echo "CHANGELOG.md has no section for $V"; exit 1; }
 node -e '
 const fs = require("fs");
-const [v, url, app, exe, sigs] = process.argv.slice(1);
+const [v, url, app, exe, sigs, changes] = process.argv.slice(1);
 const sig = f => fs.readFileSync(`${sigs}/${f}.sig`, "utf8").trim();
 const mac = { url: `${url}/${app}`, signature: sig(app) };
 const cli = {};
 for (const a of ["macos-aarch64", "macos-x86_64", "linux-aarch64", "linux-x86_64"])
   cli[`erebor-${a}`] = sig(`erebor-${a}`);
-console.log(JSON.stringify({ version: v, notes: `See CHANGELOG.md for ${v}`, pub_date: new Date().toISOString(),
+console.log(JSON.stringify({ version: v, notes: fs.readFileSync(changes, "utf8").trim(), pub_date: new Date().toISOString(),
   platforms: { "darwin-aarch64": mac, "darwin-x86_64": mac,
     "windows-x86_64": { url: `${url}/${exe}`, signature: sig(exe) } }, cli }, null, 2));
-' "$V" "$URL" "$APP" "$EXE" "$SIGS" > "$OUT/latest.json"
+' "$V" "$URL" "$APP" "$EXE" "$SIGS" "$CHANGES" > "$OUT/latest.json"
 
 # ponytail: CLIs up to 0.1.5 read erebor-<os>-<arch>.sig from the release: upload them
 # while such CLIs may still be around, then delete this line.

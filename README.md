@@ -60,17 +60,21 @@ Erebor does that work for you, in the open:
 ## What it mines
 
 Everything the [Kryptex pool](https://pool.kryptex.com) offers that a computer can mine.
-Earnings are paid in BTC to your Kryptex account (other payout options will follow).
+By default earnings arrive in BTC on your own Bitcoin wallet through
+[unMineable](https://unmineable.com) (no account); a Kryptex account works too. If you already
+mine, you can send each coin to your own wallet on the pool you prefer (2Miners, HeroMiners,
+WoolyPooly, MoneroOcean, your P2Pool node or any stratum pool), with a backup pool.
 
 | Hardware | Coins | Miner |
 |---|---|---|
-| Graphics card (NVIDIA/AMD) | Pearl, Ethereum Classic, EthereumPoW, Ergo, Ravencoin, Xelis, Qubitcoin, Quai, OctaSpace | SRBMiner-MULTI |
-| Graphics card (NVIDIA/AMD) | Alephium, Conflux, Nexa, Kaspa, Tari (SHA3x, C29) | lolMiner |
+| Graphics card (NVIDIA/AMD) | Pearl, Ethereum Classic, EthereumPoW, Ergo, Ravencoin, Xelis, Quantus, Quai, OctaSpace; with your own wallet or unMineable: Qubitcoin, Firo, Zano, Neurai, Iron Fish | SRBMiner-MULTI |
+| Graphics card (NVIDIA/AMD) | Alephium, Conflux, Nexa, Kaspa, Tari (SHA3x, C29); with your own wallet or unMineable: Beam, Karlsen, Radiant | lolMiner |
 | Processor | Monero, Zephyr, Tari (RandomX) | XMRig |
 | Processor, Windows only | Bitcoin, Bitcoin Cash, Bitcoin SV, eCash, Fractal Bitcoin, DigiByte, Litecoin, Quai (SHA-256, Scrypt) | cpuminer-opt |
 
 The last row is ASIC territory: a PC can mine those coins, but earns almost nothing. Erebor
-never picks them on its own.
+never picks them on its own. Every coin's sheet in the app lists what mining it takes on your PC
+(graphics card, system, miner, payout) and what is missing.
 
 ## Install
 

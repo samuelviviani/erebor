@@ -64,6 +64,6 @@ example `wallet_missing`).
 - Refreshes every second; handles resizing (≥ 76 columns: two columns; below: one; very small
   terminals are clipped without errors).
 - Values that aren't available show as `n/a` (temperature, power, earnings without a price):
-  never silently estimated. Estimated power is marked `(estimated)`.
+  never estimated. Power is the measured draw of the hardware that mines (GPUs for GPU coins).
 - Agent unreachable: an "Agent offline" screen with the command to start it; it retries
   every second.

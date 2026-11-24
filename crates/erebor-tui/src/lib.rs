@@ -190,6 +190,11 @@ pub mod fmt {
             "platform_unsupported" => ("no miner build for this system", None),
             "kryptex_or_btc_required" => ("needs a Kryptex ID payout", None),
             "not_on_unmineable" => ("not minable with this payout", None),
+            "own_wallet_required" => (
+                "not on Kryptex: needs your own wallet for this coin",
+                Some("set one: erebor wallet set <ADDRESS> --coin <COIN>"),
+            ),
+            "windows_only" => ("Windows only for now", None),
             "invalid_worker" => (
                 "worker name: letters, digits, '_' and '-' only, max 32 (EREBOR is reserved)",
                 None,

@@ -441,9 +441,112 @@ fn platform_gpus() -> Vec<GpuInfo> {
     vec![]
 }
 
+/// Seconds since the last keyboard or mouse input in this user session, `None` when the
+/// system does not tell (Linux without a supported desktop, headless sessions).
+pub fn idle_secs() -> Option<u64> {
+    idle::secs()
+}
+
+#[cfg(windows)]
+mod idle {
+    #[repr(C)]
+    struct LastInputInfo {
+        cb_size: u32,
+        dw_time: u32,
+    }
+    #[link(name = "user32")]
+    extern "system" {
+        fn GetLastInputInfo(plii: *mut LastInputInfo) -> i32;
+    }
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn GetTickCount() -> u32;
+    }
+    pub fn secs() -> Option<u64> {
+        let mut info = LastInputInfo {
+            cb_size: std::mem::size_of::<LastInputInfo>() as u32,
+            dw_time: 0,
+        };
+        // SAFETY: plain Win32 calls with a correctly sized, initialised struct.
+        let (ok, now) = unsafe { (GetLastInputInfo(&mut info), GetTickCount()) };
+        (ok != 0).then(|| u64::from(now.wrapping_sub(info.dw_time)) / 1000)
+    }
+}
+
+#[cfg(target_os = "macos")]
+mod idle {
+    #[link(name = "CoreGraphics", kind = "framework")]
+    extern "C" {
+        fn CGEventSourceSecondsSinceLastEventType(state: i32, event_type: u32) -> f64;
+    }
+    pub fn secs() -> Option<u64> {
+        // kCGEventSourceStateCombinedSessionState = 0, kCGAnyInputEventType = !0.
+        // SAFETY: a pure query with constant arguments.
+        let s = unsafe { CGEventSourceSecondsSinceLastEventType(0, !0) };
+        (s.is_finite() && s >= 0.0).then_some(s as u64)
+    }
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+mod idle {
+    /// GNOME (Wayland or X11), then KDE and other freedesktop screensavers, then X11's
+    /// xprintidle. Each answers in milliseconds.
+    pub fn secs() -> Option<u64> {
+        const TRIES: &[&[&str]] = &[
+            &[
+                "gdbus",
+                "call",
+                "--session",
+                "--dest",
+                "org.gnome.Mutter.IdleMonitor",
+                "--object-path",
+                "/org/gnome/Mutter/IdleMonitor/Core",
+                "--method",
+                "org.gnome.Mutter.IdleMonitor.GetIdletime",
+            ],
+            &[
+                "dbus-send",
+                "--session",
+                "--print-reply",
+                "--dest=org.freedesktop.ScreenSaver",
+                "/org/freedesktop/ScreenSaver",
+                "org.freedesktop.ScreenSaver.GetSessionIdleTime",
+            ],
+            &["xprintidle"],
+        ];
+        TRIES.iter().find_map(|t| {
+            let out = crate::command(t[0]).args(&t[1..]).output().ok()?;
+            if !out.status.success() {
+                return None;
+            }
+            super::last_number(&String::from_utf8_lossy(&out.stdout)).map(|ms| ms / 1000)
+        })
+    }
+}
+
+/// Last unsigned integer in a tool's output: `(uint64 1234,)`, `uint32 1234`, `1234`.
+#[cfg_attr(any(windows, target_os = "macos"), allow(dead_code))]
+fn last_number(s: &str) -> Option<u64> {
+    s.split(|c: char| !c.is_ascii_digit())
+        .rfind(|t| !t.is_empty())?
+        .parse()
+        .ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parses_idle_tool_output() {
+        assert_eq!(last_number("(uint64 12345,)\n"), Some(12345));
+        assert_eq!(
+            last_number("method return time=1.2\n   uint32 4000\n"),
+            Some(4000)
+        );
+        assert_eq!(last_number("870\n"), Some(870));
+        assert_eq!(last_number(""), None);
+    }
 
     #[test]
     fn mining_gpus_are_nvidia_or_amd() {

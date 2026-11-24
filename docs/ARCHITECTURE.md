@@ -102,7 +102,7 @@ paused, hashrate reported; long gaps are discarded). When the project's share fa
 then back to `User`: about 2 minutes every 100 minutes. XMRig switches pool in place
 (`PUT /1/config`, no RandomX dataset rebuild); other miners restart on the new target. The
 ledger is stored in SQLite, so restarts neither reset nor double-charge the fee. Builds
-without `EREBOR_DEV_FEE_WALLET` have no fee.
+without `EREBOR_DEV_FEE_BTC` or `EREBOR_DEV_FEE_WALLET` have no fee.
 
 ### Earnings
 

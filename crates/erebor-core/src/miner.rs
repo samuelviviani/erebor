@@ -74,6 +74,8 @@ pub struct LaunchSpec {
     pub threads_percent: u8,
     /// 0 (idle) .. 5 (highest).
     pub priority: u8,
+    /// Power limit for each GPU (W), restored by the miner when it exits.
+    pub gpu_power_limit_w: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -108,6 +110,8 @@ pub struct MinerStats {
     pub version: Option<String>,
     pub paused: bool,
     pub threads: Option<u32>,
+    /// Hashrate of each GPU in the miner's device order (empty when not reported).
+    pub gpu_hashrates: Vec<f64>,
 }
 
 impl MinerStats {
@@ -218,6 +222,7 @@ impl MinerAdapter for DemoMiner {
             version: Some("demo".into()),
             paused: self.paused,
             threads: None,
+            gpu_hashrates: Vec::new(),
         })
     }
     fn take_exit(&mut self) -> Option<String> {

@@ -143,7 +143,7 @@ fn check_wallet(w: &str) -> Result<String, String> {
             "this looks like a seed phrase or private key: never share it. Use your public address."
                 .into(),
         ),
-        Err(_) => Err("enter your Kryptex ID (krx…): for now Erebor pays through Kryptex only".into()),
+        Err(_) => Err("enter a Kryptex ID (krx…) or a Bitcoin address; other coins: `erebor wallet set ADDRESS --coin KAS`".into()),
     }
 }
 
@@ -965,7 +965,7 @@ mod tests {
         assert_eq!(e(&o), "wallet_missing");
         o.wallet = Some("abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about".into());
         assert_eq!(e(&o), "invalid_address");
-        // Kryptex only for now: a Monero address is refused.
+        // The main payout is Kryptex or Bitcoin: a Monero address goes per coin instead.
         o.wallet = Some(XMR.into());
         assert_eq!(e(&o), "invalid_address");
         o.wallet = Some(" krxABC123 ".into());

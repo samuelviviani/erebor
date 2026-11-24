@@ -32,8 +32,8 @@ export default function Docs() {
       <h2 id="estimates">Estimates and costs</h2>
       <p>
         Estimated earnings = hashrate × time × network reward per hash × price, minus pool and miner fees. Electricity cost =
-        average power (kW) × hours × price per kWh. When power can&apos;t be measured, Erebor uses the estimate you enter and
-        says so.
+        average power (kW) × hours × price per kWh, using the measured draw of the hardware that mines (the GPU for GPU
+        coins). When it can&apos;t be measured, the cost is shown as missing.
       </p>
       <h2 id="safety">Safety</h2>
       <ul>

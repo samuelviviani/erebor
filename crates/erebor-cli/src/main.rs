@@ -82,6 +82,13 @@ enum Cmd {
         #[command(subcommand)]
         cmd: Option<CoinsCmd>,
     },
+    /// Mining history as CSV on stdout (time, coin, hashrate, estimated amounts, energy and
+    /// its cost): `erebor export --days 365 > erebor.csv`.
+    Export {
+        /// How many days back (default 30).
+        #[arg(long, default_value_t = 30)]
+        days: u32,
+    },
     /// The engine log (the last lines kept in memory).
     Logs {
         /// Keep printing new lines.
@@ -395,6 +402,7 @@ fn run(cli: Cli, dir: &Path) -> Result<(), Fail> {
         Cmd::Config { cmd } => config_cmd(dir, cmd.unwrap_or(ConfigCmd::Show), json),
         Cmd::Coins { cmd } => coins_cmd(dir, cmd.unwrap_or(CoinsCmd::List), json),
         Cmd::Logs { follow } => logs(dir, follow, json),
+        Cmd::Export { days } => export(dir, i64::from(days) * 86_400),
         Cmd::Agent { cmd } => agent(dir, cmd, json),
         Cmd::Demo { state } => {
             let mut c = load_config_live(dir)?;
@@ -821,8 +829,15 @@ fn wallet_cmd(dir: &Path, cmd: WalletCmd, json: bool) -> Result<(), Fail> {
             let address = address.trim().to_string();
             let mut c = load_config_live(dir)?;
             match coin {
-                // Kryptex only for now: per-coin wallets come back with the other payouts.
-                Some(_) => return Err("kryptex_only".to_string().into()),
+                // Own wallet for one coin (pool: `config set coinPools.<COIN>…`; unset: the first listed, Kryptex if there).
+                Some(coin) => {
+                    let coin = coin.to_ascii_uppercase();
+                    erebor_core::coins::find(&coin)
+                        .ok_or_else(|| Fail::from("unknown_coin".to_string()))?;
+                    wallet::validate_coin_address(&coin, &address)
+                        .map_err(|e| Fail::from(format!("invalid_address: {e:?}")))?;
+                    c.coin_wallets.insert(coin, address.clone());
+                }
                 None => {
                     wallet::validate_user_payout(&address)
                         .map_err(|e| Fail::from(format!("invalid_address: {e:?}")))?;
@@ -1213,7 +1228,7 @@ fn coins_cmd(dir: &Path, cmd: CoinsCmd, json: bool) -> Result<(), Fail> {
         "{}",
         ui::paint(
             format!(
-                "  {:<6}{:<18}{:<14}{:<5}{:>12}{:>12}  NOTE",
+                "  {:<10}{:<18}{:<14}{:<5}{:>12}{:>12}  NOTE",
                 "COIN",
                 "NAME",
                 "ALGO",
@@ -1245,7 +1260,7 @@ fn coins_cmd(dir: &Path, cmd: CoinsCmd, json: bool) -> Result<(), Fail> {
             None => String::new(),
         };
         let line = format!(
-            "{mark} {:<6}{:<18}{:<14}{:<5}{:>12}{:>12}  {note}",
+            "{mark} {:<10}{:<18}{:<14}{:<5}{:>12}{:>12}  {note}",
             id,
             c["name"].as_str().unwrap_or(""),
             c["algo"].as_str().unwrap_or(""),
@@ -1273,6 +1288,24 @@ fn coins_cmd(dir: &Path, cmd: CoinsCmd, json: bool) -> Result<(), Fail> {
             ui::DIM
         )
     );
+    Ok(())
+}
+
+/// CSV from the running engine, or straight from the database when none runs.
+fn export(dir: &Path, range: i64) -> Result<(), Fail> {
+    let csv = match ipc::call(dir, "export_csv", &json!({ "rangeSecs": range })) {
+        Ok(v) => v.as_str().unwrap_or_default().to_string(),
+        Err(e) if e == "agent_unreachable" => {
+            let demo = AppConfig::load(&dir.join("config.json")).demo_mode;
+            let db = dir.join(if demo { "erebor-demo.db" } else { "erebor.db" });
+            let to = erebor_core::now_unix() + 1;
+            erebor_core::store::Store::open(&db)
+                .and_then(|s| s.export_csv(to - range, to))
+                .map_err(|e| Fail::from(e.to_string()))?
+        }
+        Err(e) => return Err(e.into()),
+    };
+    print!("{csv}");
     Ok(())
 }
 

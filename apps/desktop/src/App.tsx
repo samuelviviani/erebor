@@ -7,7 +7,6 @@ import Coins from "./pages/Coins";
 import Dashboard from "./pages/Dashboard";
 import Onboarding from "./pages/Onboarding";
 import Settings from "./pages/Settings";
-import WalletPage from "./pages/Wallet";
 
 // Recharts is large: load the statistics page on demand.
 const Stats = lazy(() => import("./pages/Stats"));
@@ -15,7 +14,6 @@ const Stats = lazy(() => import("./pages/Stats"));
 const PAGES = {
   dashboard: Dashboard,
   coins: Coins,
-  wallet: WalletPage,
   stats: Stats,
   settings: Settings,
 };

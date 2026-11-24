@@ -37,12 +37,37 @@ export function defaultConfig(): AppConfig {
     lolminer: { path: null, version: null, sha256: null, verified: false },
     cpuminer: { path: null, version: null, sha256: null, verified: false },
     coinWallets: {},
-    performance: { preset: "balanced", customThreadsPercent: 50 },
+    coinPools: {},
+    autoExclude: [],
+    performance: {
+      preset: "balanced",
+      customThreadsPercent: 50,
+      idleMinutes: null,
+      gpuPowerLimitW: null,
+    },
     safety: { maxTempC: 85, stopOnOverheat: true, autoRestart: false },
     energy: {
       pricePerKwh: null,
       currency: "EUR",
-      estimatedWatts: null,
+      bands: [],
+      heatingMonths: Array(12).fill(false),
+      heatingCreditPercent: 0,
+      solar: {
+        enabled: false,
+        url: "",
+        token: "",
+        field: "",
+        exportPositive: false,
+        feedInPrice: 0,
+      },
+      thermostat: {
+        enabled: false,
+        url: "",
+        token: "",
+        field: "state",
+        onBelowC: 20,
+        offAboveC: 21,
+      },
       stopIfUnprofitable: false,
       minProfitPerDay: 0,
     },
@@ -57,6 +82,7 @@ export function defaultConfig(): AppConfig {
     autoUpdateMiners: true,
     startOnLaunch: false,
     defenderAllowed: false,
+    notify: { ntfyUrl: "", telegramToken: "", telegramChat: "" },
   };
 }
 
@@ -131,6 +157,18 @@ const COINS: Coin[] = [
     port: 7029,
     minerFeePercent: 1,
     unmineableHost: "rx.unmineable.com",
+    asic: false,
+  },
+  {
+    id: "FIRO",
+    name: "Firo",
+    algo: "firopow",
+    device: "gpu",
+    miner: "srbminer",
+    host: null,
+    port: 0,
+    minerFeePercent: 0.85,
+    unmineableHost: null,
     asic: false,
   },
 ];
@@ -241,9 +279,8 @@ export function installMockBackend(initial?: Partial<AppConfig>): MockState {
           },
         ],
       },
-      powerSource:
-        st.config.energy.estimatedWatts != null ? "estimated" : "unavailable",
-      powerW: st.config.energy.estimatedWatts,
+      powerSource: st.running ? "measured" : "unavailable",
+      powerW: st.running ? 178 : null,
       earnings24h:
         secs > 0
           ? {
@@ -289,6 +326,15 @@ export function installMockBackend(initial?: Partial<AppConfig>): MockState {
         currentBtcPerDay:
           st.config.coin === "AUTO" || st.config.coin === "XMR" ? 2.1e-6 : null,
       },
+      held: null,
+      energyPrice: st.config.energy.pricePerKwh,
+      solarExportW: st.config.energy.solar.enabled ? 420 : null,
+      solarError: null,
+      gpus: [{ hashrate: st.running ? 2.9e9 : null, expected: 3.1e9 }],
+      roomTempC: st.config.energy.thermostat.enabled ? 19.6 : null,
+      roomError: null,
+      idleSecs: 0,
+      resumeInSecs: null,
     };
   };
 
@@ -307,9 +353,9 @@ export function installMockBackend(initial?: Partial<AppConfig>): MockState {
       to,
       hash: { avg: 4150, max: 4390, accepted: 312, rejected: 1 },
       earnings: (() => {
-        // Energy only when both the PC's power and the electricity price are known.
-        const { estimatedWatts: w, pricePerKwh: kwhPrice } = st.config.energy;
-        const energyKwh = w != null ? (w * range) / 3_600_000 : null;
+        // Demo GPU draw (178 W) × range; cost only with an electricity price.
+        const kwhPrice = st.config.energy.pricePerKwh;
+        const energyKwh = (178 * range) / 3_600_000;
         const energyCost =
           energyKwh != null && kwhPrice != null ? energyKwh * kwhPrice : null;
         return {
@@ -322,7 +368,7 @@ export function installMockBackend(initial?: Partial<AppConfig>): MockState {
           price: 150,
           netValue: 0.0018,
           energyKwh,
-          energySource: w != null ? "estimated" : "unavailable",
+          energySource: "measured",
           energyCost,
           netProfit: energyCost != null ? 0.0018 - energyCost : null,
         };
@@ -368,6 +414,12 @@ export function installMockBackend(initial?: Partial<AppConfig>): MockState {
       case "validate_wallet":
         if (/^krx[a-z0-9]{3,29}$/i.test(String(a.address)))
           return { network: "mainnet", kind: "kryptex" };
+        if (
+          /^(bc1[02-9ac-hj-np-z]{11,71}|[13][1-9A-HJ-NP-Za-km-z]{25,34})$/.test(
+            String(a.address),
+          )
+        )
+          return { network: "mainnet", kind: "bitcoin" };
         throw {
           code: String(a.address).includes(" ")
             ? "looks_like_secret"
@@ -379,7 +431,9 @@ export function installMockBackend(initial?: Partial<AppConfig>): MockState {
           ETC: /^0x[0-9a-fA-F]{40}$/,
           XMR: /^[48]\w{94}$/,
         };
-        if (ok[String(a.coin)]?.test(String(a.address))) return null;
+        const generic = /^[A-Za-z0-9:_]{20,128}$/;
+        if ((ok[String(a.coin)] ?? generic).test(String(a.address)))
+          return null;
         throw { code: "unknown_prefix" };
       }
       case "pool_catalog":
@@ -461,6 +515,50 @@ export function installMockBackend(initial?: Partial<AppConfig>): MockState {
         return st.running ? ["[DEMO] simulated miner started"] : [];
       case "get_stats":
         return stats(Number(a.rangeSecs));
+      case "coin_pools":
+        return Object.fromEntries(
+          COINS.map((c) => [
+            c.id,
+            [
+              ...(c.host ? [{
+                pool: "kryptex",
+                name: "Kryptex",
+                hosts: [["eu", c.host]],
+                port: 7000,
+                feePercent: null,
+                scheme: "PPS+",
+                minPayout: null,
+                login: "slash",
+                balanceUrl: null,
+                needsAddress: true,
+              }] : []),
+              {
+                pool: "2miners",
+                name: "2Miners",
+                hosts: [
+                  ["eu", "demo.2miners.com"],
+                  ["us", "us-demo.2miners.com"],
+                  ["asia", "asia-demo.2miners.com"],
+                ],
+                port: 2020,
+                feePercent: 1,
+                scheme: "PPLNS",
+                minPayout: 1,
+                login: "dot",
+                balanceUrl: null,
+                needsAddress: true,
+              },
+            ],
+          ]),
+        );
+      case "prepare_update":
+      case "test_notify":
+        return null;
+      case "stop_for":
+        st.running = false;
+        return null;
+      case "save_csv":
+        return "/demo/Downloads/erebor.csv";
       case "export_config":
         return JSON.stringify(st.config, null, 2);
       case "delete_all_data":
@@ -483,19 +581,43 @@ export function installMockBackend(initial?: Partial<AppConfig>): MockState {
         st.installing = (a.kind as "xmrig" | "srbminer") ?? "xmrig";
         return null;
       case "coin_options":
-        return COINS.map((coin): CoinOption => ({
-          coin,
-          blocker:
+        return COINS.map((coin): CoinOption => {
+          const hw =
             coin.device === "gpu"
               ? st.config.demoMode
                 ? "not_in_demo"
                 : "no_gpu"
-              : null,
-          minerInstalled: st.config.demoMode || !!st.config.miner.path,
+              : null;
+          const own = !!st.config.coinWallets?.[coin.id];
+          const pay = !coin.host && !own ? "own_wallet_required" : null;
+          const installed = st.config.demoMode || !!st.config.miner.path;
+          return {
+          coin,
+          blocker: pay ?? hw,
+          requirements: [
+            {
+              kind: "hardware",
+              status: hw ? "missing" : "ok",
+              code: hw ?? coin.device,
+            },
+            { kind: "system", status: "ok", code: "system" },
+            {
+              kind: "miner",
+              status: installed ? "ok" : "warn",
+              code: installed ? "miner_installed" : "miner_missing",
+            },
+            {
+              kind: "payout",
+              status: pay ? "missing" : "ok",
+              code: pay ?? (own ? "own_wallet" : "main_payout"),
+            },
+          ],
+          minerInstalled: installed,
           hashrate: coin.id === "XMR" ? 4200 : null,
           btcPerDay: coin.id === "XMR" ? 2.1e-6 : null,
           valuePerDay: coin.id === "XMR" ? 0.12 : null,
-        }));
+          };
+        });
       case "select_miner":
         st.config = {
           ...st.config,

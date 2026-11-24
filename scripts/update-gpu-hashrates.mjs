@@ -14,9 +14,15 @@ const ALGOS = {
   Pearl: ["PRL"],
   Ethash: ["ETC", "ETHW", "OCTA"], // etchash runs at ethash speed
   Autolykos: ["ERG"],
-  KawPow: ["RVN", "QUAI"],
+  KawPow: ["RVN", "QUAI", "XNA"],
   Xelishashv3: ["XEL"],
-  Qhash: ["QTC"],
+  Qhash: ["QTC"], // Qubitcoin; Quantus is "QPoW" on WhatToMine
+  QPoW: ["QUANTUS"],
+  FiroPow: ["FIRO"],
+  ProgPowZ: ["ZANO"],
+  BeamHashIII: ["BEAM"],
+  KarlsenHashV2: ["KLS"],
+  Karlsenhashv2: ["KLS"],
   Blake3: ["ALPH"],
   Octopus: ["CFX"],
   NexaPow: ["NEXA"],

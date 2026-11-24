@@ -1,78 +1,101 @@
 @import "tailwindcss";
 
-/* Design tokens. Dark is the default; light is opt-in via data-theme.
-   Blue accent (trust, clarity) on pure neutral greys (no blue tint in the surfaces). `--accent` is for text, icons
-   and borders (≥ 5.5:1 on the backgrounds); `--accent-solid` fills buttons and badges
-   with white text (≥ 5:1). Warnings stay orange, errors red. */
+/* Design tokens: one set for the whole app. Dark is the default; light is opt-in via data-theme.
+   - `--accent` (blue) is for interaction: links, focus, selection. `--accent-solid` fills buttons.
+   - Traffic lights (`--go`, `--hold`, `--stop`) only for mining state; `--warn`/`--danger` for problems.
+   Surfaces are layered (bg < surface < surface-2) with hairline borders and a soft top highlight. */
 :root {
-  --bg: #0a0a0a;
-  --sidebar: #0f0f0f;
-  --surface: #151515;
-  --surface-2: #1d1d1d;
-  --border: #282828;
-  --fg: #ededed;
-  --muted: #a3a3a3;
-  --faint: #767676;
-  --accent: #4a8dff;
-  --accent-solid: #2563eb;
-  --accent-soft: rgb(74 141 255 / 0.12);
+  --bg: #07080a;
+  --bg-2: #0b0c0f;
+  --sidebar: rgb(13 14 17 / 0.72);
+  --surface: #101114;
+  --surface-2: #17181c;
+  --surface-3: #1f2025;
+  --border: rgb(255 255 255 / 0.075);
+  --border-strong: rgb(255 255 255 / 0.13);
+  --fg: #f2f2f4;
+  --muted: #a4a6ad;
+  --faint: #767880;
+  --accent: #5b93ff;
+  --accent-solid: #2f6bf0;
+  --accent-soft: rgb(91 147 255 / 0.12);
   --accent-fg: #ffffff;
-  --warn: #f08a3c;
-  --danger: #ef5350;
-  /* Traffic-light colours for the mining controls only: start, pause, stop. */
-  --go: #22c55e;
-  --hold: #eab308;
-  --stop: #ef4444;
-  /* Performance mode (Eco = go, Balanced = accent). */
-  --perf: #f97316;
-  --shadow: 0 1px 2px rgb(0 0 0 / 0.3), 0 8px 24px rgb(0 0 0 / 0.35);
+  --btc: #f7931a;
+  --warn: #f59e42;
+  --danger: #f06262;
+  --go: #2fd47a;
+  --hold: #f2c230;
+  --stop: #f05252;
+  --perf: #ff8a3d;
+  --highlight: inset 0 1px 0 0 rgb(255 255 255 / 0.05);
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 12px 32px -8px rgb(0 0 0 / 0.55);
+  --shadow-lg: 0 2px 4px rgb(0 0 0 / 0.35), 0 24px 64px -12px rgb(0 0 0 / 0.7);
+  --glow: rgb(91 147 255 / 0.06);
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --spring: cubic-bezier(0.34, 1.56, 0.64, 1);
   color-scheme: dark;
 }
 
 :root[data-theme="light"] {
-  --bg: #f7f7f7;
-  --sidebar: #f0f0f0;
+  --bg: #f4f4f6;
+  --bg-2: #ececef;
+  --sidebar: rgb(250 250 251 / 0.78);
   --surface: #ffffff;
-  --surface-2: #f0f0f0;
-  --border: #e2e2e2;
-  --fg: #141414;
-  --muted: #525252;
-  --faint: #767676;
-  --accent: #1d4ed8;
-  --accent-solid: #1d4ed8;
-  --accent-soft: rgb(29 78 216 / 0.08);
-  --accent-fg: #ffffff;
-  --warn: #c2410c;
-  --danger: #dc2626;
-  --go: #15803d;
+  --surface-2: #f3f3f5;
+  --surface-3: #e8e8ec;
+  --border: rgb(0 0 0 / 0.08);
+  --border-strong: rgb(0 0 0 / 0.14);
+  --fg: #16171a;
+  --muted: #55575e;
+  --faint: #74767d;
+  --accent: #1f5fe0;
+  --accent-solid: #1f5fe0;
+  --accent-soft: rgb(31 95 224 / 0.08);
+  --warn: #c2560c;
+  --danger: #d32f2f;
+  --go: #12873f;
   --hold: #a16207;
-  --stop: #b91c1c;
-  --perf: #c2410c;
-  --shadow: 0 1px 2px rgb(0 0 0 / 0.06), 0 8px 24px rgb(0 0 0 / 0.08);
+  --stop: #c62828;
+  --perf: #d0560f;
+  --highlight: inset 0 1px 0 0 rgb(255 255 255 / 0.9);
+  --shadow: 0 1px 2px rgb(16 17 20 / 0.05), 0 8px 24px -6px rgb(16 17 20 / 0.08);
+  --shadow-lg: 0 2px 4px rgb(16 17 20 / 0.06), 0 24px 60px -12px rgb(16 17 20 / 0.2);
+  --glow: rgb(31 95 224 / 0.07);
   color-scheme: light;
+}
+
+/* While mining the ambient light turns green: the app "is on". */
+:root[data-mining="on"] {
+  --glow: rgb(47 212 122 / 0.05);
+}
+:root[data-theme="light"][data-mining="on"] {
+  --glow: rgb(18 135 63 / 0.07);
 }
 
 @theme inline {
   --color-bg: var(--bg);
   --color-surface: var(--surface);
   --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
   --color-line: var(--border);
+  --color-line-strong: var(--border-strong);
   --color-fg: var(--fg);
   --color-muted: var(--muted);
   --color-faint: var(--faint);
   --color-accent: var(--accent);
   --color-accent-soft: var(--accent-soft);
   --color-accent-solid: var(--accent-solid);
+  --color-accent-fg: var(--accent-fg);
+  --color-btc: var(--btc);
   --color-go: var(--go);
   --color-hold: var(--hold);
   --color-stop: var(--stop);
   --color-perf: var(--perf);
-  --color-accent-fg: var(--accent-fg);
   --color-warn: var(--warn);
   --color-danger: var(--danger);
   --color-sidebar: var(--sidebar);
-  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Ubuntu, Roboto, "Helvetica Neue",
-    Arial, sans-serif;
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "SF Pro Text", "Segoe UI Variable", "Segoe UI",
+    Ubuntu, Roboto, "Helvetica Neue", Arial, sans-serif;
   --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
 }
 
@@ -91,110 +114,126 @@ body {
   font-size: 14px;
 }
 
+/* Ambient light behind everything: a soft glow at the top, coloured by the app state. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background:
+    radial-gradient(60rem 28rem at 70% -10%, var(--glow), transparent 70%);
+  transition: background 1.2s var(--ease);
+}
+#root {
+  position: relative;
+  z-index: 1;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+/* Thin, quiet scrollbars. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--surface-3) transparent;
+}
+
 .font-display {
-  font-weight: 600;
-  letter-spacing: -0.015em;
-}
-
-.shadow-soft {
-  box-shadow: var(--shadow);
-}
-
-@keyframes pop-in {
-  from {
-    opacity: 0;
-    transform: translateY(4px) scale(0.98);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-
-.pop-in {
-  animation: pop-in 0.16s ease-out;
-}
-
-/* Icon "bounce" when a choice becomes active. */
-@keyframes pop {
-  0% {
-    transform: scale(0.6);
-  }
-  60% {
-    transform: scale(1.18);
-  }
-  100% {
-    transform: scale(1);
-  }
-}
-
-.animate-pop {
-  animation: pop 0.38s cubic-bezier(0.2, 0.8, 0.2, 1);
-}
-
-/* Page change: soft fade and rise. */
-@keyframes page-in {
-  from {
-    opacity: 0;
-    transform: translateY(6px);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-
-.page-in {
-  animation: page-in 0.24s ease-out;
-}
-
-/* Slow orbit around the start button while mining. */
-@keyframes orbit {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-.orbit {
-  animation: orbit 9s linear infinite;
-}
-
-/* Gentle breathing glow on the idle start button. */
-@keyframes breathe {
-  0%,
-  100% {
-    box-shadow: 0 0 0 0 color-mix(in srgb, currentColor 0%, transparent);
-  }
-  50% {
-    box-shadow: 0 0 36px 2px color-mix(in srgb, currentColor 14%, transparent);
-  }
-}
-
-.breathe {
-  animation: breathe 3.2s ease-in-out infinite;
+  font-weight: 650;
+  letter-spacing: -0.022em;
 }
 
 .num {
   font-variant-numeric: tabular-nums;
 }
 
-:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
+/* ---- Surfaces ------------------------------------------------------------------------ */
+
+/* The one card style: hairline border, top highlight, soft depth. */
+.panel {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--surface) 100%, white 1.5%), var(--surface));
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  box-shadow: var(--highlight), var(--shadow);
 }
 
-/* Ring in the element's own colour (currentColor), e.g. red around Stop. */
-@keyframes pulse-ring {
-  0% {
-    box-shadow: 0 0 0 0 color-mix(in srgb, currentColor 30%, transparent);
-  }
-  100% {
-    box-shadow: 0 0 0 14px color-mix(in srgb, currentColor 0%, transparent);
-  }
+/* Floating layers (popovers, toasts, menus): frosted glass. */
+.glass {
+  background: color-mix(in srgb, var(--surface-2) 82%, transparent);
+  -webkit-backdrop-filter: blur(24px) saturate(1.6);
+  backdrop-filter: blur(24px) saturate(1.6);
+  border: 1px solid var(--border-strong);
+  box-shadow: var(--highlight), var(--shadow-lg);
 }
 
-.pulse {
-  animation: pulse-ring 2.2s ease-out infinite;
+.shadow-soft {
+  box-shadow: var(--shadow);
+}
+
+/* Section labels: small caps, used the same way on every page. */
+.eyebrow {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+/* ---- Motion ----------------------------------------------------------------------------
+   Quiet on purpose: short fades, no bouncing, nothing that moves while idle. */
+
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.pop-in {
+  animation: pop-in 0.16s ease-out;
+}
+
+/* Page change: a short fade. */
+.page-in {
+  animation: pop-in 0.2s ease-out both;
+}
+
+/* Modals: backdrop and sheet fade in. */
+@keyframes sheet-in {
+  from {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+}
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+dialog.sheet {
+  animation: sheet-in 0.18s ease-out;
+}
+dialog.sheet::backdrop {
+  background: rgb(0 0 0 / 0.55);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  animation: fade-in 0.18s ease-out;
+}
+
+/* Toasts slide in a little from the right. */
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateX(12px);
+  }
+}
+.toast-in {
+  animation: toast-in 0.22s ease-out;
 }
 
 @keyframes shimmer {
@@ -202,25 +241,31 @@ body {
     background-position: -200% 0;
   }
 }
-
 .skeleton {
-  background: linear-gradient(90deg, var(--surface-2) 25%, var(--border) 50%, var(--surface-2) 75%);
+  background: linear-gradient(90deg, var(--surface-2) 25%, var(--surface-3) 50%, var(--surface-2) 75%);
   background-size: 200% 100%;
   animation: shimmer 1.4s linear infinite;
-  border-radius: 6px;
+  border-radius: 8px;
+}
+
+/* Progress bar with light running through it. */
+.bar-live {
+  background-image: linear-gradient(90deg, var(--accent-solid), var(--accent), var(--accent-solid));
+  background-size: 200% 100%;
+  animation: shimmer 1.6s linear infinite;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .pulse,
-  .pop-in,
-  .animate-pop,
-  .page-in,
-  .orbit,
-  .breathe,
-  .skeleton {
-    animation: none;
-  }
-  * {
+  *,
+  *::before,
+  *::after,
+  dialog.sheet::backdrop {
+    animation: none !important;
     transition: none !important;
   }
 }

@@ -4,9 +4,37 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions: [Sem
 
 ## [Unreleased]
 
+### Added
+- More coins: Firo, Zano, Neurai (SRBMiner), Beam, Karlsen, Radiant (lolMiner), Iron Fish (SRBMiner, 0% miner fee) and Qubitcoin, mined with your own wallet on 2Miners, HeroMiners or WoolyPooly (Beam and Iron Fish also paid in BTC through unMineable). Bitcoin and Litecoin (+DOGE) can now go to unMineable too.
+- Every coin's sheet lists what mining it takes on this PC (graphics card, system, miner, payout), met or missing, with one-click miner install. Coins the PC can't mine open too, and big coins no PC can mine (ASIC-only, proof of stake) are explained at the bottom of Coins & wallets.
+- Payouts beyond Kryptex. The recommended payout is now BTC straight to your own Bitcoin wallet through unMineable (no account; Kaspa, Alephium, Nexa and Conflux added to the coins it mines). A Kryptex account remains an option.
+- Coins and wallets on one page: the main payout on top, then every coin with where it is paid. A coin's sheet sets its own wallet and pool (Kryptex, 2Miners, HeroMiners, WoolyPooly, MoneroOcean, P2Pool on this PC, or any stratum pool), server region, a backup pool that takes over after 3 minutes without a connection, pool minimum payout and a link to the pool balance, and whether the automatic choice may use it. A coin the main payout can't receive offers "Add wallet" right on its row. Pool payouts (SupportXMR) moved to Earnings. Onboarding lets seasoned miners skip the main payout.
+- Erebor's 2% goes to the project's BTC address on unMineable when the build has one (`EREBOR_DEV_FEE_BTC`), else to its Kryptex account; it never depends on the user's payout.
+- Energy-aware mining: time-of-day price bands from your bill, solar surplus read from a meter (Home Assistant, Shelly or any JSON URL; exported energy costs its feed-in price) and a winter heating credit. "Mine only when it pays" now waits and resumes by itself instead of stopping for good; every sample stores the price it was mined at.
+- Mine only when the PC is idle: waits at the first keyboard or mouse input, resumes after N idle minutes (Windows, macOS, Linux with GNOME/KDE/xprintidle).
+- GPU power limit (opt-in, watts per card) passed to SRBMiner (`--gpu-plimit`, reset on exit) and lolMiner (`--pl`). Needs administrator rights.
+- CSV export of the mining history: Settings › Data, or `erebor export --days N`.
+- `erebor doctor` checks GPU power readings and idle detection.
+- Efficiency search ("Find the best limit"): tries stock power and four lower GPU limits on the running miner, keeps the one with the best net profit at today's price.
+- Thermostat: a room thermometer (Home Assistant, Shelly…) makes mining wait above one temperature and resume below another.
+- GPU watchdog: a card stuck below 70% of its usual hashrate for 5 minutes gets the miner restarted once; if it stays low, that becomes the new normal.
+- Per-GPU hashrate, efficiency (per watt) and a warning when a card does far less than its model usually does.
+- Stop for a while: "Stop for 1 hour" on Home and in the tray menu (also 3 hours); mining starts again by itself.
+- Phone notifications for crashes, overheating and hashrate drops via ntfy or a Telegram bot (outgoing only, at most once per problem every 10 minutes).
+- Tray icon: closing the window keeps Erebor and mining running; "Quit" in the tray exits and stops mining. A second launch shows the running app.
+- Visible updates: at launch an available update installs behind a progress screen; while running, a card with the release notes and "Update now" plus a system notification. Mining interrupted by an update resumes in the new version. Release notes come from this changelog.
+
 ### Changed
+- Home figures (month estimate, per day, BTC collected) roll digit by digit to each new value (NumberFlow).
+- Power use is the measured draw of the hardware that mines (summed GPUs for GPU coins); the manual "estimated watts" setting is gone and the static power tile left the Home page.
+- Updates download quietly and install only while not mining; during mining a small "ready · Restart" pill replaces the banner.
+- Home hides the CPU mode selector when mining on the GPU (the mode never applied there).
 - Documentation and website in English, updated to the current features.
 - Code cleanup: unused functions, translations, help entries and a dependency removed.
+
+### Fixed
+- "QTC" on Kryptex, 2Miners and unMineable is Quantus, not Qubitcoin: Erebor mined it with Qubitcoin's algorithm, so shares were rejected. Quantus is now its own coin (`quantus`); Qubitcoin stays "QTC" on HeroMiners. Settings that pointed at Kryptex or 2Miners move to Quantus by themselves.
+- The automatic choice never picks ASIC coins, as the app always said.
 
 ## [0.1.6] - 2026-11-24
 

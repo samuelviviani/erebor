@@ -32,6 +32,10 @@ pub struct RangeTotals {
     pub unknown_value_secs: f64,
     /// User seconds spent on coins other than XMR (not in the XMR amounts).
     pub other_coin_secs: f64,
+    /// Electricity cost of the samples that stored their price (currency).
+    pub priced_cost: f64,
+    /// Joules of samples with a power value but no stored price.
+    pub unpriced_joules: f64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -71,9 +75,8 @@ pub struct Params {
     pub price: Option<f64>,
     /// BTC price in the user's currency.
     pub btc_price: Option<f64>,
+    /// Price per kWh for energy without a stored price (projections, older samples).
     pub price_per_kwh: Option<f64>,
-    /// Applied to seconds with unknown power, if set by the user.
-    pub estimated_watts: Option<f64>,
 }
 
 fn energy_kwh(watts: f64, hours: f64) -> f64 {
@@ -102,15 +105,17 @@ pub fn summarize(t: &RangeTotals, p: &Params) -> Earnings {
         } else {
             (Some(0.0), EnergySource::Unavailable)
         }
-    } else if let Some(w) = p.estimated_watts {
-        (
-            Some((t.energy_joules + w * t.unknown_power_secs) / 3.6e6),
-            EnergySource::Estimated,
-        )
     } else {
         (None, EnergySource::Unavailable)
     };
-    let energy_cost = energy_kwh.zip(p.price_per_kwh).map(|(k, c)| k * c);
+    let energy_cost = energy_kwh.and_then(|_| {
+        if t.unpriced_joules <= 0.0 && t.priced_cost > 0.0 {
+            Some(t.priced_cost)
+        } else {
+            p.price_per_kwh
+                .map(|c| t.priced_cost + t.unpriced_joules / 3.6e6 * c)
+        }
+    });
     let net_value = match p.btc_price {
         Some(b) if t.user_btc > 0.0 => Some(t.user_btc * b),
         _ if t.other_coin_secs > 0.0 => None,
@@ -151,6 +156,7 @@ pub fn daily_profit(
         user_secs: day * user_share,
         project_secs: day * (1.0 - user_share),
         energy_joules: watts * day,
+        unpriced_joules: watts * day,
         power_all_measured: false,
         ..Default::default()
     };
@@ -173,6 +179,7 @@ pub fn daily_profit_btc(
         project_secs: day * (1.0 - user_share),
         other_coin_secs: day * user_share,
         energy_joules: watts * day,
+        unpriced_joules: watts * day,
         power_all_measured: false,
         ..Default::default()
     };
@@ -190,7 +197,6 @@ mod tests {
             price: Some(150.0),
             btc_price: None,
             price_per_kwh: Some(0.30),
-            estimated_watts: None,
         }
     }
 
@@ -226,6 +232,7 @@ mod tests {
             user_secs: 3600.0,
             project_secs: 36.0,
             energy_joules: 100.0 * 3636.0,
+            unpriced_joules: 100.0 * 3636.0,
             power_all_measured: true,
             ..Default::default()
         };
@@ -240,6 +247,25 @@ mod tests {
         let kwh = 100.0 * 3636.0 / 3.6e6;
         assert!((e.energy_cost.unwrap() - kwh * 0.30).abs() < 1e-12);
         assert!((e.net_profit.unwrap() - (e.net_xmr * 150.0 - kwh * 0.30)).abs() < 1e-9);
+    }
+
+    #[test]
+    fn stored_prices_win_over_the_current_one() {
+        // 1 kWh at a stored 0.10 plus 1 kWh without a price (current 0.30).
+        let mut t = RangeTotals {
+            user_secs: 7200.0,
+            energy_joules: 7.2e6,
+            priced_cost: 0.10,
+            unpriced_joules: 3.6e6,
+            power_all_measured: true,
+            ..Default::default()
+        };
+        let mut p = params();
+        assert!((summarize(&t, &p).energy_cost.unwrap() - 0.40).abs() < 1e-12);
+        p.price_per_kwh = None;
+        assert_eq!(summarize(&t, &p).energy_cost, None);
+        t.unpriced_joules = 0.0;
+        assert_eq!(summarize(&t, &p).energy_cost, Some(0.10));
     }
 
     #[test]
@@ -261,20 +287,6 @@ mod tests {
         assert_eq!(e.net_profit, None);
         assert_eq!(e.pool_fee_xmr, None);
         assert!(!e.complete);
-    }
-
-    #[test]
-    fn estimated_watts_fill_gaps() {
-        let t = RangeTotals {
-            user_secs: 3600.0,
-            unknown_power_secs: 3600.0,
-            ..Default::default()
-        };
-        let mut p = params();
-        p.estimated_watts = Some(50.0);
-        let e = summarize(&t, &p);
-        assert!((e.energy_kwh.unwrap() - 0.05).abs() < 1e-12);
-        assert_eq!(e.energy_source, EnergySource::Estimated);
     }
 
     #[test]

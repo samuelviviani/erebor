@@ -9,10 +9,12 @@ description = "Erebor desktop application"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-opener = "=2.7.2"
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
+tauri-plugin-single-instance = "2"
+tauri-plugin-notification = "2"
 serde_json = "1"
 erebor-core = { path = "../../../crates/erebor-core" }

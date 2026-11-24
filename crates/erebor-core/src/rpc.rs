@@ -113,6 +113,11 @@ pub fn call(e: &Shared, cmd: &str, args: &Value) -> R {
                 .map_err(err)
         }
         "pool_catalog" => ok(pools::CATALOG),
+        // Pools each coin can be mined on with an own wallet (Kryptex first).
+        "coin_pools" => ok(crate::coins::COINS
+            .iter()
+            .map(|c| (c.id, pools::coin_pools(c)))
+            .collect::<std::collections::BTreeMap<_, _>>()),
         "check_pool" => {
             let (host, port): (String, u16) = (arg(args, "host")?, arg(args, "port")?);
             if !config::valid_host(&host) || port == 0 {
@@ -168,6 +173,22 @@ pub fn call(e: &Shared, cmd: &str, args: &Value) -> R {
             lock(e).stop("user");
             Ok(Value::Null)
         }
+        "tune_power" => lock(e).start_tune().map(|_| Value::Null).map_err(err),
+        "prepare_update" => {
+            lock(e).prepare_update();
+            Ok(Value::Null)
+        }
+        "test_notify" => {
+            let (n, title, body) = lock(e).test_notify().map_err(err)?;
+            crate::notify::send(&n, &title, &body)
+                .map(|_| Value::Null)
+                .map_err(err)
+        }
+        "stop_for" => {
+            let minutes: u64 = arg(args, "minutes")?;
+            lock(e).stop_for(minutes.clamp(1, 24 * 60) * 60);
+            Ok(Value::Null)
+        }
         "pause_mining" => lock(e).pause().map(|_| Value::Null).map_err(err),
         "resume_mining" => lock(e).resume().map(|_| Value::Null).map_err(err),
         "get_status" => ok(lock(e).status()),
@@ -188,6 +209,14 @@ pub fn call(e: &Shared, cmd: &str, args: &Value) -> R {
             lock(e).stats_report(range).map(|v| json!(v)).map_err(err)
         }
         "export_config" => ok(lock(e).export_config()),
+        "export_csv" => {
+            let range: i64 = arg(args, "rangeSecs")?;
+            lock(e).export_csv(range).map(|v| json!(v)).map_err(err)
+        }
+        "save_csv" => {
+            let range: i64 = arg(args, "rangeSecs")?;
+            lock(e).save_csv(range).map(|v| json!(v)).map_err(err)
+        }
         "delete_all_data" => {
             let mut g = lock(e);
             g.delete_all_data().map_err(err)?;

@@ -96,13 +96,33 @@ pub fn run(dir: &Path, cfg: &AppConfig, offline: bool) -> Vec<Check> {
             Some("on Linux install lm-sensors and check `sensors`; overheat protection needs it"),
         ),
     });
-    v.push(match live.power_w {
-        Some(w) => check("power", Ok, format!("measured {w:.0} W"), None),
-        None => check(
+    let gpu_w: Option<f64> = live
+        .gpus
+        .iter()
+        .filter_map(|g| g.power_w)
+        .reduce(|a, b| a + b);
+    v.push(match (gpu_w, live.power_w) {
+        (Some(g), _) => check("power", Ok, format!("GPUs {g:.0} W (measured)"), None),
+        (None, Some(w)) => check("power", Ok, format!("CPU package {w:.0} W (measured)"), None),
+        (None, None) => check(
             "power",
             Warn,
-            "power draw not measurable here (shown as n/a)",
-            Some("set an estimate in the desktop settings (Energy) for cost estimates; on Linux RAPL counters are often root-only"),
+            "power draw not measurable here: electricity cost shown as n/a",
+            Some("GPU power comes from nvidia-smi / amdgpu; on Linux CPU (RAPL) counters are often root-only"),
+        ),
+    });
+    v.push(match erebor_core::hardware::idle_secs() {
+        Some(s) => check(
+            "idle",
+            Ok,
+            format!("input idle time readable ({s} s)"),
+            None,
+        ),
+        None => check(
+            "idle",
+            Warn,
+            "idle time not readable: \"mine only when idle\" cannot work",
+            Some("on Linux it needs GNOME, a freedesktop screensaver (KDE) or xprintidle"),
         ),
     });
 

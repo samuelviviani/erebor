@@ -5,7 +5,7 @@ import { hashrate } from "../lib/format";
 import { translateError, useT } from "../lib/i18n";
 import { useApp } from "../lib/store";
 import { CoinIcon } from "./CoinIcon";
-import { cx } from "./ui";
+import { Button, cx } from "./ui";
 
 const DOT = { running: "bg-go", paused: "bg-hold", error: "bg-stop", stopped: "bg-faint" } as const;
 
@@ -30,16 +30,17 @@ function useMinerPhase(): { state: keyof typeof DOT; text: string; busy: boolean
   }
   if (state === "paused") return { state, busy: false, text: t("state.paused") };
   if (state === "error") return { state, busy: false, text: status?.error ?? t("state.error") };
+  if (status?.held) return { state: "paused", busy: false, text: t(`held.${status.held}`) };
   if (status?.startBlocker) return { state, busy: false, text: translateError(config?.language ?? "en", status.startBlocker) };
   return { state, busy: false, text: t("phase.ready") };
 }
 
-/** Coloured dot that pulses while something is in progress. */
+/** Coloured dot that pulses only while something is in progress (starting, switching…). */
 function StateDot({ state, busy }: { state: keyof typeof DOT; busy?: boolean }) {
   return (
-    <span className="relative flex size-2 shrink-0">
-      {(busy || state === "running") && <span className={cx("absolute inline-flex size-full animate-ping rounded-full opacity-60", DOT[state])} />}
-      <span className={cx("relative inline-flex size-2 rounded-full", DOT[state])} />
+    <span className="relative flex size-2.5 shrink-0">
+      {busy && <span className={cx("absolute inline-flex size-full animate-ping rounded-full opacity-50", DOT[state])} />}
+      <span className={cx("relative inline-flex size-2.5 rounded-full shadow-[0_0_10px_currentColor]", DOT[state], state === "running" ? "text-go" : "text-transparent")} />
     </span>
   );
 }
@@ -67,31 +68,29 @@ export function StatusBar({ action = true }: { action?: boolean }) {
     }
   };
   return (
-    <div role="status" aria-live="polite" aria-label={t("status.label")} title={t(`state.${phase.state}`)} className="flex min-h-12 min-w-0 items-center gap-2.5 text-[13px]">
+    <div role="status" aria-live="polite" aria-label={t("status.label")} title={t(`state.${phase.state}`)} className="flex min-h-14 min-w-0 items-center gap-3 text-[13px]">
       <StateDot state={phase.state} busy={phase.busy} />
       <span className="sr-only">{t(`state.${phase.state}`)}</span>
-      {status && <CoinIcon id={status.coin.id} size={18} />}
+      {status && <CoinIcon id={status.coin.id} size={20} className="ring-2 ring-surface-2" />}
       <span className="min-w-0 flex-1 truncate">
-        {status && <span className="font-medium">{status.coin.name}</span>}
+        {status && <span className="font-semibold">{status.coin.name}</span>}
         <span className={cx("num ml-2", phase.busy ? "text-accent" : phase.state === "error" ? "text-danger" : "text-muted")}>
           {phase.busy && <Loader2 className="mr-1 inline size-3.5 animate-spin" aria-hidden />}
           {phase.text}
         </span>
       </span>
       {action && status && (
-        <button
-          type="button"
+        <Button
+          size="sm"
+          variant={active ? "stop" : "go"}
           onClick={toggle}
-          disabled={busy || (!active && !!status.startBlocker)}
-          className={cx(
-            // Same family as the Home buttons: soft green to start, soft red to stop.
-            "flex h-8 shrink-0 items-center gap-1.5 rounded-full px-3.5 text-xs font-semibold transition-colors active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 [&>svg]:fill-current",
-            active ? "bg-stop/10 text-stop hover:bg-stop/15" : "bg-go/12 text-go hover:bg-go/20",
-          )}
+          loading={busy}
+          disabled={!active && !!status.startBlocker}
+          className="[&>svg]:fill-current"
         >
-          {active ? <Square className="size-3.5" /> : <Play className="size-3.5" />}
+          {!busy && (active ? <Square /> : <Play />)}
           {active ? t("dash.stop") : t("dash.start")}
-        </button>
+        </Button>
       )}
     </div>
   );

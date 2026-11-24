@@ -32,7 +32,9 @@ test("onboarding: three simple steps, Kryptex ID, miner installed automatically,
   const backend = installMockBackend();
   render(<App />);
   expect(
-    await screen.findByText("Mine from your computer without becoming an expert"),
+    await screen.findByText(
+      "Mine from your computer without becoming an expert",
+    ),
   ).toBeInTheDocument();
   expect(
     screen.queryByText(/of mining time supports the project/),
@@ -76,7 +78,7 @@ test("onboarding: three simple steps, Kryptex ID, miner installed automatically,
   expect(backend.config.onboardingCompleted).toBe(true);
 });
 
-test("onboarding: Kryptex only for now, a Monero address is refused", async () => {
+test("onboarding: the main payout is Kryptex or Bitcoin, a Monero address is refused", async () => {
   installMockBackend();
   render(<App />);
   await screen.findByText("Mine from your computer without becoming an expert");
@@ -87,18 +89,16 @@ test("onboarding: Kryptex only for now, a Monero address is refused", async () =
   fireEvent.change(screen.getAllByRole("textbox")[0], {
     target: { value: VALID_WALLET },
   });
-  expect(await screen.findByText(/works with a Kryptex ID/)).toBeInTheDocument();
+  expect(
+    await screen.findByText(/Kryptex ID \(krx…\) or a Bitcoin address/),
+  ).toBeInTheDocument();
 });
 
 test("demo path: start and stop from the dashboard", async () => {
   installMockBackend();
   render(<App />);
-  fireEvent.click(
-    await screen.findByRole("button", { name: "Try demo mode" }),
-  );
-  fireEvent.click(
-    await screen.findByRole("button", { name: "Start mining" }),
-  );
+  fireEvent.click(await screen.findByRole("button", { name: "Try demo mode" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Start mining" }));
 
   expect(await screen.findByText("Mining active")).toBeInTheDocument();
   expect(screen.getByText(/data is simulated/)).toBeInTheDocument();
@@ -138,7 +138,9 @@ test("earnings page: one period selector, earned and time on top, the bill from 
   render(<App />);
   await screen.findByText("Per month (estimate)");
   act(() => useApp.getState().setPage("stats"));
-  expect(await screen.findByText("From earnings to profit")).toBeInTheDocument();
+  expect(
+    await screen.findByText("From earnings to profit"),
+  ).toBeInTheDocument();
   expect(screen.getByText("Net profit")).toBeInTheDocument();
   expect(screen.queryByText("Dettagli tecnici")).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("radio", { name: "30 days" }));
@@ -159,9 +161,7 @@ test("demo banner: exit demo returns to the real onboarding when nothing real is
     demoMode: true,
   });
   render(<App />);
-  fireEvent.click(
-    await screen.findByRole("button", { name: "Exit demo" }),
-  );
+  fireEvent.click(await screen.findByRole("button", { name: "Exit demo" }));
   expect(
     await screen.findByRole("button", { name: "Try demo mode" }),
   ).toBeInTheDocument();
@@ -169,7 +169,7 @@ test("demo banner: exit demo returns to the real onboarding when nothing real is
   expect(backend.config.onboardingCompleted).toBe(false);
 });
 
-test("coins: automatic hides the coin list; choosing by hand warns and needs confirmation", async () => {
+test("coins: automatic lists coins without selecting; choosing by hand warns and needs confirmation", async () => {
   const backend = installMockBackend({
     onboardingCompleted: true,
     wallet: VALID_WALLET,
@@ -184,7 +184,9 @@ test("coins: automatic hides the coin list; choosing by hand warns and needs con
   expect(await screen.findByText("Per month (estimate)")).toBeInTheDocument();
   act(() => useApp.getState().setPage("coins"));
   expect(await screen.findByText("Now mining")).toBeInTheDocument();
-  expect(screen.getByText("Coins your PC can mine")).toBeInTheDocument();
+  // The main payout sits on the same page.
+  expect(screen.getByText("Your earnings go to")).toBeInTheDocument();
+  expect(await screen.findByText("Pearl")).toBeInTheDocument();
   expect(
     screen.queryByRole("radio", { name: "Pearl" }),
   ).not.toBeInTheDocument();
@@ -237,9 +239,7 @@ test("advice: a Monero payout is told how to get BTC; a manual coin is told to g
     await screen.findByRole("button", { name: "Yes, automatic choice" }),
   );
   await waitFor(() => expect(backend.config.coin).toBe("AUTO"));
-  expect(
-    await screen.findByText(/most profitable setup/),
-  ).toBeInTheDocument();
+  expect(await screen.findByText(/most profitable setup/)).toBeInTheDocument();
 });
 
 test("help: question marks explain terms in plain words", async () => {
@@ -281,29 +281,21 @@ test("quick guide opens only on first launch, and is not in the menu", async () 
   ).not.toBeInTheDocument();
 });
 
-// Bitcoin and per-coin wallets are off while Erebor is Kryptex only.
-test.skip("onboarding: earnings can go straight to a Bitcoin wallet, with the 'BTC without mining BTC' note", async () => {
+test("onboarding: earnings can go straight to a Bitcoin wallet", async () => {
   const backend = installMockBackend();
   render(<App />);
   await screen.findByText("Mine from your computer without becoming an expert");
   next();
-  expect(await screen.findByText(/you receive BTC/)).toBeInTheDocument();
-  expect(screen.getByRole("radio", { name: /In Bitcoin/ })).toHaveAttribute(
-    "aria-checked",
-    "true",
-  );
+  // Bitcoin through unMineable is the recommended default.
   expect(
-    screen.getByRole("radio", { name: /Kryptex account/ }),
+    screen.getByRole("radio", { name: /My Bitcoin wallet/ }),
   ).toHaveAttribute("aria-checked", "true");
-  fireEvent.click(screen.getByRole("radio", { name: /My Bitcoin wallet/ }));
-  const input = screen.getByRole("textbox");
+  const input = screen.getAllByRole("textbox")[0];
   expect(input).toHaveAttribute("placeholder", "bc1…");
   fireEvent.change(input, {
     target: { value: "bc1qqqqsyqcyq5rqwzqfpg9scrgwpugpzysn4v0345" },
   });
-  expect(
-    await screen.findByText(/Valid Bitcoin address/),
-  ).toBeInTheDocument();
+  expect(await screen.findByText(/Valid Bitcoin address/)).toBeInTheDocument();
   next();
   expect(
     await screen.findByText("Your computer is ready.", {}, { timeout: 4000 }),
@@ -351,7 +343,7 @@ test("home shows the whole computer live, no Erebor fee, no mining status in the
   expect(screen.getAllByText("Load").length).toBeGreaterThan(0);
 });
 
-test("wallet: the payout address can be changed from a clear dialog", async () => {
+test("coins & wallets: the main payout can be changed from a clear dialog", async () => {
   const backend = installMockBackend({
     onboardingCompleted: true,
     wallet: "krxOLD123",
@@ -364,7 +356,7 @@ test("wallet: the payout address can be changed from a clear dialog", async () =
   });
   render(<App />);
   await screen.findByText("Per month (estimate)");
-  act(() => useApp.getState().setPage("wallet"));
+  act(() => useApp.getState().setPage("coins"));
   fireEvent.click(await screen.findByRole("button", { name: "Change" }));
   expect(
     await screen.findByRole("heading", {
@@ -379,7 +371,37 @@ test("wallet: the payout address can be changed from a clear dialog", async () =
   await waitFor(() => expect(backend.config.wallet).toBe("krxNEW123"));
 });
 
-test.skip("wallet: an own wallet can be set for a single coin", async () => {
+test("coins & wallets: every coin opens, saying what mining it takes and what is missing", async () => {
+  installMockBackend({
+    onboardingCompleted: true,
+    wallet: VALID_WALLET,
+  });
+  render(<App />);
+  await screen.findByText("Per month (estimate)");
+  act(() => useApp.getState().setPage("coins"));
+  expect(
+    await screen.findByText("Not mineable from a PC"),
+  ).toBeInTheDocument();
+  // Without a GPU the row says so first; the sheet lists everything else too.
+  fireEvent.click(await screen.findByRole("button", { name: "Firo details" }));
+  const sheet = await screen.findByRole("dialog");
+  expect(sheet).toHaveTextContent("What it takes");
+  expect(sheet).toHaveTextContent("Needs an NVIDIA or AMD graphics card");
+  expect(sheet).toHaveTextContent("Not on Kryptex: needs your own wallet");
+  expect(sheet).toHaveTextContent("Needs SRBMiner-MULTI");
+  expect(screen.getByRole("button", { name: /Install/ })).toBeInTheDocument();
+  // The own-wallet route is already selected, on the first listed pool.
+  expect(screen.getByRole("radio", { name: "My FIRO wallet" })).toHaveAttribute(
+    "aria-checked",
+    "true",
+  );
+  expect(screen.getByRole("radio", { name: /2Miners/ })).toHaveAttribute(
+    "aria-checked",
+    "true",
+  );
+});
+
+test("coins & wallets: a coin's sheet sets its own wallet and leaves it out of automatic", async () => {
   const backend = installMockBackend({
     onboardingCompleted: true,
     wallet: VALID_WALLET,
@@ -392,34 +414,33 @@ test.skip("wallet: an own wallet can be set for a single coin", async () => {
   });
   render(<App />);
   await screen.findByText("Per month (estimate)");
-  act(() => useApp.getState().setPage("wallet"));
-  expect(await screen.findByText(/No exceptions/)).toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: "Add a wallet" }));
-  fireEvent.change(
-    await screen.findByRole("textbox", { name: "Search a coin" }),
-    { target: { value: "prl" } },
+  act(() => useApp.getState().setPage("coins"));
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Monero details" }),
   );
-  const found = await screen.findAllByRole("option");
-  expect(found).toHaveLength(1);
-  fireEvent.click(found[0]);
   expect(
-    await screen.findByRole("heading", { name: "Your Pearl wallet" }),
+    await screen.findByRole("heading", { name: "Monero" }),
   ).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("switch", { name: "Automatic mode may pick it" }));
+  fireEvent.click(screen.getByRole("radio", { name: "My XMR wallet" }));
   const input = screen.getByRole("textbox");
-  fireEvent.change(input, { target: { value: "prl1pbad" } });
+  fireEvent.change(input, { target: { value: "4bad" } });
   expect(
     await screen.findByText(/Not a valid address for this coin/),
   ).toBeInTheDocument();
-  const good = `prl1p${"q".repeat(58)}`;
+  expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+  const good = `4${"a".repeat(94)}`;
   fireEvent.change(input, { target: { value: good } });
-  expect(await screen.findByText("Valid Pearl address")).toBeInTheDocument();
+  expect(await screen.findByText("Valid Monero address")).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Save" }));
   await waitFor(() =>
-    expect(backend.config.coinWallets).toEqual({ PRL: good }),
+    expect(backend.config.coinWallets).toEqual({ XMR: good }),
   );
+  expect(backend.config.autoExclude).toEqual(["XMR"]);
   expect(
-    await screen.findByRole("button", { name: "Modifica Pearl" }),
+    await screen.findByText("As XMR to your wallet · Kryptex"),
   ).toBeInTheDocument();
+  expect(screen.getByText("left out of automatic")).toBeInTheDocument();
 });
 
 test("notifications: repeats merge into one, the stack fans out on hover", async () => {
@@ -448,9 +469,7 @@ test("mode: changing it while mining applies at once, no confirmation", async ()
     demoMode: true,
   });
   render(<App />);
-  fireEvent.click(
-    await screen.findByRole("button", { name: "Start mining" }),
-  );
+  fireEvent.click(await screen.findByRole("button", { name: "Start mining" }));
   await waitFor(() => expect(backend.calls).toContain("start_mining"));
   fireEvent.click(await screen.findByRole("radio", { name: /Performance/ }));
   await waitFor(() =>
@@ -465,6 +484,8 @@ test("onboarding: the flag switch changes the language at once", async () => {
   await screen.findByText("Mine from your computer without becoming an expert");
   fireEvent.click(screen.getByRole("radio", { name: "Italiano" }));
   expect(
-    await screen.findByText("Minare dal tuo computer, senza diventare un esperto"),
+    await screen.findByText(
+      "Minare dal tuo computer, senza diventare un esperto",
+    ),
   ).toBeInTheDocument();
 });

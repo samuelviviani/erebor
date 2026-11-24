@@ -60,6 +60,207 @@ pub const CATALOG: &[PoolInfo] = &[
     },
 ];
 
+// ---------- per-coin pools (own wallets) ----------
+
+/// How a pool wants the wallet and the worker name.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Login {
+    /// `address.worker`, password `x` (2Miners, HeroMiners, WoolyPooly, most pools).
+    Dot,
+    /// `address/worker` (Kryptex).
+    Slash,
+    /// Address as user, worker as password (MoneroOcean).
+    PassWorker,
+    /// Worker only: the payout address lives in the user's own node (P2Pool).
+    WorkerOnly,
+}
+
+impl Login {
+    pub fn credentials(self, address: &str, worker: &str) -> (String, String) {
+        let w = if worker.is_empty() { "x" } else { worker };
+        match self {
+            Login::Dot => (format!("{address}.{w}"), "x".into()),
+            Login::Slash => (format!("{address}/{w}"), "x".into()),
+            Login::PassWorker => (address.to_string(), w.to_string()),
+            Login::WorkerOnly => (w.to_string(), "x".into()),
+        }
+    }
+}
+
+/// One pool for one coin. Hosts per region: the first is the default.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CoinPool {
+    /// "kryptex", "2miners", "herominers", "woolypooly", "moneroocean", "p2pool".
+    pub pool: &'static str,
+    pub name: &'static str,
+    /// (region, host): "eu", "us", "asia", or "local".
+    pub hosts: Vec<(&'static str, String)>,
+    pub port: u16,
+    /// `None`: taken from Kryptex market data (varies by coin).
+    pub fee_percent: Option<f64>,
+    /// "PPLNS", "PROP", "PPS+", "P2Pool".
+    pub scheme: &'static str,
+    /// Minimum payout in coins, as published by the pool's API (`None`: see the pool site).
+    pub min_payout: Option<f64>,
+    pub login: Login,
+    /// Address page on the pool website (`{a}` = address), for balance and payouts.
+    pub balance_url: Option<String>,
+    /// Needs the user's own wallet address (false only for P2Pool, set on the node).
+    pub needs_address: bool,
+}
+
+fn eu_us_asia(eu: String, us: String, asia: String) -> Vec<(&'static str, String)> {
+    vec![("eu", eu), ("us", us), ("asia", asia)]
+}
+
+/// Pools for a coin, Kryptex (own address) first when the coin is there. Endpoints checked on 2026-11-24 against
+/// each pool's site/API (2Miners pages, HeroMiners `/api/stats`, WoolyPooly coin pages,
+/// MoneroOcean `/pool/ports`); re-verify before each release (docs/POOLS.md).
+pub fn coin_pools(coin: &crate::coins::Coin) -> Vec<CoinPool> {
+    let mut out: Vec<CoinPool> = coin
+        .host
+        .zip(coin.kryptex_slug())
+        .map(|(host, slug)| CoinPool {
+            pool: "kryptex",
+            name: "Kryptex",
+            hosts: vec![("eu", host.to_string())],
+            port: coin.port,
+            fee_percent: None,
+            scheme: "PPS+",
+            min_payout: None,
+            login: Login::Slash,
+            balance_url: Some(format!("https://pool.kryptex.com/{slug}/miner/stats/{{a}}")),
+            needs_address: true,
+        })
+        .into_iter()
+        .collect();
+    // (coin, subdomain, port, min payout)
+    const TWO_MINERS: &[(&str, &str, u16, Option<f64>)] = &[
+        ("ETC", "etc", 1010, None),
+        ("ETHW", "ethw", 2020, None),
+        ("ERG", "erg", 8888, None),
+        ("RVN", "rvn", 6060, Some(10.0)),
+        ("KAS", "kas", 2020, Some(50.0)),
+        ("NEXA", "nexa", 5050, Some(50000.0)),
+        ("PRL", "prl", 1818, Some(1.0)),
+        ("QUANTUS", "qtc", 3636, Some(0.1)), // 2Miners' "QTC" is Quantus
+        ("XNA", "xna", 6060, Some(1000.0)),
+        ("ZEPH", "zeph", 2222, None),
+    ];
+    const HERO: &[(&str, &str, u16, f64, f64)] = &[
+        ("KAS", "kaspa", 1206, 0.9, 1.0),
+        ("ALPH", "alephium", 1220, 0.9, 0.1),
+        ("CFX", "conflux", 1170, 0.9, 1.0),
+        ("XEL", "xelis", 1225, 0.9, 0.1),
+        ("ERG", "ergo", 1180, 0.9, 0.5),
+        ("RVN", "ravencoin", 1140, 0.9, 5.0),
+        ("ETC", "etc", 1150, 0.9, 0.01),
+        ("QTC", "qubitcoin", 1195, 1.0, 0.1),
+        ("PRL", "pearl", 1200, 1.0, 1.0),
+        ("BEAM", "beam", 1130, 0.9, 1.0),
+        ("ZANO", "zano", 1110, 0.9, 0.2),
+    ];
+    const WOOLY: &[(&str, &str, u16, f64)] = &[
+        ("ETC", "etc", 35000, 0.1),
+        ("ETHW", "ethw", 3096, 0.1),
+        ("CFX", "cfx", 3094, 1.0),
+        ("ERG", "erg", 3100, 1.0),
+        ("RVN", "rvn", 55555, 5.0),
+        ("ALPH", "alph", 3106, 1.0),
+        ("KAS", "kas", 3112, 50.0),
+        ("NEXA", "nexa", 3124, 50000.0),
+        ("OCTA", "octa", 3130, 2.0),
+        ("XEL", "xel", 3150, 0.1),
+        ("PRL", "prl", 3154, 1.0),
+        ("FIRO", "firo", 3104, 0.1),
+        ("ZANO", "zano", 3146, 0.25),
+        ("XNA", "xna", 3128, 1000.0),
+        ("KLS", "kls", 3132, 500.0),
+        ("RXD", "rxd", 3122, 500.0),
+    ];
+    if let Some(&(_, sub, port, min)) = TWO_MINERS.iter().find(|p| p.0 == coin.id) {
+        out.push(CoinPool {
+            pool: "2miners",
+            name: "2Miners",
+            hosts: eu_us_asia(
+                format!("{sub}.2miners.com"),
+                format!("us-{sub}.2miners.com"),
+                format!("asia-{sub}.2miners.com"),
+            ),
+            port,
+            fee_percent: Some(1.0),
+            scheme: "PPLNS",
+            min_payout: min,
+            login: Login::Dot,
+            balance_url: Some(format!("https://{sub}.2miners.com/account/{{a}}")),
+            needs_address: true,
+        });
+    }
+    if let Some(&(_, sub, port, fee, min)) = HERO.iter().find(|p| p.0 == coin.id) {
+        out.push(CoinPool {
+            pool: "herominers",
+            name: "HeroMiners",
+            hosts: eu_us_asia(
+                format!("de.{sub}.herominers.com"),
+                format!("us.{sub}.herominers.com"),
+                format!("hk.{sub}.herominers.com"),
+            ),
+            port,
+            fee_percent: Some(fee),
+            scheme: "PROP",
+            min_payout: Some(min),
+            login: Login::Dot,
+            balance_url: Some(format!("https://{sub}.herominers.com/#{{a}}")),
+            needs_address: true,
+        });
+    }
+    if let Some(&(_, slug, port, min)) = WOOLY.iter().find(|p| p.0 == coin.id) {
+        out.push(CoinPool {
+            pool: "woolypooly",
+            name: "WoolyPooly",
+            hosts: vec![("eu", "pool.woolypooly.com".into())],
+            port,
+            fee_percent: Some(0.9),
+            scheme: "PPLNS",
+            min_payout: Some(min),
+            login: Login::Dot,
+            balance_url: Some(format!(
+                "https://woolypooly.com/en/coin/{slug}/wallet/{{a}}"
+            )),
+            needs_address: true,
+        });
+    }
+    if coin.id == "XMR" {
+        out.push(CoinPool {
+            pool: "moneroocean",
+            name: "MoneroOcean",
+            hosts: vec![("eu", "gulf.moneroocean.stream".into())],
+            port: 10008,
+            fee_percent: Some(0.0),
+            scheme: "PPLNS",
+            min_payout: Some(0.003),
+            login: Login::PassWorker,
+            balance_url: Some("https://moneroocean.stream/#/dashboard?addr={a}".into()),
+            needs_address: true,
+        });
+        out.push(CoinPool {
+            pool: "p2pool",
+            name: "P2Pool",
+            hosts: vec![("local", "127.0.0.1".into())],
+            port: 3333,
+            fee_percent: Some(0.0),
+            scheme: "P2Pool",
+            min_payout: None,
+            login: Login::WorkerOnly,
+            balance_url: None,
+            needs_address: false,
+        });
+    }
+    out
+}
+
 /// Kryptex account IDs only work on Kryptex hosts.
 pub fn is_kryptex_host(host: &str) -> bool {
     host == "kryptex.network" || host.ends_with(".kryptex.network")

@@ -1,7 +1,7 @@
-import { Activity, Cpu, Fan, Gpu, MemoryStick, Thermometer, Zap } from "lucide-react";
+import { Activity, Cpu, Fan, Gauge, Gpu, MemoryStick, Thermometer, Zap } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api, type HardwareInfo } from "../lib/api";
-import { bytes } from "../lib/format";
+import { bytes, hashrate } from "../lib/format";
 import { useT } from "../lib/i18n";
 import { HISTORY, useApp } from "../lib/store";
 import { ChartTile } from "./Spark";
@@ -17,7 +17,7 @@ function tempTone(t: number | null | undefined, max: number) {
 
 const deg = (v: number | null | undefined, na: string) => (v != null ? `${v.toFixed(0)} °C` : na);
 
-/** The whole computer at a glance: processor, memory, power and every GPU, last 5 minutes. */
+/** The whole computer at a glance: processor, memory and every GPU (with its power draw), last 5 minutes. */
 export function ComputerMonitor() {
   const t = useT();
   const { status, config, history } = useApp();
@@ -50,7 +50,7 @@ export function ComputerMonitor() {
             </span>
           )}
         </p>
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-3 sm:grid-cols-3">
           <ChartTile icon={<Activity />} label={t("hw.usage")} value={live ? `${live.cpuUsage.toFixed(0)}%` : "—"} values={series((s) => s.cpu)} max={100} />
           <ChartTile
             icon={<Thermometer />}
@@ -69,14 +69,6 @@ export function ComputerMonitor() {
             values={series((s) => s.mem)}
             max={100}
             tone="text-muted"
-          />
-          <ChartTile
-            icon={<Zap />}
-            label={t("dash.power")}
-            value={status?.powerW != null ? `${status.powerW.toFixed(0)} W` : "—"}
-            sub={status?.powerW != null ? t(status.powerSource) : t("na.power")}
-            values={series((s) => s.power)}
-            tone="text-perf"
           />
         </div>
       </div>
@@ -99,7 +91,8 @@ export function ComputerMonitor() {
               </span>
               <Explain term="gpu" align="left" />
             </p>
-            <div className="grid gap-3 sm:grid-cols-3">
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <GpuHashrate i={i} watts={g.powerW} values={series((s) => s.gpus[i]?.hash ?? null)} />
               <ChartTile icon={<Activity />} label={t("gpu.load")} value={g.utilPercent != null ? `${g.utilPercent.toFixed(0)}%` : na} values={series((s) => s.gpus[i]?.util ?? null)} max={100} />
               <ChartTile
                 icon={<Thermometer />}
@@ -122,5 +115,29 @@ export function ComputerMonitor() {
         <p className="px-1 text-xs text-faint">{t("hw.gpus.none")}</p>
       )}
     </div>
+  );
+}
+
+/** One card's hashrate, its efficiency and how it compares with the same model elsewhere. */
+function GpuHashrate({ i, watts, values }: { i: number; watts: number | null; values: (number | null)[] }) {
+  const t = useT();
+  const row = useApp((s) => s.status?.gpus[i]);
+  const h = row?.hashrate ?? null;
+  const share = h != null && row?.expected ? h / row.expected : null;
+  const sub =
+    share != null && share < 0.8
+      ? t("gpu.belowExpected", { p: Math.round(share * 100) })
+      : h != null && watts
+        ? t("gpu.efficiency", { v: hashrate(h / watts) })
+        : undefined;
+  return (
+    <ChartTile
+      icon={<Gauge />}
+      label={t("gpu.hashrate")}
+      value={h != null ? hashrate(h) : "—"}
+      sub={sub}
+      values={values}
+      tone={share != null && share < 0.8 ? "text-hold" : "text-go"}
+    />
   );
 }

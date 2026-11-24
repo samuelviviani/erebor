@@ -34,6 +34,8 @@ const MIGRATIONS: &[&str] = &[
     // v2: several coins. Value is tracked in BTC (net of pool and miner fees).
     "ALTER TABLE samples ADD COLUMN coin TEXT NOT NULL DEFAULT 'XMR';
      ALTER TABLE samples ADD COLUMN btc_per_hash REAL;",
+    // v3: what a kWh cost when the sample was taken (bands, solar, heat credit).
+    "ALTER TABLE samples ADD COLUMN price_kwh REAL;",
 ];
 
 #[derive(Debug, Clone, PartialEq)]
@@ -51,6 +53,8 @@ pub struct Sample {
     pub coin: String,
     /// Net BTC per hash at sampling time (pool and miner fees already deducted).
     pub btc_per_hash: Option<f64>,
+    /// Effective electricity price per kWh at sampling time, if the user set one.
+    pub price_kwh: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -141,8 +145,8 @@ impl Store {
 
     pub fn insert_sample(&self, s: &Sample) -> rusqlite::Result<()> {
         self.conn.execute(
-            "INSERT INTO samples (ts, secs, hashrate, target, accepted, rejected, xmr_per_hash, power_w, power_measured, temp_c, coin, btc_per_hash)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+            "INSERT INTO samples (ts, secs, hashrate, target, accepted, rejected, xmr_per_hash, power_w, power_measured, temp_c, coin, btc_per_hash, price_kwh)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
             params![
                 s.ts,
                 s.secs,
@@ -155,7 +159,8 @@ impl Store {
                 s.power_measured,
                 s.temp_c,
                 s.coin,
-                s.btc_per_hash
+                s.btc_per_hash,
+                s.price_kwh
             ],
         )?;
         Ok(())
@@ -174,7 +179,9 @@ impl Store {
                COALESCE(SUM(CASE WHEN coin='XMR' AND xmr_per_hash IS NULL AND hashrate > 0 THEN secs END), 0),
                COALESCE(SUM(CASE WHEN target='user' THEN hashrate*secs*btc_per_hash END), 0),
                COALESCE(SUM(CASE WHEN target='user' AND btc_per_hash IS NULL AND hashrate > 0 THEN secs END), 0),
-               COALESCE(SUM(CASE WHEN target='user' AND coin <> 'XMR' THEN secs END), 0)
+               COALESCE(SUM(CASE WHEN target='user' AND coin <> 'XMR' THEN secs END), 0),
+               COALESCE(SUM(power_w*secs*price_kwh), 0) / 3.6e6,
+               COALESCE(SUM(CASE WHEN price_kwh IS NULL THEN power_w*secs END), 0)
              FROM samples WHERE ts >= ?1 AND ts < ?2",
             params![from, to],
             |r| {
@@ -190,6 +197,8 @@ impl Store {
                     user_btc: r.get(8)?,
                     unknown_value_secs: r.get(9)?,
                     other_coin_secs: r.get(10)?,
+                    priced_cost: r.get(11)?,
+                    unpriced_joules: r.get(12)?,
                 })
             },
         )
@@ -252,6 +261,49 @@ impl Store {
             })
         })?;
         rows.collect()
+    }
+
+    /// Every sample in the range as CSV (local time), for spreadsheets and tax records.
+    /// Amounts are estimates from hashrate and network data, like everywhere in the app.
+    pub fn export_csv(&self, from: i64, to: i64) -> rusqlite::Result<String> {
+        use chrono::TimeZone;
+        let mut st = self.conn.prepare(
+            "SELECT ts, secs, coin, target, hashrate, hashrate*secs*xmr_per_hash,
+                    hashrate*secs*btc_per_hash, power_w*secs/3.6e6, price_kwh,
+                    power_w*secs*price_kwh/3.6e6, accepted, rejected, temp_c
+             FROM samples WHERE ts >= ?1 AND ts < ?2 ORDER BY ts",
+        )?;
+        let mut out = String::from(
+            "time,seconds,coin,mined_for,hashrate_hs,coin_amount,btc_value,energy_kwh,price_per_kwh,energy_cost,accepted,rejected,temp_c\n",
+        );
+        let opt = |v: Option<f64>| v.map(|v| v.to_string()).unwrap_or_default();
+        let mut rows = st.query(params![from, to])?;
+        while let Some(r) = rows.next()? {
+            let ts: i64 = r.get(0)?;
+            let time = chrono::Local
+                .timestamp_opt(ts, 0)
+                .single()
+                .map(|t| t.format("%Y-%m-%dT%H:%M:%S%:z").to_string())
+                .unwrap_or_default();
+            let coin: String = r.get(2)?;
+            let target: String = r.get(3)?;
+            out += &format!(
+                "{time},{},{},{},{},{},{},{},{},{},{},{},{}\n",
+                r.get::<_, f64>(1)?,
+                coin.replace(',', ""),
+                target,
+                opt(r.get(4)?),
+                opt(r.get(5)?),
+                opt(r.get(6)?),
+                opt(r.get(7)?),
+                opt(r.get(8)?),
+                opt(r.get(9)?),
+                r.get::<_, i64>(10)?,
+                r.get::<_, i64>(11)?,
+                opt(r.get(12)?),
+            );
+        }
+        Ok(out)
     }
 
     pub fn start_session(&self, ts: i64, miner: &str, pool: &str) -> rusqlite::Result<i64> {
@@ -338,7 +390,30 @@ mod tests {
             temp_c: Some(60.0),
             coin: "XMR".into(),
             btc_per_hash: Some(2e-12 * 0.0077),
+            price_kwh: None,
         }
+    }
+
+    #[test]
+    fn exports_samples_as_csv() {
+        let dir = tempfile::tempdir().unwrap();
+        let s = Store::open(&dir.path().join("t.db")).unwrap();
+        let mut a = sample(1000, Target::User, Some(5000.0), Some(100.0));
+        a.price_kwh = Some(0.36);
+        s.insert_sample(&a).unwrap();
+        s.insert_sample(&sample(1010, Target::Project, None, None))
+            .unwrap();
+        let csv = s.export_csv(0, 2000).unwrap();
+        let lines: Vec<&str> = csv.lines().collect();
+        assert_eq!(lines.len(), 3);
+        assert!(lines[0].starts_with("time,seconds,coin,mined_for,"));
+        let f: Vec<&str> = lines[1].split(',').collect();
+        assert_eq!(f.len(), 13);
+        assert_eq!((f[2], f[3], f[4]), ("XMR", "user", "5000"));
+        // 100 W for 10 s at 0.36/kWh.
+        assert!((f[9].parse::<f64>().unwrap() - 1000.0 * 0.36 / 3.6e6).abs() < 1e-15);
+        let g: Vec<&str> = lines[2].split(',').collect();
+        assert_eq!((g[3], g[4], g[9]), ("project", "", ""));
     }
 
     #[test]

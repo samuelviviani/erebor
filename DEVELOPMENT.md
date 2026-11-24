@@ -29,7 +29,7 @@ The CLI, agent and TUI alone need only Rust ([docs/CLI.md](docs/CLI.md#build-fro
 | Variable | Use |
 |---|---|
 | `EREBOR_DEV_FEE_WALLET` | the project's Kryptex ID (compile time). Missing or invalid ⇒ no fee. **Never** put an address in the code. |
-| `EREBOR_DEV_FEE_BTC` | the project's Bitcoin address, for users paid through unMineable (not exposed yet) |
+| `EREBOR_DEV_FEE_BTC` | the project's Bitcoin address, where the 2% goes for the coins unMineable mines (compile time) |
 | `EREBOR_REPO_URL` | repository URL shown in the app's About section |
 | `NEXT_PUBLIC_SITE_URL` | website base URL (see `apps/website/.env.example`) |
 

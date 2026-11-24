@@ -22,7 +22,8 @@ export interface Coin {
   algo: string;
   device: "cpu" | "gpu";
   miner: MinerKind;
-  host: string;
+  /** Kryptex endpoint; `null`: not on Kryptex (own wallet, or unMineable). */
+  host: string | null;
   port: number;
   minerFeePercent: number;
   unmineableHost: string | null;
@@ -30,9 +31,18 @@ export interface Coin {
   asic: boolean;
 }
 
+/** One thing mining a coin takes on this PC, met or not. */
+export interface Requirement {
+  kind: "hardware" | "system" | "miner" | "payout";
+  /** "missing" blocks mining; "warn" works with a catch. */
+  status: "ok" | "missing" | "warn";
+  code: string;
+}
+
 export interface CoinOption {
   coin: Coin;
   blocker: string | null;
+  requirements: Requirement[];
   minerInstalled: boolean;
   hashrate: number | null;
   btcPerDay: number | null;
@@ -60,12 +70,29 @@ export interface AppConfig {
   cpuminer: MinerConfig;
   /** Own wallet per coin id ("PRL" → "prl1p…"), overriding the main payout for that coin. */
   coinWallets: Record<string, string>;
-  performance: { preset: Preset; customThreadsPercent: number };
+  /** Pool for each coin with an own wallet (missing: Kryptex). */
+  coinPools: Record<string, CoinPoolChoice>;
+  /** Coins the automatic choice must not use. */
+  autoExclude: string[];
+  performance: {
+    preset: Preset;
+    customThreadsPercent: number;
+    /** Mine only after this many minutes without input; null = always. */
+    idleMinutes: number | null;
+    /** Watts per GPU while mining (needs admin rights); null = untouched. */
+    gpuPowerLimitW: number | null;
+  };
   safety: { maxTempC: number; stopOnOverheat: boolean; autoRestart: boolean };
   energy: {
     pricePerKwh: number | null;
     currency: "EUR" | "USD";
-    estimatedWatts: number | null;
+    /** Prices from the user's bill by time of day; the first match wins. */
+    bands: PriceBand[];
+    /** January = 0. */
+    heatingMonths: boolean[];
+    heatingCreditPercent: number;
+    solar: Solar;
+    thermostat: Thermostat;
     stopIfUnprofitable: boolean;
     minProfitPerDay: number;
   };
@@ -86,6 +113,64 @@ export interface AppConfig {
   autoUpdateMiners: boolean;
   startOnLaunch: boolean;
   defenderAllowed: boolean;
+  notify: Notify;
+}
+
+export interface CoinPoolChoice {
+  /** Catalog pool id or "custom"; "" = Kryptex. */
+  pool: string;
+  region: string;
+  host: string;
+  port: number;
+  tls: boolean;
+  /** Catalog pool used while the main one is unreachable; "" = none. */
+  backup: string;
+}
+
+/** One pool a coin can be mined on with an own wallet (verified catalog). */
+export interface CoinPool {
+  pool: string;
+  name: string;
+  /** [region, host]: "eu" | "us" | "asia" | "local". */
+  hosts: [string, string][];
+  port: number;
+  feePercent: number | null;
+  scheme: string;
+  minPayout: number | null;
+  login: "dot" | "slash" | "passWorker" | "workerOnly";
+  balanceUrl: string | null;
+  needsAddress: boolean;
+}
+
+export interface PriceBand {
+  startMinute: number;
+  endMinute: number;
+  days: boolean[];
+  price: number;
+}
+
+export interface Solar {
+  enabled: boolean;
+  url: string;
+  token: string;
+  field: string;
+  exportPositive: boolean;
+  feedInPrice: number;
+}
+
+export interface Thermostat {
+  enabled: boolean;
+  url: string;
+  token: string;
+  field: string;
+  onBelowC: number;
+  offAboveC: number;
+}
+
+export interface Notify {
+  ntfyUrl: string;
+  telegramToken: string;
+  telegramChat: string;
 }
 
 export interface AppInfo {
@@ -169,7 +254,7 @@ export interface Alert {
 }
 
 export interface JobStatus {
-  kind: "install" | "benchmark";
+  kind: "install" | "benchmark" | "tune";
   progress: number;
   done: boolean;
   error: string | null;
@@ -236,6 +321,20 @@ export interface Status {
   /** `mined` valued in BTC at today's prices (what Kryptex/unMineable pay out). */
   minedBtc: number | null;
   advice: Advice;
+  /** Mining is on but waiting for this. */
+  held: "in_use" | "warm" | "unprofitable" | null;
+  /** What a kWh costs for mining right now. */
+  energyPrice: number | null;
+  /** Watts exported by the meter (negative = importing). */
+  solarExportW: number | null;
+  solarError: string | null;
+  /** Same order as `hardware.gpus`. */
+  gpus: { hashrate: number | null; expected: number | null }[];
+  roomTempC: number | null;
+  roomError: string | null;
+  idleSecs: number | null;
+  /** Stopped for a while: seconds until it starts again by itself. */
+  resumeInSecs: number | null;
 }
 
 /** What earns the most BTC on this PC: coin (once measured) and how to be paid. */
@@ -395,6 +494,14 @@ export const api = {
   getStats: (rangeSecs: number) =>
     call<StatsReport>("get_stats", { rangeSecs }),
   exportConfig: () => call<string>("export_config"),
+  /** Before an app update restarts Erebor: mining resumes in the new version. */
+  prepareUpdate: () => call<void>("prepare_update"),
+  stopFor: (minutes: number) => call<void>("stop_for", { minutes }),
+  testNotify: () => call<void>("test_notify"),
+  tunePower: () => call<void>("tune_power"),
+  coinPools: () => call<Record<string, CoinPool[]>>("coin_pools"),
+  /** Writes the CSV to Downloads and returns its path. */
+  saveCsv: (rangeSecs: number) => call<string>("save_csv", { rangeSecs }),
   deleteAllData: () => call<AppConfig>("delete_all_data"),
   dataDir: () => call<string>("data_dir"),
 };

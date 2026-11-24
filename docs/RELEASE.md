@@ -10,7 +10,7 @@ used for releases).
 2. **Pools**: re-check hosts, ports and fees in `pools::CATALOG` ([POOLS.md](POOLS.md)).
 3. **Version**: bump `Cargo.toml` (workspace), `apps/desktop/src-tauri/tauri.conf.json`,
    `apps/desktop/package.json`, `apps/website/package.json` and `CHANGELOG.md`; commit and push.
-4. **Build**: `EREBOR_DEV_FEE_WALLET=<project Kryptex ID> scripts/release-local.sh X.Y.Z`.
+4. **Build**: `EREBOR_DEV_FEE_BTC=<project BTC address> [EREBOR_DEV_FEE_WALLET=<project Kryptex ID>] scripts/release-local.sh X.Y.Z`. The 2% goes to the BTC address on unMineable for the coins unMineable mines, to the Kryptex account for the others; a coin with neither has no fee.
    It builds macOS (universal `.dmg`), Windows (NSIS, cross-compiled with `cargo-xwin`) and
    the four signed CLI binaries (Linux via `cargo-zigbuild`), writes `latest.json` and
    `SHA256SUMS` and creates a **draft** GitHub release with a download table. One-time setup

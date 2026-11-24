@@ -104,6 +104,7 @@ pub fn parse_summary(text: &str) -> MinerStats {
         version: get("VER").map(|v| format!("cpuminer-opt {v}")),
         paused: false,
         threads: n("CPUS").map(|c| c as u32),
+        gpu_hashrates: Vec::new(),
     }
 }
 
@@ -124,6 +125,7 @@ mod tests {
             algo: "sha256d".into(),
             threads_percent: 50,
             priority: 1,
+            gpu_power_limit_w: None,
         };
         let a = args(&spec, 40123);
         let at = |k: &str| a[a.iter().position(|x| x == k).unwrap() + 1].clone();

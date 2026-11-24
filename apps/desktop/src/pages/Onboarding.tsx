@@ -48,6 +48,8 @@ export default function Onboarding() {
   const [hw, setHw] = useState<HardwareInfo | null>(null);
   const [catalog, setCatalog] = useState<PoolInfo[]>([]);
   const [walletOk, setWalletOk] = useState(false);
+  // Seasoned miners may skip the main payout and set per-coin wallets afterwards.
+  const [ownLater, setOwnLater] = useState(false);
   const [saving, setSaving] = useState(false);
   const [skipDefender, setSkipDefender] = useState(false);
   const lang = draft.language;
@@ -145,7 +147,7 @@ export default function Onboarding() {
 
   const canNext: Record<Step, boolean> = {
     welcome: true,
-    account: walletOk,
+    account: walletOk || ownLater,
     pc: pcReady,
     ready: false,
   };
@@ -166,7 +168,7 @@ export default function Onboarding() {
   };
 
   const steps = visible.map((id) => ({ id, label: t(`onb.nav.${id}`) }));
-  const mode = draft.wallet ? payoutMode(draft.wallet) : "kryptex";
+  const mode = draft.wallet ? payoutMode(draft.wallet) : "bitcoin";
 
   return (
     <div className="flex min-h-full">
@@ -305,6 +307,19 @@ export default function Onboarding() {
                   onChange={onWallet}
                   onValid={setWalletOk}
                 />
+                {!walletOk && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onWallet("");
+                      setOwnLater(true);
+                      go(1);
+                    }}
+                    className="text-left text-xs leading-relaxed text-faint hover:text-fg hover:underline"
+                  >
+                    {t("onb.ownLater")}
+                  </button>
+                )}
                 {/* Set from the start: how this PC shows up on Kryptex. */}
                 <Field
                   label={t("settings.worker")}

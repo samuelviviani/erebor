@@ -27,16 +27,15 @@ const METHODS: {
   recommended?: boolean;
   signup?: string;
 }[] = [
+  // BTC straight to the user's own wallet, no account: the default.
+  { id: "bitcoin", pays: "btc", icon: Bitcoin, recommended: true },
   {
     id: "kryptex",
     pays: "btc",
     icon: Wallet,
-    recommended: true,
     signup: "https://www.kryptex.com/",
   },
-  // Kryptex only for now (the backend refuses the others): they come back here.
-  // { id: "bitcoin", pays: "btc", icon: Bitcoin },
-  // { id: "monero", pays: "coin", icon: ShieldHalf },
+  // Coins paid in themselves: Coins & wallets › the coin's sheet (own wallet).
 ];
 
 /** Recognise what was pasted; `null` when it doesn't look like anything known yet. */
@@ -49,7 +48,7 @@ function detect(wallet: string): PayoutMode | null {
 }
 
 export function payoutMode(wallet: string): PayoutMode {
-  return detect(wallet) ?? "kryptex";
+  return detect(wallet) ?? "bitcoin";
 }
 
 /**
@@ -85,12 +84,14 @@ export function PayoutChoice({
     onChange(v);
   };
 
-  // A single method: just the field, no choice to make.
+  // A single method: just the field, no choice to make. Step 1 only when methods
+  // pay in different things.
   const choose = METHODS.length > 1;
+  const choosePays = new Set(METHODS.map((m) => m.pays)).size > 1;
   return (
     <div className="space-y-5">
       {/* Step 1: what you want to receive */}
-      {choose && (
+      {choosePays && (
         <div
           role="radiogroup"
           aria-label={t("payout.pays.title")}

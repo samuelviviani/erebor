@@ -29,8 +29,9 @@ pub struct Coin {
     pub algo: &'static str,
     pub device: Device,
     pub miner: MinerKind,
-    /// Kryptex account-mining endpoint (plain TCP, as documented by Kryptex).
-    pub host: &'static str,
+    /// Kryptex account-mining endpoint (plain TCP, as documented by Kryptex). `None`:
+    /// not on Kryptex, mined with the user's own wallet (or on unMineable).
+    pub host: Option<&'static str>,
     pub port: u16,
     /// Miner developer fee, percent of hashes (from the miner's README).
     pub miner_fee_percent: f64,
@@ -60,19 +61,21 @@ impl Coin {
     }
 
     /// Kryptex pool slug ("quai-kawpow" for QUAI), as in the endpoint host.
-    fn kryptex_slug(&self) -> &'static str {
-        self.host.split('.').next().unwrap_or(self.host)
+    pub fn kryptex_slug(&self) -> Option<&'static str> {
+        self.host.and_then(|h| h.split('.').next())
     }
 }
 
 /// unMineable plain-TCP stratum port (SSL: 4444/443), from unmineable.com/coins/BTC.
 pub const UNMINEABLE_PORT: u16 = 3333;
+/// Fee assumed for estimates on third-party pools (2Miners, WoolyPooly: 0.9–1%).
+pub const OWN_POOL_FEE_PERCENT: f64 = 1.0;
 /// unMineable fee without referral code. Not confirmed on an official page: estimate.
 pub const UNMINEABLE_FEE_PERCENT: f64 = 1.0;
 
 /// Coins mined on Kryptex that the supported miners handle on NVIDIA/AMD GPUs or CPU.
 /// Sources: pool.kryptex.com coin pages (endpoints, algorithms), unmineable.com/coins/BTC
-/// (hosts), SRBMiner-MULTI README (3.8.8), lolMiner README and release notes (1.98a).
+/// (hosts, checked again 2026-11-24: also kheavyhash, blake3, nexapow, octopus), SRBMiner-MULTI README (3.8.8), lolMiner README and release notes (1.98a).
 pub const COINS: &[Coin] = &[
     gpu(
         "PRL",
@@ -128,15 +131,22 @@ pub const COINS: &[Coin] = &[
         1.5,
         Some("xelishash.unmineable.com"),
     ),
-    gpu(
-        "QTC",
-        "Qubitcoin",
-        "qhash",
-        "qtc.kryptex.network",
-        7049,
-        1.5,
-        None,
+    // Kryptex's, 2Miners' and unMineable's "QTC" is Quantus; WhatToMine's QTC is
+    // Qubitcoin (qhash, HeroMiners). Two coins share the ticker: Quantus goes by its
+    // WhatToMine tag.
+    wtm(
+        gpu(
+            "QUANTUS",
+            "Quantus",
+            "quantus",
+            "qtc.kryptex.network",
+            7049,
+            2.0,
+            Some("quantus.unmineable.com"),
+        ),
+        "QUANTUS",
     ),
+    own_only(gpu("QTC", "Qubitcoin", "qhash", "", 0, 1.5, None)),
     gpu(
         "QUAI",
         "Quai",
@@ -146,6 +156,25 @@ pub const COINS: &[Coin] = &[
         0.85,
         None,
     ),
+    // Not on Kryptex: own wallet on a pool (pools::coin_pools), or unMineable.
+    own_only(gpu("FIRO", "Firo", "firopow", "", 0, 0.85, None)),
+    own_only(gpu("ZANO", "Zano", "progpow_zano", "", 0, 0.85, None)),
+    own_only(gpu("XNA", "Neurai", "kawpow", "", 0, 0.85, None)),
+    // SRBMiner's fishhash fee is 0% since 3.8.8. Not on WhatToMine: no estimate.
+    Coin {
+        id: "IRON",
+        name: "Iron Fish",
+        algo: "fishhash",
+        device: Device::Gpu,
+        miner: MinerKind::Srbminer,
+        host: None,
+        port: 0,
+        miner_fee_percent: 0.0,
+        wtm_tag: None,
+        unmineable_host: Some("fishhash.unmineable.com"),
+        price: PriceSource::Gecko("iron-fish"),
+        asic: false,
+    },
     gpu(
         "OCTA",
         "OctaSpace",
@@ -161,7 +190,7 @@ pub const COINS: &[Coin] = &[
         algo: "rx/0",
         device: Device::Cpu,
         miner: MinerKind::Xmrig,
-        host: "xmr.kryptex.network",
+        host: Some("xmr.kryptex.network"),
         port: 7029,
         miner_fee_percent: 1.0,
         wtm_tag: None,
@@ -184,45 +213,57 @@ pub const COINS: &[Coin] = &[
         PriceSource::Wtm("XTM"),
     ),
     // GPU coins mined with lolMiner (algorithm names as lolMiner expects them).
-    lol(
-        "ALPH",
-        "Alephium",
-        "ALEPH",
-        "alph.kryptex.network",
-        7010,
-        0.75,
-        None,
-        PriceSource::Gecko("alephium"),
+    on_unmineable(
+        lol(
+            "ALPH",
+            "Alephium",
+            "ALEPH",
+            "alph.kryptex.network",
+            7010,
+            0.75,
+            None,
+            PriceSource::Gecko("alephium"),
+        ),
+        "blake3.unmineable.com",
     ),
-    lol(
-        "CFX",
-        "Conflux",
-        "OCTOPUS",
-        "cfx.kryptex.network",
-        7027,
-        2.0,
-        Some("CFX"),
-        PriceSource::Wtm("CFX"),
+    on_unmineable(
+        lol(
+            "CFX",
+            "Conflux",
+            "OCTOPUS",
+            "cfx.kryptex.network",
+            7027,
+            2.0,
+            Some("CFX"),
+            PriceSource::Wtm("CFX"),
+        ),
+        "octopus.unmineable.com",
     ),
-    lol(
-        "NEXA",
-        "Nexa",
-        "NEXA",
-        "nexa.kryptex.network",
-        7026,
-        2.0,
-        Some("NEXA"),
-        PriceSource::Wtm("NEXA"),
+    on_unmineable(
+        lol(
+            "NEXA",
+            "Nexa",
+            "NEXA",
+            "nexa.kryptex.network",
+            7026,
+            2.0,
+            Some("NEXA"),
+            PriceSource::Wtm("NEXA"),
+        ),
+        "nexapow.unmineable.com",
     ),
-    lol(
-        "KAS",
-        "Kaspa",
-        "KASPA",
-        "kas.kryptex.network",
-        7011,
-        0.75,
-        None,
-        PriceSource::Gecko("kaspa"),
+    on_unmineable(
+        lol(
+            "KAS",
+            "Kaspa",
+            "KASPA",
+            "kas.kryptex.network",
+            7011,
+            0.75,
+            None,
+            PriceSource::Gecko("kaspa"),
+        ),
+        "kheavyhash.unmineable.com",
     ),
     lol(
         "XTM-SHA3X",
@@ -244,16 +285,54 @@ pub const COINS: &[Coin] = &[
         None,
         PriceSource::Wtm("XTM"),
     ),
+    // lolMiner coins not on Kryptex (algorithm names from lolMiner's release notes).
+    on_unmineable(
+        own_only(lol(
+            "BEAM",
+            "Beam",
+            "BEAM-III",
+            "",
+            0,
+            1.0,
+            Some("BEAM"),
+            PriceSource::Wtm("BEAM"),
+        )),
+        "beamhash.unmineable.com",
+    ),
+    own_only(lol(
+        "KLS",
+        "Karlsen",
+        "KARLSENV2",
+        "",
+        0,
+        1.0,
+        Some("KLS"),
+        PriceSource::Wtm("KLS"),
+    )),
+    // Not on WhatToMine: no estimate.
+    own_only(lol(
+        "RXD",
+        "Radiant",
+        "RADIANT",
+        "",
+        0,
+        0.75,
+        None,
+        PriceSource::Gecko("radiant"),
+    )),
     // SHA-256d / Scrypt coins on the CPU with cpuminer-opt (Windows builds upstream).
     // WhatToMine's ASIC feed, keyed "TAG:Algorithm" (several coins share a ticker).
-    asic(
-        "BTC",
-        "Bitcoin",
-        "sha256d",
-        "btc.kryptex.network",
-        7014,
-        Some("BTC:SHA-256"),
-        PriceSource::Wtm("BTC:SHA-256"),
+    on_unmineable(
+        asic(
+            "BTC",
+            "Bitcoin",
+            "sha256d",
+            "btc.kryptex.network",
+            7014,
+            Some("BTC:SHA-256"),
+            PriceSource::Wtm("BTC:SHA-256"),
+        ),
+        "sha256.unmineable.com",
     ),
     asic(
         "BCH",
@@ -309,14 +388,18 @@ pub const COINS: &[Coin] = &[
         Some("QUAI:SHA-256"),
         PriceSource::Wtm("QUAI:SHA-256"),
     ),
-    asic(
-        "LTC",
-        "Litecoin",
-        "scrypt",
-        "ltc.kryptex.network",
-        7016,
-        Some("LTC:Scrypt"),
-        PriceSource::Wtm("LTC:Scrypt"),
+    // unMineable's scrypt pool merge-mines LTC with DOGE (and BELLS), paid in BTC.
+    on_unmineable(
+        asic(
+            "LTC",
+            "Litecoin",
+            "scrypt",
+            "ltc.kryptex.network",
+            7016,
+            Some("LTC:Scrypt"),
+            PriceSource::Wtm("LTC:Scrypt"),
+        ),
+        "scrypt.unmineable.com",
     ),
     asic(
         "QUAI-SCRYPT",
@@ -346,7 +429,7 @@ const fn asic(
         algo,
         device: Device::Cpu,
         miner: MinerKind::Cpuminer,
-        host,
+        host: Some(host),
         port,
         miner_fee_percent: 0.0,
         wtm_tag,
@@ -375,13 +458,39 @@ const fn lol(
         algo,
         device: Device::Gpu,
         miner: MinerKind::Lolminer,
-        host,
+        host: Some(host),
         port,
         miner_fee_percent,
         wtm_tag,
         unmineable_host: None,
         price,
         asic: false,
+    }
+}
+
+/// Not on Kryptex: mined with the user's own wallet (or on unMineable).
+const fn own_only(c: Coin) -> Coin {
+    Coin {
+        host: None,
+        port: 0,
+        ..c
+    }
+}
+
+/// Priced and valued with this WhatToMine tag instead of the ticker.
+const fn wtm(c: Coin, tag: &'static str) -> Coin {
+    Coin {
+        wtm_tag: Some(tag),
+        price: PriceSource::Wtm(tag),
+        ..c
+    }
+}
+
+/// Also mineable on unMineable (paid in BTC) through this stratum host.
+const fn on_unmineable(c: Coin, host: &'static str) -> Coin {
+    Coin {
+        unmineable_host: Some(host),
+        ..c
     }
 }
 
@@ -399,7 +508,7 @@ const fn cpu(
         algo: "rx/0",
         device: Device::Cpu,
         miner: MinerKind::Xmrig,
-        host,
+        host: Some(host),
         port,
         miner_fee_percent: 1.0,
         wtm_tag: None,
@@ -425,7 +534,7 @@ const fn gpu(
         algo,
         device: Device::Gpu,
         miner: MinerKind::Srbminer,
-        host,
+        host: Some(host),
         port,
         miner_fee_percent,
         wtm_tag: Some(id),
@@ -573,17 +682,21 @@ pub fn fetch_markets() -> Result<(Vec<CoinMarket>, Option<BtcPrice>), String> {
     };
     let mut out = Vec::new();
     for c in COINS {
-        let Ok(stats) = get_json(
-            &a,
-            &format!(
-                "https://pool.kryptex.com/{}/api/v1/pool/stats",
-                c.kryptex_slug()
-            ),
-        ) else {
-            continue;
-        };
-        let Some((fee, kryptex_cph)) = parse_kryptex_stats(&stats) else {
-            continue;
+        // Kryptex coins: its fee and network data. Others: a typical pool fee and
+        // WhatToMine only (no network data without a WhatToMine tag: no estimate).
+        let (fee, kryptex_cph) = match c.kryptex_slug() {
+            Some(slug) => {
+                let Some(k) = get_json(
+                    &a,
+                    &format!("https://pool.kryptex.com/{slug}/api/v1/pool/stats"),
+                )
+                .ok()
+                .and_then(|v| parse_kryptex_stats(&v)) else {
+                    continue;
+                };
+                k
+            }
+            None => (OWN_POOL_FEE_PERCENT, None),
         };
         let data = match c.wtm_tag {
             Some(tag) => wtm.get(tag).copied(),
@@ -681,8 +794,18 @@ mod tests {
     #[test]
     fn catalog_is_consistent() {
         for c in COINS {
-            assert!(c.host.ends_with(".kryptex.network"), "{}", c.id);
-            assert!(crate::config::valid_host(c.host));
+            match c.host {
+                Some(h) => {
+                    assert!(h.ends_with(".kryptex.network"), "{}", c.id);
+                    assert!(crate::config::valid_host(h));
+                }
+                // Off Kryptex a coin needs somewhere to go: a pool or unMineable.
+                None => assert!(
+                    !crate::pools::coin_pools(c).is_empty() || c.unmineable_host.is_some(),
+                    "{} has no pool",
+                    c.id
+                ),
+            }
             assert_eq!(
                 c.device == Device::Gpu,
                 matches!(c.miner, MinerKind::Srbminer | MinerKind::Lolminer),
@@ -697,7 +820,9 @@ mod tests {
             );
         }
         assert_eq!(find("prl").unwrap().algo, "pearlhash");
-        assert_eq!(find("QUAI").unwrap().kryptex_slug(), "quai-kawpow");
+        assert_eq!(find("QUAI").unwrap().kryptex_slug(), Some("quai-kawpow"));
+        assert_eq!(find("QUANTUS").unwrap().kryptex_slug(), Some("qtc"));
+        assert_eq!(find("QTC").unwrap().kryptex_slug(), None);
         assert!(!find("XMR").unwrap().own_endpoint() && find("ZEPH").unwrap().own_endpoint());
     }
 

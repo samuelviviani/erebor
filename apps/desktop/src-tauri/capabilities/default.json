@@ -1,13 +1,14 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Minimal permissions for the main window: core APIs, the file picker used to select an existing miner binary, and opening the payout pages (Kryptex, unMineable, SupportXMR) in the browser; self-update from signed GitHub releases and restart afterwards.",
+  "description": "Minimal permissions for the main window: core APIs, the file picker used to select an existing miner binary, and opening the payout pages (Kryptex, unMineable, SupportXMR) in the browser; self-update from signed GitHub releases and restart afterwards; a system notification when an update is ready.",
   "windows": ["main"],
   "permissions": [
     "core:default",
     "dialog:allow-open",
     "updater:default",
     "process:allow-restart",
+    "notification:default",
     {
       "identifier": "opener:allow-open-url",
       "allow": [

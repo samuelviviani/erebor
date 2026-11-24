@@ -40,6 +40,14 @@ pub fn args(spec: &LaunchSpec, api_port: u16) -> Vec<String> {
     ]
     .iter()
     .map(|s| s.to_string())
+    .chain(spec.gpu_power_limit_w.into_iter().flat_map(|w| {
+        // Absolute watts for every GPU; the reset restores stock power on exit.
+        [
+            "--gpu-plimit".to_string(),
+            w.to_string(),
+            "--gpu-reset-oc".into(),
+        ]
+    }))
     .collect()
 }
 
@@ -74,6 +82,17 @@ pub fn parse_stats(v: &Value) -> MinerStats {
         .and_then(|u| u.as_str())
         .map(String::from);
     let accepted = count("accepted");
+    // Per device: `"gpu": {"gpu0": …, "gpu1": …, "total": …}`, in device order.
+    let mut per_gpu: Vec<(usize, f64)> = hr
+        .and_then(|h| h.get("gpu"))
+        .and_then(|g| g.as_object())
+        .map(|g| {
+            g.iter()
+                .filter_map(|(k, v)| Some((k.strip_prefix("gpu")?.parse().ok()?, num(Some(v))?)))
+                .collect()
+        })
+        .unwrap_or_default();
+    per_gpu.sort_by_key(|(i, _)| *i);
     MinerStats {
         hashrate_10s: total.filter(|h| *h > 0.0),
         hashrate_60s: one_min.or(total).filter(|h| *h > 0.0),
@@ -96,6 +115,7 @@ pub fn parse_stats(v: &Value) -> MinerStats {
             .map(String::from),
         paused: false,
         threads: None,
+        gpu_hashrates: per_gpu.into_iter().map(|(_, h)| h).collect(),
     }
 }
 
@@ -252,6 +272,7 @@ mod tests {
             algo: "pearlhash".into(),
             threads_percent: 50,
             priority: 1,
+            gpu_power_limit_w: None,
         };
         let a = args(&spec, 40123);
         assert_eq!(a[0], "--disable-cpu");
@@ -263,19 +284,31 @@ mod tests {
         assert!(!a
             .iter()
             .any(|x| x.contains("restart-url") || x.contains("shutdown-url")));
+        assert!(!a.iter().any(|x| x.starts_with("--gpu-")));
+        let limited = args(
+            &LaunchSpec {
+                gpu_power_limit_w: Some(150),
+                ..spec
+            },
+            40123,
+        );
+        let at = |k: &str| limited[limited.iter().position(|x| x == k).unwrap() + 1].clone();
+        assert_eq!(at("--gpu-plimit"), "150");
+        assert!(limited.contains(&"--gpu-reset-oc".to_string()));
     }
 
     #[test]
     fn parses_stats_tolerantly() {
         let v = json!({"miner_version": "3.8.8", "algorithms": [{
             "name": "pearlhash",
-            "hashrate": {"gpu": {"total": 3.1e9, "1min": 3.0e9}},
+            "hashrate": {"gpu": {"total": 3.1e9, "1min": 3.0e9, "gpu1": 1.0e9, "gpu0": 2.1e9}},
             "shares": {"accepted": 12, "rejected": 1},
             "pool": {"pool": "prl.kryptex.network:7048", "latency": 35}
         }]});
         let s = parse_stats(&v);
         assert_eq!(s.hashrate_10s, Some(3.1e9));
         assert_eq!(s.hashrate_60s, Some(3.0e9));
+        assert_eq!(s.gpu_hashrates, vec![2.1e9, 1.0e9]);
         assert_eq!((s.accepted, s.rejected), (12, 1));
         assert!(s.connected);
         assert_eq!(s.ping_ms, Some(35));

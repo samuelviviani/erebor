@@ -38,6 +38,84 @@ async fn blocking<T: Send + 'static>(f: impl FnOnce() -> R<T> + Send + 'static) 
         .map_err(|e| Value::String(e.to_string()))?
 }
 
+/// Same dispatch as `call`, for the tray menu (already off the UI thread).
+fn rpc_call(st: &AppState, cmd: &str, args: Value) -> R<Value> {
+    match &st.backend {
+        Backend::Local(e) => rpc::call(e, cmd, &args),
+        Backend::Agent(dir) => ipc::call(dir, cmd, &args),
+    }
+}
+
+/// Bring the window back (tray, second launch, dock icon).
+fn show_main(app: &tauri::AppHandle) {
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.show();
+        let _ = w.unminimize();
+        let _ = w.set_focus();
+    }
+}
+
+/// Tray menu: start/stop and "stop for a while" without opening the window.
+fn tray(app: &tauri::App, st: Arc<AppState>) -> tauri::Result<()> {
+    use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
+    use tauri::tray::TrayIconBuilder;
+    let it = rpc_call(&st, "get_config", Value::Null)
+        .ok()
+        .and_then(|c| {
+            c.get("language")
+                .and_then(|l| l.as_str().map(|l| l == "it"))
+        })
+        .unwrap_or(false);
+    let l = |i: &str, e: &str| if it { i.to_string() } else { e.to_string() };
+    let item = |id: &str, text: String| MenuItem::with_id(app, id, text, true, None::<&str>);
+    let menu = Menu::with_items(
+        app,
+        &[
+            &item(
+                "toggle",
+                l("Avvia / ferma il mining", "Start / stop mining"),
+            )?,
+            &item("stop60", l("Ferma per 1 ora", "Stop for 1 hour"))?,
+            &item("stop180", l("Ferma per 3 ore", "Stop for 3 hours"))?,
+            &PredefinedMenuItem::separator(app)?,
+            &item("open", l("Apri Erebor", "Open Erebor"))?,
+            &item("quit", l("Esci", "Quit"))?,
+        ],
+    )?;
+    let mut b = TrayIconBuilder::new().menu(&menu).tooltip("Erebor");
+    if let Some(icon) = app.default_window_icon() {
+        b = b.icon(icon.clone());
+    }
+    b.on_menu_event(move |app, ev| {
+        let id = ev.id().as_ref().to_string();
+        match id.as_str() {
+            "open" => show_main(app),
+            "quit" => app.exit(0),
+            _ => {
+                let st = st.clone();
+                std::thread::spawn(move || {
+                    let _ = match id.as_str() {
+                        "stop60" => rpc_call(&st, "stop_for", serde_json::json!({"minutes": 60})),
+                        "stop180" => rpc_call(&st, "stop_for", serde_json::json!({"minutes": 180})),
+                        _ => {
+                            let s = rpc_call(&st, "get_status", Value::Null).unwrap_or_default();
+                            let on = matches!(s["state"].as_str(), Some("running" | "paused"))
+                                || !s["held"].is_null();
+                            rpc_call(
+                                &st,
+                                if on { "stop_mining" } else { "start_mining" },
+                                Value::Null,
+                            )
+                        }
+                    };
+                });
+            }
+        }
+    })
+    .build(app)?;
+    Ok(())
+}
+
 #[tauri::command]
 async fn call(s: State<'_, Arc<AppState>>, cmd: String, args: Option<Value>) -> R<Value> {
     let st = s.inner().clone();
@@ -71,7 +149,12 @@ fn set_login_item(enabled: bool) -> R<()> {
 
 fn main() {
     let app = tauri::Builder::default()
+        // A second launch (Start menu, desktop icon) shows the running app instead.
+        .plugin(tauri_plugin_single_instance::init(|app, _, _| {
+            show_main(app)
+        }))
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
@@ -79,7 +162,8 @@ fn main() {
             let dir = app.path().app_data_dir()?;
             let backend = match Engine::new(dir.clone(), engine::default_factory()) {
                 Ok(engine) => {
-                    let start = engine.config().start_on_launch;
+                    // Also after an app update that interrupted mining.
+                    let start = engine.config().start_on_launch | engine.take_resume_after_update();
                     let engine = Arc::new(Mutex::new(engine));
                     engine::spawn_loops(engine.clone());
                     if start {
@@ -99,7 +183,25 @@ fn main() {
                 Backend::Local(e) => ipc::serve(ipc::Host::new(e.clone(), "desktop", None)).ok(),
                 _ => None,
             };
-            app.manage(Arc::new(AppState { backend, _ipc: ipc }));
+            let st = Arc::new(AppState { backend, _ipc: ipc });
+            app.manage(st.clone());
+            // Like a chat app: closing the window keeps Erebor (and mining) running in
+            // the tray; "Quit" there exits. Without a tray (Linux without an indicator
+            // service) closing still quits, so nothing is left running out of sight.
+            match tray(app, st) {
+                Ok(()) => {
+                    if let Some(w) = app.get_webview_window("main") {
+                        let w2 = w.clone();
+                        w.on_window_event(move |ev| {
+                            if let tauri::WindowEvent::CloseRequested { api, .. } = ev {
+                                api.prevent_close();
+                                let _ = w2.hide();
+                            }
+                        });
+                    }
+                }
+                Err(e) => eprintln!("tray unavailable, closing the window quits: {e}"),
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![call, login_item, set_login_item])
@@ -107,8 +209,13 @@ fn main() {
         .expect("failed to build Erebor");
 
     app.run(|handle, event| {
-        // Mining always stops when the user quits the app (no hidden background mining);
-        // `erebor agent` is the explicit way to keep mining without a window.
+        // macOS: clicking the Dock icon brings the hidden window back.
+        #[cfg(target_os = "macos")]
+        if let tauri::RunEvent::Reopen { .. } = event {
+            show_main(handle);
+        }
+        // Quitting (tray "Quit", Cmd+Q) always stops mining: nothing keeps mining once
+        // Erebor is gone; `erebor agent` is the explicit way to mine without the app.
         if let tauri::RunEvent::Exit = event {
             if let Some(s) = handle.try_state::<Arc<AppState>>() {
                 if let Backend::Local(e) = &s.backend {

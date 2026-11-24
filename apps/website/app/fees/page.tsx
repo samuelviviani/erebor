@@ -5,11 +5,11 @@ import { site } from "@/site";
 export const metadata: Metadata = { title: "Fees", alternates: { canonical: "/fees" } };
 
 const fees = [
-  ["Erebor fee", `${site.devFeePercent}% of effective mining time`, "The Erebor project, on its Kryptex account with the worker \"EREBOR\""],
+  ["Erebor fee", `${site.devFeePercent}% of effective mining time`, "The Erebor project (worker \"EREBOR\"): its Bitcoin address on unMineable, or its Kryptex account for coins unMineable doesn't mine"],
   ["XMRig donation (processor)", `${site.xmrigDonatePercent}% of time (the minimum of official builds)`, "XMRig developers"],
   ["SRBMiner-MULTI fee (graphics card)", "0.65–3% depending on the algorithm (e.g. Pearl 2%)", "SRBMiner-MULTI developer"],
   ["lolMiner fee (graphics card)", "0.75–2% depending on the algorithm", "lolMiner developer"],
-  ["Pool fee", "Kryptex: 1% for most coins, Pearl 3%", "The pool"],
+  ["Pool fee", "unMineable: 1%; Kryptex: 1% for most coins, Pearl 3%; your own pool: its own fee (shown in the app)", "The pool"],
 ];
 
 export default function Fees() {

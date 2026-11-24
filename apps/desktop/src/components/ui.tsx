@@ -1,7 +1,9 @@
-import { CircleHelp, Info, Loader2, X } from "lucide-react";
+import NumberFlow from "@number-flow/react";
+import { CircleHelp, Loader2, X } from "lucide-react";
 import {
   useEffect,
   useId,
+  useLayoutEffect,
   useRef,
   useState,
   type ButtonHTMLAttributes,
@@ -20,13 +22,7 @@ export function Card({
   children: ReactNode;
   className?: string;
 }) {
-  return (
-    <section
-      className={cx("rounded-2xl border border-line bg-surface p-5", className)}
-    >
-      {children}
-    </section>
-  );
+  return <section className={cx("panel p-5", className)}>{children}</section>;
 }
 
 export function CardTitle({
@@ -34,23 +30,74 @@ export function CardTitle({
   action,
   help,
   icon,
+  sub,
 }: {
   children: ReactNode;
   action?: ReactNode;
   help?: HelpTerm;
   icon?: ReactNode;
+  sub?: ReactNode;
 }) {
   return (
-    <div className="mb-4 flex items-center justify-between gap-3">
-      <h2 className="flex items-center gap-2 text-[15px] font-medium text-fg">
-        {icon && <span className="text-faint [&>svg]:size-[18px]">{icon}</span>}
-        {children}
-        {help && <Explain term={help} />}
-      </h2>
+    <div className="mb-4 flex items-start justify-between gap-3">
+      <div className="min-w-0">
+        <h2 className="flex items-center gap-2 text-[15px] font-semibold text-fg">
+          {icon && (
+            <IconTile className="size-7 rounded-lg [&>svg]:size-4">{icon}</IconTile>
+          )}
+          {children}
+          {help && <Explain term={help} />}
+        </h2>
+        {sub && <p className="mt-1 text-xs leading-relaxed text-faint">{sub}</p>}
+      </div>
       {action}
     </div>
   );
 }
+
+/** Tinted square behind an icon: the same "chip" everywhere (settings, modals, lists). */
+export function IconTile({
+  children,
+  tone = "accent",
+  className,
+}: {
+  children: ReactNode;
+  tone?: Tone;
+  className?: string;
+}) {
+  return (
+    <span
+      className={cx(
+        "flex size-9 shrink-0 items-center justify-center rounded-xl [&>svg]:size-[18px]",
+        TONE_TILE[tone],
+        className,
+      )}
+    >
+      {children}
+    </span>
+  );
+}
+
+/** Semantic tones: one colour per meaning, used by tiles, badges and notices. */
+export type Tone =
+  | "accent"
+  | "go"
+  | "warn"
+  | "danger"
+  | "perf"
+  | "violet"
+  | "teal"
+  | "neutral";
+const TONE_TILE: Record<Tone, string> = {
+  accent: "bg-accent/14 text-accent",
+  go: "bg-go/14 text-go",
+  warn: "bg-warn/14 text-warn",
+  danger: "bg-danger/14 text-danger",
+  perf: "bg-perf/14 text-perf",
+  violet: "bg-[#a78bfa]/14 text-[#a78bfa]",
+  teal: "bg-[#2dd4bf]/14 text-[#14b8a6]",
+  neutral: "bg-surface-3 text-muted",
+};
 
 /** Glossary terms explained in plain language (texts in i18n: `help.<term>.title/.body`). */
 export type HelpTerm =
@@ -67,7 +114,10 @@ export type HelpTerm =
   | "mode"
   | "btc"
   | "mined"
-  | "estimate";
+  | "estimate"
+  | "ownWallets"
+  | "poolChoice"
+  | "backupPool";
 
 /**
  * "?" button that opens a short, plain-language explanation. Click, Enter or Space
@@ -97,8 +147,8 @@ export function Explain({
   }, [open]);
   const pos = {
     center: "left-1/2 -translate-x-1/2",
-    left: "left-0",
-    right: "right-0",
+    left: "-left-2",
+    right: "-right-2",
   }[align];
   return (
     <span ref={ref} className="relative inline-flex align-middle font-sans">
@@ -111,22 +161,22 @@ export function Explain({
           setOpen(!open);
         }}
         className={cx(
-          "inline-flex rounded-full text-faint transition-colors hover:text-accent",
+          "inline-flex rounded-full text-faint transition-colors duration-200 hover:text-accent",
           open && "text-accent",
         )}
       >
-        <CircleHelp className="size-4" aria-hidden />
+        <CircleHelp className="size-[15px]" aria-hidden />
       </button>
       {open && (
         <span
           role="dialog"
           aria-label={t(`help.${term}.title`)}
           className={cx(
-            "pop-in shadow-soft absolute top-6 z-40 w-72 rounded-xl border border-line bg-surface p-4 text-left text-[13px] leading-relaxed font-normal tracking-normal text-muted normal-case",
+            "pop-in glass absolute top-7 z-40 w-76 rounded-2xl p-4 text-left text-[13px] leading-relaxed font-normal tracking-normal text-muted normal-case",
             pos,
           )}
         >
-          <span className="font-display mb-1.5 block text-base text-fg">
+          <span className="mb-1.5 block text-[15px] font-semibold text-fg">
             {t(`help.${term}.title`)}
           </span>
           {t(`help.${term}.body`)}
@@ -136,60 +186,52 @@ export function Explain({
   );
 }
 
-type Variant = "primary" | "secondary" | "ghost" | "danger";
+type Variant = "primary" | "secondary" | "ghost" | "danger" | "go" | "stop";
+type Size = "sm" | "md" | "lg";
 
+/** The one button: pill-shaped, three sizes, a spring on press. */
 export function Button({
   variant = "secondary",
+  size = "md",
   loading,
   className,
   children,
   ...rest
 }: ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: Variant;
+  size?: Size;
   loading?: boolean;
 }) {
   const styles: Record<Variant, string> = {
     primary:
-      "bg-accent-solid text-accent-fg shadow-[0_6px_20px_-8px] shadow-accent-solid/70 hover:brightness-110",
-    secondary: "border border-line bg-surface text-fg hover:bg-surface-2",
-    ghost: "text-muted hover:text-fg hover:bg-surface-2",
-    danger: "border border-danger/40 text-danger hover:bg-danger/10",
+      "bg-gradient-to-b from-accent to-accent-solid text-accent-fg shadow-[inset_0_1px_0_rgb(255_255_255/0.22),0_8px_20px_-8px_var(--accent-solid)] hover:brightness-110",
+    secondary:
+      "border border-line-strong bg-surface-2 text-fg shadow-[var(--highlight)] hover:bg-surface-3",
+    ghost: "text-muted hover:bg-surface-2 hover:text-fg",
+    danger: "border border-danger/35 bg-danger/8 text-danger hover:bg-danger/15",
+    go: "bg-go/14 text-go hover:bg-go/22",
+    stop: "bg-stop/12 text-stop hover:bg-stop/20",
+  };
+  const sizes: Record<Size, string> = {
+    sm: "h-8 px-3 text-xs [&>svg]:size-3.5",
+    md: "h-9 px-4 text-[13px] [&>svg]:size-4",
+    lg: "h-12 px-6 text-[15px] [&>svg]:size-[18px]",
   };
   return (
     <button
       type="button"
       className={cx(
-        "inline-flex h-9 items-center justify-center gap-2 rounded-xl px-4 text-[13px] font-medium transition-[color,background-color,border-color,transform,box-shadow] duration-200 active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50",
+        "inline-flex shrink-0 items-center justify-center gap-2 rounded-full font-medium whitespace-nowrap transition-[color,background-color,border-color,transform,filter,box-shadow] duration-200 ease-[var(--ease)] active:scale-[0.98] disabled:pointer-events-none disabled:opacity-45",
         styles[variant],
+        sizes[size],
         className,
       )}
       disabled={rest.disabled || loading}
       {...rest}
     >
-      {loading && <Loader2 className="size-4 animate-spin" aria-hidden />}
+      {loading && <Loader2 className="animate-spin" aria-hidden />}
       {children}
     </button>
-  );
-}
-
-/** Small info icon with an accessible tooltip (also readable by screen readers). */
-export function Tip({ text }: { text: string }) {
-  return (
-    <span className="group relative inline-flex align-middle">
-      <span
-        tabIndex={0}
-        aria-label={text}
-        className="inline-flex text-faint hover:text-muted focus:text-muted"
-      >
-        <Info className="size-3.5" aria-hidden />
-      </span>
-      <span
-        role="tooltip"
-        className="pointer-events-none absolute top-5 left-1/2 z-30 w-64 -translate-x-1/2 rounded-lg border border-line bg-surface-2 p-2.5 text-xs leading-relaxed font-normal tracking-normal text-fg normal-case opacity-0 shadow-lg transition-opacity group-focus-within:opacity-100 group-hover:opacity-100"
-      >
-        {text}
-      </span>
-    </span>
   );
 }
 
@@ -201,15 +243,15 @@ export function Badge({
   tone?: "neutral" | "ok" | "warn" | "err";
 }) {
   const t = {
-    neutral: "bg-surface-2 text-muted",
-    ok: "bg-accent-soft text-accent",
-    warn: "bg-warn/15 text-warn",
-    err: "bg-danger/15 text-danger",
-  }[tone];
+    neutral: "bg-surface-3 text-muted",
+    ok: "bg-go/12 text-go",
+    warn: "bg-warn/14 text-warn",
+    err: "bg-danger/14 text-danger",
+    }[tone];
   return (
     <span
       className={cx(
-        "inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-medium",
+        "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold [&>svg]:size-3",
         t,
       )}
     >
@@ -218,6 +260,44 @@ export function Badge({
   );
 }
 
+/** Bare switch (the row around it shows the label). The only switch in the app. */
+export function Switch({
+  label,
+  checked,
+  onChange,
+  disabled,
+}: {
+  label: string;
+  checked: boolean;
+  onChange: (v: boolean) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      disabled={disabled}
+      onClick={() => onChange(!checked)}
+      className={cx(
+        "relative block h-[26px] w-[44px] shrink-0 rounded-full transition-colors duration-300 disabled:opacity-45",
+        checked
+          ? "bg-go shadow-[inset_0_1px_2px_rgb(0_0_0/0.15)]"
+          : "bg-surface-3 shadow-[inset_0_0_0_1px_var(--border-strong)]",
+      )}
+    >
+      <span
+        className={cx(
+          "absolute top-[3px] left-[3px] size-5 rounded-full bg-white shadow-[0_2px_6px_rgb(0_0_0/0.3)] transition-transform duration-300 ease-[var(--spring)]",
+          checked && "translate-x-[18px]",
+        )}
+      />
+    </button>
+  );
+}
+
+/** Switch with its label and description on the left. */
 export function Toggle({
   checked,
   onChange,
@@ -232,38 +312,27 @@ export function Toggle({
   disabled?: boolean;
 }) {
   return (
-    <label
+    <div
       className={cx(
-        "flex items-start justify-between gap-4 py-2",
+        "flex items-center justify-between gap-4 py-2",
         disabled && "opacity-50",
       )}
     >
       <span className="min-w-0">
         <span className="block text-sm">{label}</span>
         {description && (
-          <span className="mt-0.5 block text-xs text-faint">{description}</span>
+          <span className="mt-0.5 block text-xs leading-relaxed text-faint">
+            {description}
+          </span>
         )}
       </span>
-      <button
-        type="button"
-        role="switch"
-        aria-checked={checked}
-        aria-label={label}
+      <Switch
+        label={label}
+        checked={checked}
+        onChange={onChange}
         disabled={disabled}
-        onClick={() => onChange(!checked)}
-        className={cx(
-          "relative mt-0.5 h-5 w-9 shrink-0 rounded-full transition-colors",
-          checked ? "bg-accent" : "bg-line",
-        )}
-      >
-        <span
-          className={cx(
-            "absolute top-0.5 left-0.5 size-4 rounded-full bg-white shadow transition-transform",
-            checked && "translate-x-4",
-          )}
-        />
-      </button>
-    </label>
+      />
+    </div>
   );
 }
 
@@ -278,48 +347,91 @@ export function Field({
 }) {
   return (
     <label className="block">
-      <span className="mb-1.5 block text-[13px] text-muted">{label}</span>
+      <span className="mb-1.5 block text-[13px] font-medium text-muted">{label}</span>
       {children}
-      {hint && <span className="mt-1.5 block text-xs text-faint">{hint}</span>}
+      {hint && <span className="mt-1.5 block text-xs leading-relaxed text-faint">{hint}</span>}
     </label>
   );
 }
 
 export const inputClass =
-  "h-10 w-full rounded-xl border border-line bg-bg px-3.5 text-sm text-fg placeholder:text-faint focus:border-accent focus:outline-none disabled:opacity-60";
+  "h-11 w-full rounded-xl border border-line-strong bg-bg/60 px-3.5 text-sm text-fg shadow-[inset_0_1px_2px_rgb(0_0_0/0.12)] transition-[border-color,box-shadow] duration-200 placeholder:text-faint focus:border-accent focus:shadow-[0_0_0_4px_var(--accent-soft)] focus:outline-none disabled:opacity-60 aria-[invalid=true]:border-danger/60";
 
+/** Short inputs (time, price, watts): never a full-width box. */
+export const compactInput =
+  "h-9 rounded-xl border border-line-strong bg-bg/60 px-2.5 text-sm text-fg transition-[border-color,box-shadow] duration-200 focus:border-accent focus:shadow-[0_0_0_4px_var(--accent-soft)] focus:outline-none";
+
+/**
+ * Segmented control with a thumb that slides to the chosen option (measured, so labels of
+ * any width work). Arrow keys move the choice like a native radio group.
+ */
 export function Segmented<T extends string>({
   value,
   options,
   onChange,
   label,
+  size = "md",
 }: {
   value: T;
   /** `title`: accessible name when the option shows only an icon. */
   options: { value: T; label: string; icon?: ReactNode; title?: string }[];
   onChange: (v: T) => void;
   label: string;
+  size?: "sm" | "md";
 }) {
+  const refs = useRef<(HTMLButtonElement | null)[]>([]);
+  const [thumb, setThumb] = useState<{ x: number; w: number } | null>(null);
+  const idx = options.findIndex((o) => o.value === value);
+  const labels = options.map((o) => o.label).join("|");
+  useLayoutEffect(() => {
+    const measure = () => {
+      const el = refs.current[idx];
+      setThumb(el ? { x: el.offsetLeft, w: el.offsetWidth } : null);
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, [idx, labels]);
+  const move = (i: number) => {
+    const n = options.length;
+    const next = (i + n) % n;
+    refs.current[next]?.focus();
+    onChange(options[next].value);
+  };
   return (
     <div
       role="radiogroup"
       aria-label={label}
-      className="inline-flex flex-wrap rounded-xl border border-line bg-bg p-0.5"
+      className="relative inline-flex max-w-full rounded-full border border-line bg-bg/60 p-[3px] shadow-[inset_0_1px_2px_rgb(0_0_0/0.15)]"
     >
-      {options.map((o) => (
+      {thumb && thumb.w > 0 && (
+        <span
+          aria-hidden
+          className="absolute top-[3px] bottom-[3px] left-0 rounded-full border border-line-strong bg-surface-3 shadow-[var(--highlight),0_2px_8px_rgb(0_0_0/0.2)] transition-[transform,width] duration-300 ease-[var(--ease)]"
+          style={{ width: thumb.w, transform: `translateX(${thumb.x}px)` }}
+        />
+      )}
+      {options.map((o, i) => (
         <button
           key={o.value}
+          ref={(el) => {
+            refs.current[i] = el;
+          }}
           type="button"
           role="radio"
           aria-checked={value === o.value}
           aria-label={o.title}
           title={o.title}
+          tabIndex={i === idx || (idx < 0 && i === 0) ? 0 : -1}
           onClick={() => onChange(o.value)}
+          onKeyDown={(e) => {
+            if (e.key === "ArrowRight" || e.key === "ArrowDown") (e.preventDefault(), move(i + 1));
+            if (e.key === "ArrowLeft" || e.key === "ArrowUp") (e.preventDefault(), move(i - 1));
+          }}
           className={cx(
-            "inline-flex h-8 items-center gap-1.5 rounded-[10px] px-3.5 text-xs font-medium transition-colors [&>svg]:size-3.5",
-            value === o.value
-              ? "bg-surface-2 text-fg shadow-sm"
-              : "text-muted hover:text-fg",
+            "relative z-10 inline-flex items-center gap-1.5 rounded-full font-medium whitespace-nowrap transition-colors duration-200 [&>svg]:size-3.5",
+            size === "sm" ? "h-7 px-3 text-xs" : "h-8 px-3.5 text-[13px]",
+            value === o.value ? "text-fg" : "text-muted hover:text-fg",
           )}
         >
           {o.icon}
@@ -334,7 +446,7 @@ export function Segmented<T extends string>({
 export function Flag({ lang }: { lang: "en" | "it" }) {
   const id = useId();
   const cls =
-    "!h-3.5 !w-5 shrink-0 rounded-[2px] shadow-[0_0_0_0.5px_rgb(0_0_0/0.25)]";
+    "!h-3.5 !w-5 shrink-0 rounded-[3px] shadow-[0_0_0_0.5px_rgb(0_0_0/0.25)]";
   if (lang === "it")
     return (
       <svg viewBox="0 0 3 2" className={cls} aria-hidden>
@@ -370,15 +482,15 @@ export function Flag({ lang }: { lang: "en" | "it" }) {
 export function Progress({ value }: { value: number }) {
   return (
     <div
-      className="h-1.5 w-full overflow-hidden rounded-full bg-line"
+      className="h-1.5 w-full overflow-hidden rounded-full bg-surface-3"
       role="progressbar"
       aria-valuenow={Math.round(value * 100)}
       aria-valuemin={0}
       aria-valuemax={100}
     >
       <div
-        className="h-full rounded-full bg-accent transition-[width]"
-        style={{ width: `${Math.round(value * 100)}%` }}
+        className="bar-live h-full rounded-full transition-[width] duration-500 ease-[var(--ease)]"
+        style={{ width: `${Math.max(3, Math.round(value * 100))}%` }}
       />
     </div>
   );
@@ -392,8 +504,8 @@ export function Empty({
   children: ReactNode;
 }) {
   return (
-    <div className="flex flex-col items-center justify-center gap-2 py-10 text-center text-sm text-faint">
-      {icon}
+    <div className="flex flex-col items-center justify-center gap-3 py-10 text-center text-sm text-faint">
+      {icon && <IconTile tone="neutral">{icon}</IconTile>}
       {children}
     </div>
   );
@@ -401,25 +513,34 @@ export function Empty({
 
 export function Notice({
   tone = "neutral",
+  icon,
   children,
 }: {
   tone?: "neutral" | "ok" | "warn" | "err";
+  icon?: ReactNode;
   children: ReactNode;
 }) {
   const t = {
-    neutral: "border-line bg-surface-2 text-muted",
-    ok: "border-accent/30 bg-accent-soft text-fg",
-    warn: "border-warn/30 bg-warn/10 text-fg",
-    err: "border-danger/30 bg-danger/10 text-fg",
+    neutral: "border-line bg-surface-2/70 text-muted",
+    ok: "border-accent/25 bg-accent-soft text-fg",
+    warn: "border-warn/25 bg-warn/8 text-fg",
+    err: "border-danger/25 bg-danger/8 text-fg",
+  }[tone];
+  const ic = {
+    neutral: "text-faint",
+    ok: "text-accent",
+    warn: "text-warn",
+    err: "text-danger",
   }[tone];
   return (
     <div
       className={cx(
-        "rounded-xl border px-4 py-3 text-[13px] leading-relaxed",
+        "flex gap-3 rounded-2xl border px-4 py-3 text-[13px] leading-relaxed",
         t,
       )}
     >
-      {children}
+      {icon && <span className={cx("mt-0.5 shrink-0 [&>svg]:size-4", ic)}>{icon}</span>}
+      <div className="min-w-0 flex-1">{children}</div>
     </div>
   );
 }
@@ -432,14 +553,14 @@ export function Row({
   children: ReactNode;
 }) {
   return (
-    <div className="flex items-baseline justify-between gap-4 border-b border-line py-2.5 text-sm last:border-0">
+    <div className="flex items-baseline justify-between gap-4 border-b border-line py-3 text-sm last:border-0">
       <span className="text-muted">{label}</span>
       <span className="num min-w-0 truncate text-right">{children}</span>
     </div>
   );
 }
 
-/** Accessible modal (native <dialog>): Escape closes, focus stays inside. */
+/** Accessible modal sheet (native <dialog>): Escape closes, focus stays inside, blurred backdrop. */
 export function Modal({
   open,
   onClose,
@@ -460,6 +581,7 @@ export function Modal({
   wide?: boolean;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
+  const titleId = useId();
   useEffect(() => {
     const d = ref.current;
     if (!d || !open || d.open) return;
@@ -475,38 +597,44 @@ export function Modal({
         e.preventDefault();
         onClose();
       }}
-      aria-labelledby="modal-title"
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+      aria-labelledby={titleId}
       className={cx(
-        "pop-in shadow-soft fixed inset-0 z-50 m-auto rounded-2xl border border-line bg-surface p-6 text-fg backdrop:bg-black/60",
+        "sheet fixed inset-0 z-50 m-auto max-h-[calc(100vh-48px)] overflow-hidden rounded-[26px] border border-line-strong bg-surface p-0 text-fg shadow-[var(--highlight),var(--shadow-lg)]",
         wide
-          ? "w-[min(560px,calc(100vw-32px))]"
+          ? "w-[min(600px,calc(100vw-32px))]"
           : "w-[min(440px,calc(100vw-32px))]",
       )}
     >
-      <div className="flex items-start gap-3">
-        {icon && <div className="mt-0.5 shrink-0">{icon}</div>}
-        <div className="min-w-0 flex-1">
-          <h2 id="modal-title" className="font-display text-xl leading-snug">
-            {title}
-          </h2>
-          {children && (
-            <div className="mt-2 text-sm leading-relaxed text-muted">
-              {children}
-            </div>
-          )}
+      <div className="flex max-h-[calc(100vh-50px)] flex-col">
+        <div className="flex items-start gap-4 px-6 pt-6">
+          {icon && <div className="shrink-0">{icon}</div>}
+          <div className="min-w-0 flex-1 self-center">
+            <h2 id={titleId} className="font-display text-xl leading-snug">
+              {title}
+            </h2>
+          </div>
+          <button
+            type="button"
+            aria-label={closeLabel}
+            onClick={onClose}
+            className="-mt-1 -mr-2 flex size-8 shrink-0 items-center justify-center rounded-full text-faint transition-colors hover:bg-surface-2 hover:text-fg"
+          >
+            <X className="size-4" />
+          </button>
         </div>
-        <button
-          type="button"
-          aria-label={closeLabel}
-          onClick={onClose}
-          className="-mt-1 -mr-1 rounded-lg p-1 text-faint hover:bg-surface-2 hover:text-fg"
-        >
-          <X className="size-4" />
-        </button>
+        {children && (
+          <div className="mt-3 min-h-0 overflow-y-auto px-6 pb-1 text-sm leading-relaxed text-muted">
+            {children}
+          </div>
+        )}
+        {actions && (
+          <div className="mt-5 flex flex-wrap justify-end gap-2 border-t border-line bg-bg/30 px-6 py-4">
+            {actions}
+          </div>
+        )}
+        {!actions && <div className="h-6" />}
       </div>
-      {actions && (
-        <div className="mt-6 flex flex-wrap justify-end gap-2">{actions}</div>
-      )}
     </dialog>
   );
 }
@@ -555,48 +683,37 @@ export function ConfirmDialog({
   );
 }
 
-/** Range input that shows the live value and commits on release. */
-export function Slider({
-  label,
+/**
+ * A figure whose digits roll to each new value (NumberFlow). Same formatting as
+ * `money()`/`btcFull()`; respects reduced motion.
+ */
+export function Ticker({
   value,
-  min,
-  max,
-  step = 1,
-  unit,
-  onCommit,
+  locale,
+  currency,
+  decimals,
+  suffix,
 }: {
-  label: string;
   value: number;
-  min: number;
-  max: number;
-  step?: number;
-  unit: string;
-  onCommit: (v: number) => void;
+  locale: string;
+  /** ISO code ("EUR"): formats as money, 4 decimals below 1 like `money()`. */
+  currency?: string;
+  /** Fixed decimals (e.g. 8 for BTC). */
+  decimals?: number;
+  suffix?: string;
 }) {
-  const [v, setV] = useState(value);
-  useEffect(() => setV(value), [value]);
-  const commit = () => v !== value && onCommit(v);
+  const digits =
+    decimals ?? (currency ? (Math.abs(value) < 1 ? 4 : 2) : undefined);
   return (
-    <label className="block">
-      <span className="mb-2 flex justify-between text-[13px] text-muted">
-        <span>{label}</span>
-        <span className="num text-fg">
-          {v}
-          {unit}
-        </span>
-      </span>
-      <input
-        type="range"
-        min={min}
-        max={max}
-        step={step}
-        value={v}
-        onChange={(e) => setV(Number(e.target.value))}
-        onPointerUp={commit}
-        onKeyUp={commit}
-        onBlur={commit}
-        className="w-full accent-[var(--accent)]"
-      />
-    </label>
+    <NumberFlow
+      value={value}
+      locales={locale}
+      suffix={suffix}
+      format={{
+        ...(currency ? { style: "currency" as const, currency } : {}),
+        minimumFractionDigits: currency ? 2 : digits,
+        maximumFractionDigits: digits,
+      }}
+    />
   );
 }

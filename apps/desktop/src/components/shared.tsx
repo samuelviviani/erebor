@@ -273,6 +273,7 @@ export function JobProgress() {
         <span>{job.done ? t("job.done") : t(`job.${job.kind}`)}</span>
         <span className="num text-xs text-muted">
           {job.kind === "benchmark" && job.value != null && hashrate(job.value)}
+          {job.kind === "tune" && job.value != null && `${job.value} W`}
           {job.kind === "install" &&
             job.value != null &&
             !job.done &&
@@ -339,7 +340,7 @@ export function DefenderConsent({ onSkip }: { onSkip?: () => void }) {
   );
 }
 
-const MINER_LABEL: Record<MinerKind, string> = {
+export const MINER_LABEL: Record<MinerKind, string> = {
   xmrig: "XMRig",
   srbminer: "SRBMiner-MULTI",
   lolminer: "lolMiner",

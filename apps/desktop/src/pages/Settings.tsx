@@ -1,7 +1,15 @@
 import {
   Banknote,
+  BellRing,
   CalendarClock,
   ChevronLeft,
+  Clock,
+  Gauge,
+  FileSpreadsheet,
+  Flame,
+  MousePointer2,
+  SunMedium,
+  X,
   ChevronRight,
   Download,
   FlaskConical,
@@ -12,7 +20,6 @@ import {
   LogIn,
   Play,
   RefreshCw,
-  Plug,
   RotateCcw,
   ShieldAlert,
   SlidersHorizontal,
@@ -34,10 +41,20 @@ import {
   Segmented,
   type HelpTerm,
 } from "../components/ui";
-import { api, errorText, inApp, local, type AppConfig } from "../lib/api";
+import {
+  api,
+  errorText,
+  inApp,
+  local,
+  type AppConfig,
+  type PriceBand,
+  type Solar,
+  type Thermostat,
+} from "../lib/api";
 import { minutesToTime, timeToMinutes } from "../lib/format";
 import { translateError, useT } from "../lib/i18n";
 import { useApp } from "../lib/store";
+import { JobProgress } from "../components/shared";
 import Advanced from "./Mining";
 
 const DAYS = {
@@ -106,6 +123,29 @@ export default function Settings() {
                 }
               />
             </Item>
+            <Item
+              icon={<Gauge />}
+              tone="orange"
+              label={t("settings.powerLimit")}
+              hint={t("settings.powerLimit.hint")}
+            >
+              <NumberField
+                label={t("settings.powerLimit")}
+                suffix="W"
+                placeholder="—"
+                value={c.performance.gpuPowerLimitW}
+                onCommit={(v) =>
+                  save({
+                    ...c,
+                    performance: {
+                      ...c.performance,
+                      gpuPowerLimitW: v == null ? null : Math.round(v),
+                    },
+                  })
+                }
+              />
+            </Item>
+            <TuneRow />
           </Group>
           <Advanced />
         </div>
@@ -220,30 +260,16 @@ export default function Settings() {
                   }
                 />
               </span>
-              <div className="flex gap-1">
-                {DAYS[c.language].map((d, i) => (
-                  <button
-                    key={i}
-                    type="button"
-                    aria-pressed={c.schedule.days[i]}
-                    onClick={() => {
-                      const days = [...c.schedule.days];
-                      days[i] = !days[i];
-                      save({ ...c, schedule: { ...c.schedule, days } });
-                    }}
-                    className={cx(
-                      "size-8 rounded-full text-xs font-medium",
-                      c.schedule.days[i]
-                        ? "bg-accent-solid text-accent-fg"
-                        : "bg-surface-2 text-faint hover:text-fg",
-                    )}
-                  >
-                    {d}
-                  </button>
-                ))}
-              </div>
+              <Toggles
+                labels={DAYS[c.language]}
+                value={c.schedule.days}
+                onChange={(days) =>
+                  save({ ...c, schedule: { ...c.schedule, days } })
+                }
+              />
             </div>
           )}
+          <IdleRow c={c} save={save} />
         </Group>
 
         <Group title={t("settings.group.safety")} help="temp">
@@ -329,22 +355,10 @@ export default function Settings() {
               ]}
             />
           </Item>
-          <Item
-            icon={<Plug />}
-            tone="teal"
-            label={t("settings.watts.short")}
-            hint={t("settings.watts.desc")}
-          >
-            <NumberField
-              label={t("settings.watts")}
-              suffix="W"
-              placeholder="65"
-              value={c.energy.estimatedWatts}
-              onCommit={(estimatedWatts) =>
-                save({ ...c, energy: { ...c.energy, estimatedWatts } })
-              }
-            />
-          </Item>
+          <Bands c={c} save={save} cur={cur} />
+          <SolarRows c={c} save={save} cur={cur} />
+          <Heating c={c} save={save} />
+          <ThermostatRows c={c} save={save} />
           <Item
             icon={<TrendingDown />}
             tone="pink"
@@ -359,6 +373,7 @@ export default function Settings() {
               }
             />
           </Item>
+          <PriceNow cur={cur} />
           {c.energy.stopIfUnprofitable && (
             <Item icon={<span />} tone="none" label={t("settings.minProfit")}>
               <NumberField
@@ -376,6 +391,8 @@ export default function Settings() {
             </Item>
           )}
         </Group>
+
+        <NotifyGroup c={c} save={save} />
 
         <DataGroup c={c} />
 
@@ -696,6 +713,14 @@ function DataGroup({ c }: { c: AppConfig }) {
       toast("error", json);
     }
   };
+  const saveCsv = async () => {
+    try {
+      const path = await api.saveCsv(366 * 86_400);
+      toast("info", t("settings.csv.saved", { path }));
+    } catch (e) {
+      toast("error", translateError(c.language, errorText(e)));
+    }
+  };
   const doDelete = async () => {
     setConfirm(false);
     try {
@@ -714,6 +739,14 @@ function DataGroup({ c }: { c: AppConfig }) {
           hint={t("settings.export.hint")}
         >
           <Button onClick={exportConfig}>{t("settings.export.short")}</Button>
+        </Item>
+        <Item
+          icon={<FileSpreadsheet />}
+          tone="green"
+          label={t("settings.csv")}
+          hint={t("settings.csv.hint")}
+        >
+          <Button onClick={saveCsv}>{t("settings.csv.short")}</Button>
         </Item>
         <Item
           icon={<Trash2 />}
@@ -742,5 +775,573 @@ function DataGroup({ c }: { c: AppConfig }) {
         onCancel={() => setConfirm(false)}
       />
     </>
+  );
+}
+
+const MONTHS = {
+  it: ["G", "F", "M", "A", "M", "G", "L", "A", "S", "O", "N", "D"],
+  en: ["J", "F", "M", "A", "M", "J", "J", "A", "S", "O", "N", "D"],
+};
+
+/** Round on/off buttons for days or months. */
+function Toggles({
+  labels,
+  value,
+  onChange,
+}: {
+  labels: string[];
+  value: boolean[];
+  onChange: (v: boolean[]) => void;
+}) {
+  return (
+    <div className="flex flex-wrap gap-1">
+      {labels.map((d, i) => (
+        <button
+          key={i}
+          type="button"
+          aria-pressed={value[i]}
+          onClick={() => onChange(value.map((v, j) => (j === i ? !v : v)))}
+          className={cx(
+            "size-8 rounded-full text-xs font-medium",
+            value[i]
+              ? "bg-accent-solid text-accent-fg"
+              : "bg-surface-2 text-faint hover:text-fg",
+          )}
+        >
+          {d}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** A short text saved when leaving the field. */
+function TextField({
+  label,
+  value,
+  onCommit,
+  placeholder,
+  secret,
+  wide,
+}: {
+  label: string;
+  value: string;
+  onCommit: (v: string) => void;
+  placeholder?: string;
+  secret?: boolean;
+  wide?: boolean;
+}) {
+  return (
+    <input
+      key={value}
+      aria-label={label}
+      type={secret ? "password" : "text"}
+      className={cx(compact, wide ? "w-full" : "w-40")}
+      spellCheck={false}
+      autoComplete="off"
+      placeholder={placeholder}
+      defaultValue={value}
+      onBlur={(e) => {
+        if (e.target.value.trim() !== value) onCommit(e.target.value.trim());
+      }}
+    />
+  );
+}
+
+/** Mine only while nobody uses the computer. */
+function IdleRow({ c, save }: Props) {
+  const t = useT();
+  const idleSecs = useApp((s) => s.status?.idleSecs);
+  const on = c.performance.idleMinutes != null;
+  const set = (idleMinutes: number | null) =>
+    save({ ...c, performance: { ...c.performance, idleMinutes } });
+  return (
+    <>
+      <Item
+        icon={<MousePointer2 />}
+        tone="teal"
+        label={t("settings.idle")}
+        hint={t("settings.idle.hint")}
+      >
+        <Sw
+          label={t("settings.idle")}
+          checked={on}
+          onChange={(v) => set(v ? 5 : null)}
+        />
+      </Item>
+      {on && (
+        <Item
+          icon={<span />}
+          tone="none"
+          label={t("settings.idle.after")}
+          hint={idleSecs === null ? t("settings.idle.unsupported") : undefined}
+        >
+          <NumberField
+            label={t("settings.idle.after")}
+            suffix="min"
+            value={c.performance.idleMinutes}
+            onCommit={(v) =>
+              set(v == null ? 5 : Math.min(240, Math.max(1, Math.round(v))))
+            }
+          />
+        </Item>
+      )}
+    </>
+  );
+}
+
+/** Time-of-day prices copied from the user's bill. */
+function Bands({ c, save, cur }: Props & { cur: string }) {
+  const t = useT();
+  const bands = c.energy.bands;
+  const set = (next: PriceBand[]) =>
+    save({ ...c, energy: { ...c.energy, bands: next } });
+  const patch = (i: number, p: Partial<PriceBand>) =>
+    set(bands.map((b, j) => (j === i ? { ...b, ...p } : b)));
+  return (
+    <>
+      <Item
+        icon={<Clock />}
+        tone="indigo"
+        label={t("energy.bands")}
+        hint={t("energy.bands.hint")}
+      >
+        <Button
+          onClick={() =>
+            set([
+              ...bands,
+              {
+                startMinute: 19 * 60,
+                endMinute: 8 * 60,
+                days: Array(7).fill(true),
+                price: c.energy.pricePerKwh ?? 0,
+              },
+            ])
+          }
+        >
+          {t("energy.bands.add")}
+        </Button>
+      </Item>
+      {bands.map((b, i) => (
+        <div
+          key={`${i}-${b.startMinute}-${b.endMinute}-${b.price}`}
+          className="flex flex-wrap items-center gap-3 py-3 pr-4 pl-16"
+        >
+          <input
+            type="time"
+            aria-label={t("settings.schedule.from")}
+            className={compact}
+            defaultValue={minutesToTime(b.startMinute)}
+            onBlur={(e) =>
+              patch(i, { startMinute: timeToMinutes(e.target.value) })
+            }
+          />
+          <span className="text-sm text-muted">–</span>
+          <input
+            type="time"
+            aria-label={t("settings.schedule.to")}
+            className={compact}
+            defaultValue={minutesToTime(b.endMinute)}
+            onBlur={(e) =>
+              patch(i, { endMinute: timeToMinutes(e.target.value) })
+            }
+          />
+          <NumberField
+            label={t("settings.price")}
+            prefix={cur}
+            suffix="/kWh"
+            value={b.price}
+            onCommit={(v) => patch(i, { price: v ?? 0 })}
+          />
+          <Toggles
+            labels={DAYS[c.language]}
+            value={b.days}
+            onChange={(days) => patch(i, { days })}
+          />
+          <button
+            type="button"
+            aria-label={t("energy.bands.remove")}
+            onClick={() => set(bands.filter((_, j) => j !== i))}
+            className="ml-auto rounded-full p-1.5 text-faint hover:bg-surface-2 hover:text-fg"
+          >
+            <X className="size-4" />
+          </button>
+        </div>
+      ))}
+    </>
+  );
+}
+
+/** Starting points for common meters: the user completes address and sensor. */
+const METERS: { label: string; solar: Partial<Solar> }[] = [
+  {
+    label: "Home Assistant",
+    solar: {
+      url: "http://homeassistant.local:8123/api/states/sensor.",
+      field: "state",
+      exportPositive: false,
+    },
+  },
+  {
+    label: "Shelly Pro 3EM",
+    solar: {
+      url: "http://192.168.1.50/rpc/EM.GetStatus?id=0",
+      field: "total_act_power",
+      exportPositive: false,
+      token: "",
+    },
+  },
+  {
+    label: "Shelly EM",
+    solar: {
+      url: "http://192.168.1.50/emeter/0",
+      field: "power",
+      exportPositive: false,
+      token: "",
+    },
+  },
+];
+
+/** Solar surplus from a meter: energy that would be exported costs only its feed-in value. */
+function SolarRows({ c, save, cur }: Props & { cur: string }) {
+  const t = useT();
+  const exportW = useApp((s) => s.status?.solarExportW);
+  const error = useApp((s) => s.status?.solarError);
+  const sol = c.energy.solar;
+  const set = (p: Partial<Solar>) =>
+    save({ ...c, energy: { ...c.energy, solar: { ...sol, ...p } } });
+  return (
+    <>
+      <Item
+        icon={<SunMedium />}
+        tone="yellow"
+        label={t("energy.solar")}
+        hint={t("energy.solar.hint")}
+      >
+        <Sw
+          label={t("energy.solar")}
+          checked={sol.enabled}
+          onChange={(enabled) =>
+            set(
+              enabled && !sol.url
+                ? { enabled, ...METERS[0].solar }
+                : { enabled },
+            )
+          }
+        />
+      </Item>
+      {sol.enabled && (
+        <div className="space-y-3 py-3 pr-4 pl-16 text-sm">
+          <div className="flex flex-wrap gap-1.5">
+            {METERS.map((m) => (
+              <button
+                key={m.label}
+                type="button"
+                onClick={() => set(m.solar)}
+                className="rounded-full border border-line px-2.5 py-1 text-xs text-muted hover:bg-surface-2 hover:text-fg"
+              >
+                {m.label}
+              </button>
+            ))}
+          </div>
+          <TextField
+            wide
+            label={t("energy.solar.url")}
+            value={sol.url}
+            placeholder="http://…"
+            onCommit={(url) => set({ url })}
+          />
+          <div className="flex flex-wrap items-center gap-3">
+            <TextField
+              label={t("energy.solar.field")}
+              value={sol.field}
+              placeholder={t("energy.solar.field")}
+              onCommit={(field) => set({ field })}
+            />
+            <TextField
+              secret
+              label={t("energy.solar.token")}
+              value={sol.token}
+              placeholder={t("energy.solar.token")}
+              onCommit={(token) => set({ token })}
+            />
+          </div>
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="text-muted">{t("energy.solar.feedIn")}</span>
+            <NumberField
+              label={t("energy.solar.feedIn")}
+              prefix={cur}
+              suffix="/kWh"
+              value={sol.feedInPrice}
+              onCommit={(v) => set({ feedInPrice: v ?? 0 })}
+            />
+          </div>
+          <label className="flex items-center gap-2 text-muted">
+            <input
+              type="checkbox"
+              checked={sol.exportPositive}
+              onChange={(e) => set({ exportPositive: e.target.checked })}
+            />
+            {t("energy.solar.positive")}
+          </label>
+          <p className={cx("text-xs", error ? "text-stop" : "text-faint")}>
+            {error
+              ? t("energy.solar.error", { e: error })
+              : exportW == null
+                ? t("energy.solar.waiting")
+                : exportW >= 0
+                  ? t("energy.solar.exporting", { w: exportW.toFixed(0) })
+                  : t("energy.solar.importing", { w: (-exportW).toFixed(0) })}
+          </p>
+        </div>
+      )}
+    </>
+  );
+}
+
+/** Winter: the heat of mining replaces other heating, so part of the cost comes back. */
+function Heating({ c, save }: Props) {
+  const t = useT();
+  const e = c.energy;
+  const on = e.heatingMonths.some(Boolean);
+  return (
+    <>
+      <Item
+        icon={<Flame />}
+        tone="orange"
+        label={t("energy.heating")}
+        hint={t("energy.heating.hint")}
+      >
+        <Sw
+          label={t("energy.heating")}
+          checked={on}
+          onChange={(v) =>
+            save({
+              ...c,
+              energy: {
+                ...e,
+                // Nov–Mar by default; every month can be changed below.
+                heatingMonths: Array.from(
+                  { length: 12 },
+                  (_, m) => v && (m <= 2 || m >= 10),
+                ),
+                heatingCreditPercent:
+                  v && !e.heatingCreditPercent ? 100 : e.heatingCreditPercent,
+              },
+            })
+          }
+        />
+      </Item>
+      {on && (
+        <div className="flex flex-wrap items-center gap-3 py-3 pr-4 pl-16">
+          <Toggles
+            labels={MONTHS[c.language]}
+            value={e.heatingMonths}
+            onChange={(heatingMonths) =>
+              save({ ...c, energy: { ...e, heatingMonths } })
+            }
+          />
+          <span className="text-sm text-muted">
+            {t("energy.heating.credit")}
+          </span>
+          <NumberField
+            label={t("energy.heating.credit")}
+            suffix="%"
+            value={e.heatingCreditPercent}
+            onCommit={(v) =>
+              save({
+                ...c,
+                energy: {
+                  ...e,
+                  heatingCreditPercent: Math.min(
+                    100,
+                    Math.max(0, Math.round(v ?? 0)),
+                  ),
+                },
+              })
+            }
+          />
+        </div>
+      )}
+    </>
+  );
+}
+
+/** Room thermometer: mine to heat up to one temperature, wait above it. */
+function ThermostatRows({ c, save }: Props) {
+  const t = useT();
+  const temp = useApp((s) => s.status?.roomTempC);
+  const error = useApp((s) => s.status?.roomError);
+  const th = c.energy.thermostat;
+  const set = (p: Partial<Thermostat>) =>
+    save({ ...c, energy: { ...c.energy, thermostat: { ...th, ...p } } });
+  return (
+    <>
+      <Item
+        icon={<Thermometer />}
+        tone="red"
+        label={t("energy.thermostat")}
+        hint={t("energy.thermostat.hint")}
+      >
+        <Sw
+          label={t("energy.thermostat")}
+          checked={th.enabled}
+          onChange={(enabled) =>
+            set(
+              enabled && !th.url
+                ? {
+                    enabled,
+                    url: "http://homeassistant.local:8123/api/states/sensor.",
+                    field: "state",
+                  }
+                : { enabled },
+            )
+          }
+        />
+      </Item>
+      {th.enabled && (
+        <div className="space-y-3 py-3 pr-4 pl-16 text-sm">
+          <TextField
+            wide
+            label={t("energy.thermostat.url")}
+            value={th.url}
+            placeholder="http://…"
+            onCommit={(url) => set({ url })}
+          />
+          <div className="flex flex-wrap items-center gap-3">
+            <TextField
+              label={t("energy.solar.field")}
+              value={th.field}
+              placeholder="state"
+              onCommit={(field) => set({ field })}
+            />
+            <TextField
+              secret
+              label={t("energy.solar.token")}
+              value={th.token}
+              placeholder={t("energy.solar.token")}
+              onCommit={(token) => set({ token })}
+            />
+          </div>
+          <div className="flex flex-wrap items-center gap-3 text-muted">
+            {t("energy.thermostat.on")}
+            <NumberField
+              label={t("energy.thermostat.on")}
+              suffix="°C"
+              value={th.onBelowC}
+              onCommit={(v) => v != null && set({ onBelowC: v })}
+            />
+            {t("energy.thermostat.off")}
+            <NumberField
+              label={t("energy.thermostat.off")}
+              suffix="°C"
+              value={th.offAboveC}
+              onCommit={(v) => v != null && set({ offAboveC: v })}
+            />
+          </div>
+          <p className={cx("text-xs", error ? "text-stop" : "text-faint")}>
+            {error
+              ? t("energy.solar.error", { e: error })
+              : temp == null
+                ? t("energy.solar.waiting")
+                : t("energy.thermostat.now", { t: temp.toFixed(1) })}
+          </p>
+        </div>
+      )}
+    </>
+  );
+}
+
+/** Problems pushed to the phone: ntfy topic and/or Telegram bot. */
+function NotifyGroup({ c, save }: Props) {
+  const t = useT();
+  const toast = useApp((s) => s.toast);
+  const n = c.notify;
+  const set = (p: Partial<typeof n>) => save({ ...c, notify: { ...n, ...p } });
+  const test = async () => {
+    try {
+      await api.testNotify();
+      toast("info", t("notify.sent"));
+    } catch (e) {
+      toast("error", translateError(c.language, errorText(e)));
+    }
+  };
+  return (
+    <Group title={t("notify.group")}>
+      <Item
+        icon={<BellRing />}
+        tone="violet"
+        label={t("notify.title")}
+        hint={t("notify.hint")}
+      >
+        <Button onClick={test}>{t("notify.test")}</Button>
+      </Item>
+      <div className="space-y-3 py-3 pr-4 pl-16 text-sm">
+        <TextField
+          wide
+          label="ntfy"
+          value={n.ntfyUrl}
+          placeholder="https://ntfy.sh/…"
+          onCommit={(ntfyUrl) => set({ ntfyUrl })}
+        />
+        <div className="flex flex-wrap items-center gap-3">
+          <TextField
+            secret
+            label={t("notify.telegramToken")}
+            value={n.telegramToken}
+            placeholder={t("notify.telegramToken")}
+            onCommit={(telegramToken) => set({ telegramToken })}
+          />
+          <TextField
+            label={t("notify.telegramChat")}
+            value={n.telegramChat}
+            placeholder={t("notify.telegramChat")}
+            onCommit={(telegramChat) => set({ telegramChat })}
+          />
+        </div>
+      </div>
+    </Group>
+  );
+}
+
+/** The price the decisions use right now, so the rules above can be checked at a glance. */
+function PriceNow({ cur }: { cur: string }) {
+  const t = useT();
+  const price = useApp((s) => s.status?.energyPrice);
+  const held = useApp((s) => s.status?.held);
+  if (price == null) return null;
+  return (
+    <p className="px-4 py-2.5 pl-16 text-xs text-faint">
+      {t("energy.now", { p: `${cur} ${price.toFixed(3)}` })}
+      {held === "unprofitable" && ` · ${t("held.unprofitable")}`}
+    </p>
+  );
+}
+
+/** Efficiency search: tries lower power limits on the running miner and keeps the best. */
+function TuneRow() {
+  const t = useT();
+  const { status, toast, config } = useApp();
+  const job = status?.job;
+  const gpuMining = status?.state === "running" && status.coin.device === "gpu";
+  const start = async () => {
+    try {
+      await api.tunePower();
+    } catch (e) {
+      toast("error", translateError(config?.language ?? "en", errorText(e)));
+    }
+  };
+  return (
+    <div className="space-y-3 py-3 pr-4 pl-16">
+      <p className="text-xs leading-relaxed text-faint">{t("tune.hint")}</p>
+      {job?.kind === "tune" && <JobProgress />}
+      <Button
+        onClick={start}
+        disabled={!gpuMining || (!!job && !job.done)}
+        title={gpuMining ? undefined : t("tune.needsGpu")}
+      >
+        {t("tune.run")}
+      </Button>
+    </div>
   );
 }

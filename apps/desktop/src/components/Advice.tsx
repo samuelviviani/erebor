@@ -40,7 +40,7 @@ export function CoinAdvice({
   );
   const toWallet = {
     label: t("advice.changePayout"),
-    run: () => setPage("wallet"),
+    run: () => setPage("coins"),
   };
 
   let tip: {
@@ -93,9 +93,9 @@ export function CoinAdvice({
   return (
     <div className="space-y-3">
       {card && (
-        <div className="flex items-center gap-3.5 rounded-2xl border border-line bg-surface p-3.5">
+        <div className="panel flex items-center gap-4 p-4">
           <span className="relative shrink-0">
-            <CoinIcon id={coin.id} size={40} />
+            <CoinIcon id={coin.id} size={44} className="shadow-[0_6px_16px_-6px_rgb(0_0_0/0.6)]" />
             {auto && (
               <span className="absolute -right-1 -bottom-1 flex size-5 items-center justify-center rounded-full border-2 border-surface bg-accent-solid text-accent-fg">
                 <Sparkles className="size-3" />
@@ -120,11 +120,7 @@ export function CoinAdvice({
             </span>
           </span>
           {onChange && (
-            <Button
-              variant="ghost"
-              className="border border-line"
-              onClick={onChange}
-            >
+            <Button size="sm" onClick={onChange}>
               {t("advice.change")}
             </Button>
           )}
@@ -133,10 +129,10 @@ export function CoinAdvice({
       {(!warnOnly || tip.warn) && (
         <div
           className={cx(
-            "flex flex-wrap items-start gap-3 rounded-xl border px-4 py-3 text-[13px] leading-relaxed",
+            "flex flex-wrap items-start gap-3 rounded-2xl border px-4 py-3.5 text-[13px] leading-relaxed",
             tip.warn
-              ? "border-warn/30 bg-warn/10"
-              : "border-accent/30 bg-accent-soft",
+              ? "border-warn/25 bg-warn/8"
+              : "border-accent/20 bg-accent-soft",
           )}
           role="status"
         >
@@ -154,7 +150,8 @@ export function CoinAdvice({
           {tip.action && (
             <Button
               variant="primary"
-              className="w-full justify-center sm:w-auto"
+              size="sm"
+              className="w-full sm:w-auto"
               onClick={tip.action.run}
             >
               {tip.action.label}

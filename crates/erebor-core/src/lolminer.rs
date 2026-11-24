@@ -27,6 +27,12 @@ pub fn args(spec: &LaunchSpec, api_port: u16) -> Vec<String> {
     ]
     .iter()
     .map(|s| s.to_string())
+    // Same value for every NVIDIA card; lolMiner resets it on exit.
+    .chain(
+        spec.gpu_power_limit_w
+            .into_iter()
+            .flat_map(|w| ["--pl".to_string(), w.to_string()]),
+    )
     .collect()
 }
 
@@ -61,6 +67,14 @@ pub fn parse_stats(v: &Value) -> MinerStats {
     let count = |k: &str| num(field(k)).unwrap_or(0.0) as u64;
     let pool = field("Pool").and_then(|p| p.as_str()).map(String::from);
     let accepted = count("Total_Accepted");
+    let per_gpu: Vec<f64> = field("Worker_Performance")
+        .and_then(|w| w.as_array())
+        .map(|w| {
+            w.iter()
+                .filter_map(|h| num(Some(h)).map(|h| h * factor))
+                .collect()
+        })
+        .unwrap_or_default();
     MinerStats {
         hashrate_10s: rate.filter(|h| *h > 0.0),
         hashrate_60s: rate.filter(|h| *h > 0.0),
@@ -78,6 +92,7 @@ pub fn parse_stats(v: &Value) -> MinerStats {
         version: v.get("Software").and_then(|x| x.as_str()).map(String::from),
         paused: false,
         threads: None,
+        gpu_hashrates: per_gpu,
     }
 }
 
@@ -99,6 +114,7 @@ mod tests {
             algo: "ALEPH".into(),
             threads_percent: 50,
             priority: 1,
+            gpu_power_limit_w: None,
         };
         let a = args(&spec, 40123);
         let at = |k: &str| a[a.iter().position(|x| x == k).unwrap() + 1].clone();
@@ -113,10 +129,12 @@ mod tests {
         let v = json!({"Software": "lolMiner 1.98a", "Algorithms": [{
             "Algorithm": "Alephium", "Pool": "alph.kryptex.network:7010",
             "Performance_Unit": "Gh/s", "Performance_Factor": 1e9, "Total_Performance": 2.5,
-            "Total_Accepted": 7, "Total_Rejected": 1, "Total_Stales": 1
+            "Total_Accepted": 7, "Total_Rejected": 1, "Total_Stales": 1,
+            "Worker_Performance": [1.5, 1.0]
         }]});
         let s = parse_stats(&v);
         assert_eq!(s.hashrate_60s, Some(2.5e9));
+        assert_eq!(s.gpu_hashrates, vec![1.5e9, 1.0e9]);
         assert_eq!((s.accepted, s.rejected), (7, 2));
         assert!(s.connected);
         // Unit only: C29 graphs per second stay as they are.

@@ -6,10 +6,12 @@ use crate::coins::{self, BtcPrice, Coin, CoinMarket, Device};
 use crate::config::{AppConfig, AUTO_COIN, PROJECT_WORKER};
 use crate::devfee::{self, DevFeeManager, DevFeeStatus, Ledger, Target};
 use crate::earnings::{self, Earnings, EnergySource, Params};
-use crate::hardware::{HardwareInfo, LiveHardware, Monitor};
+use crate::energy;
+use crate::hardware::{self, HardwareInfo, LiveHardware, Monitor};
 use crate::miner::{
     DemoMiner, LaunchSpec, MinerAdapter, MinerInfo, MinerKind, MinerStats, PoolTarget,
 };
+use crate::notify;
 use crate::pools::{self, NetworkStats, Price};
 use crate::store::{HashStats, Sample, SeriesPoint, Session, Store};
 use crate::wallet::AddressKind;
@@ -22,6 +24,13 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 const TICK: Duration = Duration::from_secs(2);
+/// Blockers an own wallet for the coin removes (the others are about this PC).
+const PAYOUT_BLOCKERS: [&str; 4] = [
+    "wallet_missing",
+    "own_wallet_required",
+    "not_on_unmineable",
+    "kryptex_or_btc_required",
+];
 /// Larger gaps (sleep, suspended process) are not counted as mining time.
 const MAX_TICK_GAP: f64 = 10.0;
 const SAMPLE_SECS: f64 = 10.0;
@@ -32,6 +41,16 @@ const BENCHMARK_SECS: u64 = 90;
 /// Automatic choice: how often to re-check profitability, and the gain needed to switch.
 const REEVAL_SECS: u64 = 1800;
 const SWITCH_GAIN: f64 = 1.10;
+/// A profitability change must hold this long before mining waits or resumes.
+const ECON_STEADY: Duration = Duration::from_secs(180);
+const IDLE_POLL: Duration = Duration::from_secs(5);
+/// GPU hashrate under this share of normal, for this long, means a stuck card.
+const DROP_SHARE: f64 = 0.7;
+const DROP_STEADY: Duration = Duration::from_secs(300);
+/// No pool connection for this long: switch to the backup pool.
+const FAILOVER_AFTER: Duration = Duration::from_secs(180);
+const PRIMARY_RETRY: Duration = Duration::from_secs(900);
+const SENSOR_STALE: Duration = Duration::from_secs(120);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -119,6 +138,32 @@ pub struct Status {
     /// coins without a market price are left out.
     pub mined_btc: Option<f64>,
     pub advice: Advice,
+    /// Mining is on but waiting: "in_use" (idle-only mode), "warm" (thermostat) or
+    /// "unprofitable".
+    pub held: Option<&'static str>,
+    /// What a kWh costs for mining right now (bands, solar share, heat credit).
+    pub energy_price: Option<f64>,
+    /// Watts the meter exports now (negative = importing), when solar is set up.
+    pub solar_export_w: Option<f64>,
+    pub solar_error: Option<String>,
+    /// One entry per `hardware.gpus` card, same order.
+    pub gpus: Vec<GpuRow>,
+    /// Room temperature from the thermostat sensor, when set up.
+    pub room_temp_c: Option<f64>,
+    pub room_error: Option<String>,
+    /// Seconds without keyboard/mouse input; `None` when the system does not say.
+    pub idle_secs: Option<u64>,
+    /// Stopped for a while: seconds until mining starts again by itself.
+    pub resume_in_secs: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GpuRow {
+    /// This card's share of the miner's hashrate (H/s).
+    pub hashrate: Option<f64>,
+    /// Typical hashrate of this model on the current coin (public GPU table).
+    pub expected: Option<f64>,
 }
 
 /// What earns the most BTC on this PC: which coin, and how to be paid.
@@ -150,6 +195,18 @@ pub struct Projection {
     pub net_per_day: Option<f64>,
 }
 
+/// One thing mining a coin takes. `code` names it for the UI ("gpu", "no_gpu",
+/// "windows_only", "miner_missing", "own_wallet_required", …).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Requirement {
+    /// "hardware", "system", "miner" or "payout".
+    pub kind: &'static str,
+    /// "ok", "missing" (blocks mining) or "warn" (works, with a catch).
+    pub status: &'static str,
+    pub code: &'static str,
+}
+
 /// One entry of the coin picker.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -157,6 +214,8 @@ pub struct CoinOption {
     pub coin: Coin,
     /// Why it cannot be mined here, if so ("no_gpu", "kryptex_or_btc_required", …).
     pub blocker: Option<&'static str>,
+    /// Everything mining it takes on this PC, met or not (hardware, system, miner, payout).
+    pub requirements: Vec<Requirement>,
     pub miner_installed: bool,
     /// Measured on this PC while mining it.
     pub hashrate: Option<f64>,
@@ -280,8 +339,85 @@ pub struct Engine {
     update_notified: std::collections::HashSet<String>,
     /// A pinned GPU miner build exists for this OS/CPU.
     gpu_platform: bool,
+    /// Mining is on but waiting for a condition to clear (see `hold_reason`).
+    held: Option<&'static str>,
+    /// Debounced "mining loses money at the current price", and since when the raw
+    /// reading disagrees with it.
+    econ_bad: bool,
+    econ_flip: Option<Instant>,
+    /// Draw measured while mining each coin (W), for decisions while not mining.
+    watts: HashMap<String, f64>,
+    /// Meter (exported W) and room thermometer (°C), read by `spawn_loops`.
+    solar: Reading,
+    room: Reading,
+    idle: Option<u64>,
+    idle_at: Option<Instant>,
+    /// Failover: mining on the coin's backup pool, since when, and since when the pool
+    /// connection is missing.
+    on_backup: bool,
+    backup_since: Option<Instant>,
+    offline_since: Option<Instant>,
+    /// Power-limit search in progress (see `start_tune`).
+    tune: Option<Tune>,
+    /// Expected hashrate per GPU model and coin (bundled, refreshed with market data).
+    gpu_table: coins::GpuTable,
+    /// Last push per alert code (rate limit).
+    pushed: HashMap<String, Instant>,
+    /// "Stop for a while": when to start again, and whether the schedule had started it.
+    resume_at: Option<(Instant, bool)>,
+    /// Since when the GPU hashrate is below normal, and the last restart it caused.
+    low_since: Option<Instant>,
+    drop_restart_at: Option<Instant>,
+    /// Seconds without input (replaced in tests).
+    idle_source: fn() -> Option<u64>,
     /// Exclusive lock on the data dir: one engine (app or node) per computer.
     _lock: std::fs::File,
+}
+
+/// Efficiency search: stock power first, then lower limits, each measured on the real
+/// miner; the limit with the best net result wins.
+struct Tune {
+    /// Limit before the search, restored if it is cancelled.
+    original: Option<u32>,
+    /// Limits still to try after the current one (filled after the stock step).
+    queue: Vec<u32>,
+    current: Option<u32>,
+    step_started: Instant,
+    hash_sum: f64,
+    watt_sum: f64,
+    n: u32,
+    /// (limit, hashrate, watts) per finished step.
+    results: Vec<(Option<u32>, f64, f64)>,
+}
+
+/// Lower limits tried, as a share of the stock draw.
+const TUNE_SHARES: [f64; 4] = [0.9, 0.8, 0.7, 0.6];
+const TUNE_WARM: Duration = Duration::from_secs(60);
+const TUNE_MEASURE: Duration = Duration::from_secs(120);
+
+/// Last value from an HTTP sensor and the last error; stale after `SENSOR_STALE`.
+#[derive(Default)]
+struct Reading {
+    last: Option<(f64, Instant)>,
+    error: Option<String>,
+}
+
+impl Reading {
+    fn set(&mut self, r: Result<f64, String>) {
+        match r {
+            Ok(v) => {
+                self.last = Some((v, Instant::now()));
+                self.error = None;
+            }
+            Err(e) => self.error = Some(e),
+        }
+    }
+
+    fn fresh(&self) -> Option<f64> {
+        self.last
+            .filter(|(_, at)| at.elapsed() < SENSOR_STALE)
+            .map(|(v, _)| v)
+    }
 }
 
 fn open_store(data_dir: &Path, demo: bool) -> Result<Store, String> {
@@ -334,8 +470,15 @@ impl Engine {
         let has_gpu = has_mining_gpu(&hw);
         let gpu_names: Vec<String> = hw.gpus.into_iter().map(|g| g.name).collect();
         let names: Vec<&str> = gpu_names.iter().map(String::as_str).collect();
-        let estimates = coins::estimate(&names, &coins::bundled_gpu_table());
+        let gpu_table = coins::bundled_gpu_table();
+        let estimates = coins::estimate(&names, &gpu_table);
         let hashrates = load_hashrates(&store);
+        let watts = store
+            .kv_get("watts")
+            .ok()
+            .flatten()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default();
         Ok(Self {
             data_dir,
             config,
@@ -378,6 +521,24 @@ impl Engine {
             gpu_platform: install::manifest_for(MinerKind::Srbminer)
                 .asset_for_platform()
                 .is_ok(),
+            held: None,
+            econ_bad: false,
+            econ_flip: None,
+            watts,
+            solar: Reading::default(),
+            room: Reading::default(),
+            idle: None,
+            idle_at: None,
+            idle_source: hardware::idle_secs,
+            low_since: None,
+            drop_restart_at: None,
+            resume_at: None,
+            pushed: HashMap::new(),
+            gpu_table,
+            tune: None,
+            on_backup: false,
+            backup_since: None,
+            offline_since: None,
             _lock: lock,
         })
     }
@@ -399,8 +560,17 @@ impl Engine {
     }
 
     fn coin_blocker(&self, coin: &Coin) -> Option<&'static str> {
+        // Order matters: payout reasons first (an own wallet fixes them), then hardware.
         let own = self.coin_wallet(coin).is_some();
         let payout = self.payout();
+        if !own && self.config.wallet.is_empty() && !self.config.demo_mode {
+            return Some("wallet_missing");
+        }
+        let via_unmineable = payout == Some(AddressKind::Bitcoin) && coin.unmineable_host.is_some();
+        // Not on Kryptex: only an own wallet (or unMineable with a BTC payout) reaches it.
+        if !own && coin.host.is_none() && !via_unmineable {
+            return Some("own_wallet_required");
+        }
         if !own && payout == Some(AddressKind::Bitcoin) && coin.unmineable_host.is_none() {
             return Some("not_on_unmineable");
         }
@@ -414,6 +584,65 @@ impl Engine {
             return Some("kryptex_or_btc_required");
         }
         None
+    }
+
+    /// Every requirement of `coin` on this PC, so the user sees all that is missing (the
+    /// blocker is only the first). Same rules as `coin_blocker` and `hardware_blocker`.
+    fn requirements(&self, coin: &Coin) -> Vec<Requirement> {
+        let req = |kind, ok: bool, code_ok, code_missing| Requirement {
+            kind,
+            status: if ok { "ok" } else { "missing" },
+            code: if ok { code_ok } else { code_missing },
+        };
+        let demo = self.config.demo_mode;
+        let mut out = Vec::new();
+        if coin.device == Device::Gpu {
+            out.push(if demo {
+                req("hardware", false, "gpu", "not_in_demo")
+            } else {
+                req("hardware", self.has_gpu, "gpu", "no_gpu")
+            });
+            out.push(req(
+                "system",
+                demo || self.gpu_platform,
+                "system",
+                "platform_unsupported",
+            ));
+        } else {
+            out.push(Requirement {
+                kind: "hardware",
+                status: if coin.asic { "warn" } else { "ok" },
+                code: if coin.asic { "asic" } else { "cpu" },
+            });
+            let built = install::manifest_for(coin.miner)
+                .asset_for_platform()
+                .is_ok()
+                || self.config.miner_for(coin.miner).path.is_some();
+            let missing = if coin.miner == MinerKind::Cpuminer {
+                "windows_only"
+            } else {
+                "platform_unsupported"
+            };
+            out.push(req("system", demo || built, "system", missing));
+        }
+        let installed = demo || self.config.miner_for(coin.miner).path.is_some();
+        out.push(Requirement {
+            kind: "miner",
+            // Installed in one click from the coin's sheet: not a real blocker.
+            status: if installed { "ok" } else { "warn" },
+            code: if installed {
+                "miner_installed"
+            } else {
+                "miner_missing"
+            },
+        });
+        let payout = match self.coin_blocker(coin) {
+            Some(b) if PAYOUT_BLOCKERS.contains(&b) => req("payout", false, "", b),
+            _ if self.coin_wallet(coin).is_some() => req("payout", true, "own_wallet", ""),
+            _ => req("payout", true, "main_payout", ""),
+        };
+        out.push(payout);
+        out
     }
 
     /// Why this PC cannot mine `coin`, whatever the payout.
@@ -448,8 +677,15 @@ impl Engine {
             let h = self.hashrate(c.id);
             let m = self.market.coins.iter().find(|m| m.id == c.id);
             let (Some(h), Some(m)) = (h, m) else { continue };
-            // Kryptex only for now: no advice to move to unMineable (BTC).
-            let ways = [("kryptex", m.clone())];
+            // unMineable first: on a tie the account-free BTC payout wins.
+            let um = c.unmineable_host.map(|_| CoinMarket {
+                pool_fee_percent: coins::UNMINEABLE_FEE_PERCENT,
+                ..m.clone()
+            });
+            let ways = um
+                .map(|m| ("bitcoin", m))
+                .into_iter()
+                .chain([("kryptex", m.clone())]);
             for (way, m) in ways {
                 let v = coins::btc_per_day(h, &m, c);
                 if best.is_none_or(|b| v > b.2) {
@@ -461,7 +697,7 @@ impl Engine {
         Advice {
             device,
             coin: best.map(|b| b.0.clone()),
-            payout: best.map_or("kryptex", |b| b.1),
+            payout: best.map_or("bitcoin", |b| b.1),
             btc_per_day: best.map(|b| b.2),
             current_btc_per_day: self
                 .hashrate(now.id)
@@ -475,8 +711,10 @@ impl Engine {
         let usable = |d: Device| -> Vec<&'static Coin> {
             coins::COINS
                 .iter()
-                .filter(|c| c.device == d && self.coin_blocker(c).is_none())
+                // ASIC coins earn almost nothing on a PC: never picked automatically.
+                .filter(|c| c.device == d && !c.asic && self.coin_blocker(c).is_none())
                 .filter(|c| self.config.miner_for(c.miner).path.is_some())
+                .filter(|c| !self.config.auto_exclude.contains(c.id))
                 .collect()
         };
         let gpu = usable(Device::Gpu);
@@ -524,6 +762,32 @@ impl Engine {
     fn set_gpu_table(&mut self, table: &coins::GpuTable) {
         let names: Vec<&str> = self.gpu_names.iter().map(String::as_str).collect();
         self.estimates = coins::estimate(&names, table);
+        self.gpu_table = table.clone();
+    }
+
+    /// Per card while mining a GPU coin: measured hashrate (when the miner's device list
+    /// lines up with the detected cards) and what that model usually does on this coin.
+    fn gpu_rows(&self) -> Vec<GpuRow> {
+        let coin = self.coin;
+        let mining = self.is_active() && coin.device == Device::Gpu;
+        let measured = self
+            .stats
+            .as_ref()
+            .map(|s| s.gpu_hashrates.as_slice())
+            .filter(|h| mining && h.len() == self.live.gpus.len())
+            .unwrap_or_default();
+        self.live
+            .gpus
+            .iter()
+            .enumerate()
+            .map(|(i, g)| GpuRow {
+                hashrate: measured.get(i).copied(),
+                expected: coins::estimate(&[g.name.as_str()], &self.gpu_table)
+                    .get(coin.id)
+                    .copied()
+                    .filter(|_| coin.device == Device::Gpu),
+            })
+            .collect()
     }
 
     fn wanted_coin(&self) -> &'static Coin {
@@ -582,10 +846,12 @@ impl Engine {
         let user_share = 1.0 - self.devfee.status().percent / 100.0;
         let btc_per_day = coins::btc_per_day(hashrate, &market, coin) * user_share;
         let value_per_day = self.btc_price().map(|p| btc_per_day * p);
-        let energy_cost_per_day = self
-            .power()
-            .0
-            .zip(self.config.energy.price_per_kwh)
+        // Idle readings say nothing about mining draw: live power only while mining,
+        // otherwise what this coin drew last time.
+        let mining = live.is_some();
+        let watts = self.mining_watts(coin, mining);
+        let energy_cost_per_day = watts
+            .zip(self.energy_price(coin, mining))
             .map(|(w, price)| earnings::energy_cost(w, 24.0, price));
         Some(Projection {
             hashrate,
@@ -608,6 +874,7 @@ impl Engine {
                 CoinOption {
                     coin: c.clone(),
                     blocker: self.coin_blocker(c),
+                    requirements: self.requirements(c),
                     miner_installed: self.config.demo_mode
                         || self.config.miner_for(c.miner).path.is_some(),
                     hashrate,
@@ -619,8 +886,52 @@ impl Engine {
     }
 
     /// Learn the hashrate of the coin being mined (user time only, after warm-up).
+    /// GPU watchdog: a card that hangs often keeps the miner alive at a fraction of its
+    /// speed. Below `DROP_SHARE` of the learned hashrate for `DROP_STEADY`, the miner is
+    /// restarted once; if the speed is still low afterwards it becomes the new normal.
+    /// Returns true while the reading counts as a drop.
+    fn hashrate_dropped(&mut self, h: f64) -> bool {
+        let normal = self.hashrates.get(self.coin.id).copied();
+        let low = self.coin.device == Device::Gpu && normal.is_some_and(|n| h < n * DROP_SHARE);
+        if !low {
+            self.low_since = None;
+            return false;
+        }
+        let since = *self.low_since.get_or_insert_with(Instant::now);
+        if since.elapsed() < DROP_STEADY {
+            return true;
+        }
+        self.low_since = None;
+        let detail = format!("{:.0}% of normal", h / normal.unwrap_or(h) * 100.0);
+        if self
+            .drop_restart_at
+            .is_some_and(|t| t.elapsed() < Duration::from_secs(1800))
+        {
+            // Restarting did not help: the hardware or settings changed. Accept it.
+            self.hashrates.insert(self.coin.id.to_string(), h);
+            self.alert(Level::Warning, "hashrate_low", Some(detail));
+            return false;
+        }
+        self.drop_restart_at = Some(Instant::now());
+        self.alert(Level::Warning, "hashrate_dropped", Some(detail));
+        let by_schedule = self.started_by_schedule;
+        self.end_session("hashrate_drop");
+        self.state = RunState::Stopped;
+        if let Err(e) = self.start(by_schedule) {
+            self.state = RunState::Error;
+            self.error = Some(e.clone());
+            self.alert(Level::Error, "restart_failed", Some(e));
+        }
+        true
+    }
+
     fn learn_hashrate(&mut self) {
-        if self.state != RunState::Running || self.devfee.active() != Target::User {
+        // While the efficiency search runs, low limits are on purpose: neither learn
+        // them nor treat them as a stuck card.
+        if self.tune.is_some()
+            || self.state != RunState::Running
+            || self.devfee.active() != Target::User
+        {
             return;
         }
         let warm = self
@@ -632,8 +943,15 @@ impl Engine {
         if !warm || h <= 0.0 {
             return;
         }
+        if self.hashrate_dropped(h) {
+            return; // a stuck card must not become the new normal
+        }
         let v = self.hashrates.entry(self.coin.id.to_string()).or_insert(h);
         *v = *v * 0.9 + h * 0.1;
+        if let Some(w) = self.power(self.coin.device) {
+            let v = self.watts.entry(self.coin.id.to_string()).or_insert(w);
+            *v = *v * 0.9 + w * 0.1;
+        }
         if self
             .hashrates_saved
             .is_none_or(|t| t.elapsed() >= Duration::from_secs(60))
@@ -641,6 +959,9 @@ impl Engine {
             self.hashrates_saved = Some(Instant::now());
             if let Ok(s) = serde_json::to_string(&self.hashrates) {
                 let _ = self.store.kv_set("hashrates", &s);
+            }
+            if let Ok(s) = serde_json::to_string(&self.watts) {
+                let _ = self.store.kv_set("watts", &s);
             }
         }
     }
@@ -699,6 +1020,9 @@ impl Engine {
     }
 
     fn alert(&mut self, level: Level, code: &str, detail: Option<String>) {
+        if level != Level::Info && !self.config.demo_mode {
+            self.push(code, detail.as_deref());
+        }
         self.alert_seq += 1;
         if self.alerts.len() >= 20 {
             self.alerts.pop_front();
@@ -710,6 +1034,49 @@ impl Engine {
             code: code.into(),
             detail,
         });
+    }
+
+    /// Push a problem to the user's phone, at most once per code every 10 minutes, on a
+    /// thread of its own (a slow server never stalls the engine).
+    fn push(&mut self, code: &str, detail: Option<&str>) {
+        let n = &self.config.notify;
+        if n.ntfy_url.is_empty() && n.telegram_token.is_empty() {
+            return;
+        }
+        if self
+            .pushed
+            .get(code)
+            .is_some_and(|t| t.elapsed() < Duration::from_secs(600))
+        {
+            return;
+        }
+        self.pushed.insert(code.to_string(), Instant::now());
+        let (n, title) = (n.clone(), format!("Erebor · {}", self.worker_label()));
+        let body = notify::text(&self.config.language, code, detail);
+        std::thread::spawn(move || notify::send(&n, &title, &body));
+    }
+
+    /// This PC as the pool sees it.
+    fn worker_label(&self) -> String {
+        if self.config.pool.worker.is_empty() {
+            crate::config::default_worker()
+        } else {
+            self.config.pool.worker.clone()
+        }
+    }
+
+    /// Channels, title and body of a test message; sent by the caller outside the lock.
+    pub fn test_notify(&self) -> Result<(crate::config::Notify, String, String), String> {
+        let n = &self.config.notify;
+        if n.ntfy_url.is_empty() && (n.telegram_token.is_empty() || n.telegram_chat.is_empty()) {
+            return Err("notify_not_configured".into());
+        }
+        let title = format!("Erebor · {}", self.worker_label());
+        Ok((
+            n.clone(),
+            title,
+            notify::text(&self.config.language, "test", None),
+        ))
     }
 
     pub fn is_active(&self) -> bool {
@@ -799,6 +1166,31 @@ impl Engine {
         self.save_config()
     }
 
+    /// Samples of the last `range_secs` as CSV.
+    pub fn export_csv(&self, range_secs: i64) -> Result<String, String> {
+        let to = now_unix() + 1;
+        let from = to - range_secs.clamp(60, 366 * 86_400);
+        self.store.export_csv(from, to).map_err(|e| e.to_string())
+    }
+
+    /// Same CSV written to the user's Downloads folder (data folder as fallback).
+    pub fn save_csv(&self, range_secs: i64) -> Result<String, String> {
+        let csv = self.export_csv(range_secs)?;
+        let home =
+            std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).map(PathBuf::from);
+        let dir = home
+            .map(|h| h.join("Downloads"))
+            .filter(|d| d.is_dir())
+            .unwrap_or_else(|| self.data_dir.clone());
+        let name = format!(
+            "erebor-{}.csv",
+            chrono::Local::now().format("%Y-%m-%d-%H%M")
+        );
+        let path = dir.join(name);
+        std::fs::write(&path, csv).map_err(|e| e.to_string())?;
+        Ok(path.to_string_lossy().into_owned())
+    }
+
     pub fn export_config(&self) -> String {
         serde_json::to_string_pretty(&self.config).unwrap_or_default()
     }
@@ -829,11 +1221,8 @@ impl Engine {
     fn can_start(&self) -> Result<(), String> {
         let coin = self.wanted_coin();
         if !self.config.demo_mode {
-            if self.config.wallet.is_empty() {
+            if self.config.wallet.is_empty() && self.config.coin_wallets.is_empty() {
                 return Err("wallet_missing".into());
-            }
-            if !wallet::is_kryptex_id(&self.config.wallet) {
-                return Err("kryptex_required".into());
             }
             if let Some(b) = self.coin_blocker(coin) {
                 return Err(b.into());
@@ -842,7 +1231,14 @@ impl Engine {
                 return Err("miner_not_configured".into());
             }
         }
-        if self.job_running() {
+        // The efficiency search restarts the miner itself: only other jobs block a start.
+        let other_job = self
+            .job
+            .lock()
+            .unwrap()
+            .as_ref()
+            .is_some_and(|j| !j.done && j.kind != "tune");
+        if other_job {
             return Err("job_running".into());
         }
         self.config.validate()
@@ -856,69 +1252,169 @@ impl Engine {
         }
     }
 
+    /// Endpoint of a coin mined to the user's own wallet: the chosen pool and region, or
+    /// its backup while failing over. Default: Kryptex with that address.
+    fn own_route(&self, coin: &Coin) -> (String, u16, bool, pools::Login) {
+        let choice = self
+            .config
+            .coin_pools
+            .get(coin.id)
+            .cloned()
+            .unwrap_or_default();
+        let id = if self.on_backup && !choice.backup.is_empty() {
+            choice.backup.as_str()
+        } else {
+            choice.pool.as_str()
+        };
+        if id == "custom" {
+            return (
+                choice.host.clone(),
+                choice.port,
+                choice.tls,
+                pools::Login::Dot,
+            );
+        }
+        // "" (or an unknown id): the first listed pool, Kryptex when the coin is there.
+        let list = pools::coin_pools(coin);
+        let Some(p) = list.iter().find(|p| p.pool == id).or(list.first()) else {
+            return (String::new(), 0, false, pools::Login::Dot);
+        };
+        let host = p
+            .hosts
+            .iter()
+            .find(|(r, _)| *r == choice.region)
+            .or(p.hosts.first())
+            .map(|(_, h)| h.clone())
+            .unwrap_or_default();
+        (host, p.port, false, p.login)
+    }
+
+    /// Switch to the backup pool after `FAILOVER_AFTER` without a pool connection, and
+    /// try the main pool again every `PRIMARY_RETRY` while on the backup.
+    fn check_pool_failover(&mut self) {
+        let has_backup = self.coin_wallet(self.coin).is_some()
+            && self
+                .config
+                .coin_pools
+                .get(self.coin.id)
+                .is_some_and(|c| !c.backup.is_empty());
+        if !has_backup || self.state != RunState::Running || self.devfee.active() != Target::User {
+            self.offline_since = None;
+            return;
+        }
+        if self.on_backup {
+            if self
+                .backup_since
+                .is_some_and(|t| t.elapsed() >= PRIMARY_RETRY)
+            {
+                self.on_backup = false;
+                self.alert(Level::Info, "pool_primary_retry", None);
+                self.restart_miner("pool_primary_retry");
+            }
+            return;
+        }
+        if self.stats.as_ref().is_some_and(|s| s.connected) {
+            self.offline_since = None;
+            return;
+        }
+        let since = *self.offline_since.get_or_insert_with(Instant::now);
+        if since.elapsed() >= FAILOVER_AFTER {
+            self.offline_since = None;
+            self.on_backup = true;
+            self.backup_since = Some(Instant::now());
+            let backup = self.config.coin_pools[self.coin.id].backup.clone();
+            self.alert(Level::Warning, "pool_failover", Some(backup));
+            self.restart_miner("pool_failover");
+        }
+    }
+
+    /// Stop and start the miner with the current settings (pool, limits).
+    fn restart_miner(&mut self, reason: &str) {
+        let by_schedule = self.started_by_schedule;
+        self.end_session(reason);
+        self.state = RunState::Stopped;
+        if let Err(e) = self.start(by_schedule) {
+            self.state = RunState::Error;
+            self.error = Some(e.clone());
+            self.alert(Level::Error, "restart_failed", Some(e));
+        }
+    }
+
+    /// Where Erebor's 2% goes, whatever the user's payout: the project's BTC address on
+    /// unMineable when the build has one and unMineable mines this coin, else the
+    /// project's Kryptex account. `None`: no project destination for this coin (no fee).
+    fn project_target(&self, coin: &Coin) -> Option<PoolTarget> {
+        let demo = self.config.demo_mode;
+        let btc = devfee::build_btc_wallet().or(demo.then_some("DEMO-PROJECT-BTC"));
+        if let (Some(addr), Some(host)) = (btc, coin.unmineable_host) {
+            let (user, pass) = login_unmineable(addr, PROJECT_WORKER);
+            return Some(PoolTarget {
+                url: format!("{host}:{}", coins::UNMINEABLE_PORT),
+                tls: false,
+                user,
+                pass,
+            });
+        }
+        let krx = devfee::build_wallet()
+            .filter(|w| wallet::is_kryptex_id(w))
+            .or(demo.then_some("DEMO-PROJECT-WALLET"))?;
+        let host = coin.host?;
+        let (user, pass) = login(krx, PROJECT_WORKER);
+        Some(PoolTarget {
+            url: format!("{host}:{}", coin.port),
+            tls: false,
+            user,
+            pass,
+        })
+    }
+
     fn pool_target(&self, target: Target) -> PoolTarget {
         let c = &self.config;
         let coin = self.coin;
-        // Own wallet for this coin: mined on Kryptex as `address/worker`, paid in the
-        // coin itself. Project time on that coin goes to the project's Kryptex account.
+        if target == Target::Project {
+            if let Some(t) = self.project_target(coin) {
+                return t;
+            }
+        }
+        // Own wallet for this coin: the chosen pool (Kryptex by default), paid in the coin.
         if let Some(addr) = self.coin_wallet(coin) {
-            let (user, pass) = match target {
-                Target::User => {
-                    let w: String = self
-                        .worker()
-                        .chars()
-                        .filter(char::is_ascii_alphanumeric)
-                        .collect();
-                    (format!("{addr}/{w}"), "x".to_string())
-                }
-                Target::Project => login(
-                    devfee::build_wallet().unwrap_or("DEMO-PROJECT-WALLET"),
-                    PROJECT_WORKER,
-                ),
-            };
+            let w: String = self
+                .worker()
+                .chars()
+                .filter(char::is_ascii_alphanumeric)
+                .collect();
+            let (host, port, tls, style) = self.own_route(coin);
+            let (user, pass) = style.credentials(addr, &w);
             return PoolTarget {
-                url: format!("{}:{}", coin.host, coin.port),
-                tls: false,
+                url: format!("{host}:{port}"),
+                tls,
                 user,
                 pass,
             };
         }
+        // The user's main payout (project time was routed above by `project_target`).
         let user_worker = self.worker();
-        let (wallet, worker) = match target {
-            Target::User => (
-                if c.demo_mode && c.wallet.is_empty() {
-                    "DEMO-WALLET"
-                } else {
-                    c.wallet.as_str()
-                },
-                user_worker.as_str(),
-            ),
-            // Every user's project time shows up as one worker: no user rig names leak.
-            // Users paid in BTC (unMineable) give project time to a BTC address on the
-            // same pool; everyone else to the project's Kryptex account.
-            Target::Project => (
-                if self.payout() == Some(AddressKind::Bitcoin) {
-                    devfee::build_btc_wallet().unwrap_or("DEMO-PROJECT-WALLET")
-                } else {
-                    devfee::build_wallet().unwrap_or("DEMO-PROJECT-WALLET")
-                },
-                PROJECT_WORKER,
-            ),
+        let worker = user_worker.as_str();
+        let wallet = if c.demo_mode && c.wallet.is_empty() {
+            "DEMO-WALLET"
+        } else {
+            c.wallet.as_str()
         };
         // Where the work goes depends on how that wallet is paid:
         // BTC address → unMineable; Kryptex ID → Kryptex (GPU coin endpoint, or the
         // configured pool for XMR when it is a Kryptex host); Monero → configured pool.
         let (host, port, tls) = match wallet::payout_kind(wallet) {
+            // `coin_blocker` keeps coins with no route here from starting.
             Some(AddressKind::Bitcoin) => (
-                coin.unmineable_host.unwrap_or(coin.host),
+                coin.unmineable_host.or(coin.host).unwrap_or_default(),
                 coins::UNMINEABLE_PORT,
                 false,
             ),
-            _ if coin.own_endpoint() => (coin.host, coin.port, false),
+            _ if coin.own_endpoint() => (coin.host.unwrap_or_default(), coin.port, false),
             Some(AddressKind::Kryptex) if !pools::is_kryptex_host(&c.pool.host) => {
                 match pools::find("kryptex") {
                     Some(k) => (k.host, k.port, k.tls),
-                    None => (coin.host, coin.port, false),
+                    None => (coin.host.unwrap_or_default(), coin.port, false),
                 }
             }
             _ => (c.pool.host.as_str(), c.pool.port, c.pool.tls),
@@ -939,6 +1435,7 @@ impl Engine {
             algo: self.coin.algo.into(),
             threads_percent,
             priority,
+            gpu_power_limit_w: self.config.performance.gpu_power_limit_w,
         }
     }
 
@@ -948,23 +1445,21 @@ impl Engine {
             return Ok(());
         }
         self.can_start()?;
+        self.resume_at = None;
+        self.update_holds(true);
+        if let Some(r) = self.hold_reason() {
+            // On, but waiting: `apply_holds` starts the miner when the reason clears.
+            self.held = Some(r);
+            self.started_by_schedule = by_schedule;
+            return Ok(());
+        }
+        self.held = None;
         let coin = self.wanted_coin();
         let mut miner = (self.factory)(&self.config, coin, &self.data_dir, self.monitor.threads())?;
         self.coin = coin;
         // Project time on a GPU coin needs a Kryptex project account.
         // Project time needs a project wallet that works on the user's pool.
-        let fee_ok = self.config.demo_mode
-            || if self.coin_wallet(coin).is_some() {
-                devfee::build_wallet().is_some_and(wallet::is_kryptex_id)
-            } else {
-                match self.payout() {
-                    Some(AddressKind::Bitcoin) => devfee::build_btc_wallet().is_some(),
-                    _ if coin.own_endpoint() => {
-                        devfee::build_wallet().is_some_and(wallet::is_kryptex_id)
-                    }
-                    _ => devfee::build_wallet().is_some(),
-                }
-            };
+        let fee_ok = self.project_target(coin).is_some();
         self.devfee.set_enabled(fee_ok);
         let target = self.devfee.active();
         let spec = self.launch_spec(target);
@@ -1018,7 +1513,10 @@ impl Engine {
 
     /// Stop mining. Works even if the miner API is unreachable (process is killed).
     pub fn stop(&mut self, reason: &str) {
-        let was_active = self.is_active();
+        let was_active = self.is_active() || self.held.is_some();
+        self.held = None;
+        self.resume_at = None;
+        self.on_backup = false;
         self.end_session(reason);
         self.restart_at = None;
         if reason == "user" && self.config.schedule.enabled {
@@ -1031,6 +1529,191 @@ impl Engine {
         if was_active {
             self.alert(Level::Info, "mining_stopped", Some(reason.into()));
         }
+    }
+
+    /// Start the efficiency search while mining a GPU coin. Takes about 3 minutes per step
+    /// (5 steps); mining goes on throughout, at the limit being measured.
+    pub fn start_tune(&mut self) -> Result<(), String> {
+        if self.job_running() {
+            return Err("job_running".into());
+        }
+        if self.state != RunState::Running || self.coin.device != Device::Gpu {
+            return Err("tune_needs_gpu_mining".into());
+        }
+        if self.power(Device::Gpu).is_none() {
+            return Err("tune_needs_power_reading".into());
+        }
+        self.cancel_job.store(false, Ordering::Relaxed);
+        let original = self.config.performance.gpu_power_limit_w;
+        self.tune = Some(Tune {
+            original,
+            queue: Vec::new(),
+            current: None,
+            step_started: Instant::now(),
+            hash_sum: 0.0,
+            watt_sum: 0.0,
+            n: 0,
+            results: Vec::new(),
+        });
+        self.set_tune_job(0.0, None, None);
+        if original.is_some() {
+            self.apply_power_limit(None); // the first step measures stock power
+        }
+        Ok(())
+    }
+
+    fn set_tune_job(&self, progress: f64, value: Option<f64>, error: Option<String>) {
+        set_job(
+            &self.job,
+            JobStatus {
+                kind: "tune",
+                progress,
+                done: progress >= 1.0 || error.is_some(),
+                error,
+                value,
+            },
+        );
+    }
+
+    /// New limit, applied by restarting the miner (limits are launch arguments).
+    fn apply_power_limit(&mut self, w: Option<u32>) {
+        self.config.performance.gpu_power_limit_w = w;
+        self.restart_miner("power_limit");
+    }
+
+    fn tune_tick(&mut self) {
+        let Some(t) = self.tune.as_mut() else { return };
+        let total = 1 + TUNE_SHARES.len();
+        let cancelled = self.cancel_job.load(Ordering::Relaxed);
+        if cancelled || self.state != RunState::Running || self.coin.device != Device::Gpu {
+            let original = t.original;
+            self.tune = None;
+            self.config.performance.gpu_power_limit_w = original;
+            let _ = self.save_config();
+            self.set_tune_job(0.0, None, Some("tune_interrupted".into()));
+            return;
+        }
+        let elapsed = t.step_started.elapsed();
+        if elapsed < TUNE_WARM {
+            return;
+        }
+        let h = self.stats.as_ref().and_then(|s| s.hashrate_10s);
+        let w = self.power(Device::Gpu);
+        let Some(t) = self.tune.as_mut() else { return };
+        if let (Some(h), Some(w)) = (h, w) {
+            t.hash_sum += h;
+            t.watt_sum += w;
+            t.n += 1;
+        }
+        if t.n == 0 && elapsed > TUNE_WARM + 2 * TUNE_MEASURE {
+            let original = t.original;
+            self.tune = None;
+            self.apply_power_limit(original);
+            self.set_tune_job(0.0, None, Some("tune_needs_power_reading".into()));
+            return;
+        }
+        if elapsed < TUNE_WARM + TUNE_MEASURE || t.n == 0 {
+            return;
+        }
+        let (h, w) = (t.hash_sum / t.n as f64, t.watt_sum / t.n as f64);
+        let limit = t.current;
+        // A limit the driver ignored (no admin rights): stop rather than guess.
+        if limit.is_some_and(|l| w > l as f64 * 1.15) {
+            let original = t.original;
+            self.tune = None;
+            self.apply_power_limit(original);
+            let _ = self.save_config();
+            self.set_tune_job(0.0, None, Some("power_limit_not_applied".into()));
+            return;
+        }
+        t.results.push((limit, h, w));
+        if limit.is_none() {
+            t.queue = TUNE_SHARES.iter().map(|s| (w * s).round() as u32).collect();
+        }
+        let done = t.results.len();
+        if let Some(next) = (!t.queue.is_empty()).then(|| t.queue.remove(0)) {
+            t.current = Some(next);
+            t.step_started = Instant::now();
+            (t.hash_sum, t.watt_sum, t.n) = (0.0, 0.0, 0);
+            self.set_tune_job(done as f64 / total as f64, Some(next as f64), None);
+            self.apply_power_limit(Some(next));
+            return;
+        }
+        let results = std::mem::take(&mut t.results);
+        self.tune = None;
+        let best = self.best_limit(&results);
+        self.apply_power_limit(best);
+        let _ = self.save_config();
+        let detail = best.map_or("stock".to_string(), |w| format!("{w} W"));
+        self.alert(Level::Info, "tune_done", Some(detail));
+        self.set_tune_job(1.0, best.map(f64::from), None);
+    }
+
+    /// Highest net profit per day at today's price; without a price, the best hashrate
+    /// per watt among limits that keep at least 90% of the stock hashrate.
+    fn best_limit(&self, results: &[(Option<u32>, f64, f64)]) -> Option<u32> {
+        let coin = self.coin;
+        let price = self.energy_price(coin, true);
+        let per_hash = self.coin_market(coin.id).map(|m| m.btc_per_hash(coin));
+        let fee = self.devfee.status().percent;
+        let score = |&(_, h, w): &(Option<u32>, f64, f64)| -> Option<f64> {
+            let mut p = self.params();
+            p.price_per_kwh = Some(price?);
+            earnings::daily_profit_btc(h, per_hash?, &p, fee, w)
+        };
+        if results.iter().all(|r| score(r).is_some()) {
+            return results
+                .iter()
+                .max_by(|a, b| {
+                    score(a)
+                        .partial_cmp(&score(b))
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })
+                .and_then(|r| r.0);
+        }
+        let stock = results.first().map_or(0.0, |r| r.1);
+        results
+            .iter()
+            .filter(|r| r.1 >= stock * 0.9 && r.2 > 0.0)
+            .max_by(|a, b| {
+                (a.1 / a.2)
+                    .partial_cmp(&(b.1 / b.2))
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .and_then(|r| r.0)
+    }
+
+    /// Before an app update restarts the process: remember whether mining was on, so the
+    /// new version picks it up (`take_resume_after_update`).
+    pub fn prepare_update(&mut self) {
+        if self.is_active() || self.held.is_some() {
+            let _ = self.store.kv_set("resume_after_update", "1");
+        }
+    }
+
+    /// True once after an update that interrupted mining.
+    pub fn take_resume_after_update(&self) -> bool {
+        let on = self
+            .store
+            .kv_get("resume_after_update")
+            .ok()
+            .flatten()
+            .as_deref()
+            == Some("1");
+        if on {
+            let _ = self.store.kv_set("resume_after_update", "0");
+        }
+        on
+    }
+
+    /// Stop now and start again by itself after `secs` (gaming, a call, a render…).
+    pub fn stop_for(&mut self, secs: u64) {
+        if !self.is_active() && self.held.is_none() {
+            return; // nothing to come back to
+        }
+        let by_schedule = self.started_by_schedule;
+        self.stop("user");
+        self.resume_at = Some((Instant::now() + Duration::from_secs(secs), by_schedule));
     }
 
     pub fn pause(&mut self) -> Result<(), String> {
@@ -1093,7 +1776,14 @@ impl Engine {
                 }
             }
         }
+        if self.resume_at.is_some_and(|(t, _)| now >= t) {
+            let (_, by_schedule) = self.resume_at.take().unwrap();
+            if let Err(e) = self.start(by_schedule) {
+                self.alert(Level::Error, "restart_failed", Some(e));
+            }
+        }
         self.apply_schedule();
+        self.apply_holds();
 
         let Some(miner) = self.miner.as_mut() else {
             return;
@@ -1138,7 +1828,8 @@ impl Engine {
             }
         }
         self.check_temperature();
-        self.check_economics();
+        self.check_pool_failover();
+        self.tune_tick();
         self.learn_hashrate();
         self.auto_switch();
         self.refresh_mined();
@@ -1209,7 +1900,7 @@ impl Engine {
             self.acc.hash_secs += h * eff;
             self.acc.hash_known_secs += eff;
         }
-        if let Some(p) = self.live.power_w {
+        if let Some(p) = self.power(self.coin.device) {
             self.acc.power_j += p * eff;
             self.acc.power_secs += eff;
         }
@@ -1248,6 +1939,7 @@ impl Engine {
             btc_per_hash: self
                 .coin_market(self.coin.id)
                 .map(|m| m.btc_per_hash(self.coin)),
+            price_kwh: self.energy_price(self.coin, true),
         };
         if let Err(e) = self.store.insert_sample(&sample) {
             self.alert(Level::Warning, "storage_error", Some(e.to_string()));
@@ -1312,59 +2004,206 @@ impl Engine {
             price,
             btc_price: self.btc_price(),
             price_per_kwh: self.config.energy.price_per_kwh,
-            estimated_watts: self.config.energy.estimated_watts,
         }
     }
 
-    fn power(&self) -> (Option<f64>, EnergySource) {
-        match (self.live.power_w, self.config.energy.estimated_watts) {
-            (Some(p), _) => (Some(p), EnergySource::Measured),
-            (None, Some(w)) => (Some(w), EnergySource::Estimated),
-            _ => (None, EnergySource::Unavailable),
+    /// Measured draw of the hardware doing the mining: the GPUs (summed) for GPU
+    /// coins, the CPU package for CPU coins. Never a user guess.
+    fn power(&self, device: Device) -> Option<f64> {
+        match device {
+            Device::Gpu => self
+                .live
+                .gpus
+                .iter()
+                .filter_map(|g| g.power_w)
+                .fold(None, |a, w| Some(a.unwrap_or(0.0) + w)),
+            Device::Cpu => self.live.power_w,
         }
     }
 
-    fn check_economics(&mut self) {
-        let e = &self.config.energy;
-        if !e.stop_if_unprofitable || self.state != RunState::Running {
-            return;
-        }
-        let Some((_, _, started)) = self.session else {
-            return;
-        };
-        if started.elapsed() < Duration::from_secs(600) {
-            return;
-        }
-        let min = e.min_profit_per_day;
-        let per_hash = if self.coin.id == "XMR" {
-            self.market.network.as_ref().and_then(|n| n.xmr_per_hash())
+    /// Draw of `coin`'s device: measured live while mining, else the last learned value.
+    fn mining_watts(&self, coin: &Coin, mining: bool) -> Option<f64> {
+        if mining {
+            self.power(coin.device)
         } else {
-            self.coin_market(self.coin.id)
-                .map(|m| m.btc_per_hash(self.coin))
+            self.watts.get(coin.id).copied()
+        }
+    }
+
+    /// What a kWh costs for mining `coin` right now: the user's band (or base) price,
+    /// the share covered by solar surplus at the feed-in price, minus the heat credit.
+    fn energy_price(&self, coin: &Coin, mining: bool) -> Option<f64> {
+        use chrono::{Datelike, Local, Timelike};
+        let e = &self.config.energy;
+        let now = Local::now();
+        let grid = energy::grid_price(
+            e,
+            now.weekday().num_days_from_monday() as usize,
+            (now.hour() * 60 + now.minute()) as u16,
+        );
+        let solar = self.solar_export().map(|w| {
+            (
+                energy::solar_share(w, self.mining_watts(coin, mining), mining),
+                e.solar.feed_in_price,
+            )
+        });
+        let credit = if e.heating_months[now.month0() as usize] {
+            e.heating_credit_percent
+        } else {
+            0
         };
-        let (Some(h), Some(ph), (Some(w), _)) = (
-            self.stats.as_ref().and_then(|s| s.hashrate_60s),
-            per_hash,
-            self.power(),
-        ) else {
-            return; // Not enough reliable data: never stop on a guess.
+        energy::effective_price(grid, solar, credit)
+    }
+
+    /// Fresh meter reading (exported W), when solar is set up.
+    fn solar_export(&self) -> Option<f64> {
+        self.config
+            .energy
+            .solar
+            .enabled
+            .then(|| self.solar.fresh())
+            .flatten()
+    }
+
+    /// Fresh room temperature (°C), when the thermostat is set up.
+    fn room_temp(&self) -> Option<f64> {
+        self.config
+            .energy
+            .thermostat
+            .enabled
+            .then(|| self.room.fresh())
+            .flatten()
+    }
+
+    pub fn set_solar(&mut self, reading: Result<f64, String>) {
+        self.solar.set(reading);
+    }
+
+    pub fn set_room(&mut self, reading: Result<f64, String>) {
+        self.room.set(reading);
+    }
+
+    /// Would mining the coin lose money at today's price? `None`: not enough data,
+    /// and nothing changes on a guess.
+    fn unprofitable_now(&self) -> Option<bool> {
+        let e = &self.config.energy;
+        if !e.stop_if_unprofitable {
+            return Some(false);
+        }
+        let mining = self.is_active();
+        let coin = if mining {
+            self.coin
+        } else {
+            self.wanted_coin()
         };
-        let params = self.params();
+        let h = self
+            .hashrate(coin.id)
+            .or_else(|| self.stats.as_ref().and_then(|s| s.hashrate_60s))
+            .filter(|h| *h > 0.0)?;
+        let w = self.mining_watts(coin, mining)?;
+        let mut params = self.params();
+        params.price_per_kwh = Some(self.energy_price(coin, mining)?);
         let fee = self.devfee.status().percent;
-        let projected = if self.coin.id == "XMR" {
+        let profit = if coin.id == "XMR" {
+            let ph = self
+                .market
+                .network
+                .as_ref()
+                .and_then(|n| n.xmr_per_hash())?;
             earnings::daily_profit(h, ph, &params, fee, w)
         } else {
+            let ph = self.coin_market(coin.id).map(|m| m.btc_per_hash(coin))?;
             earnings::daily_profit_btc(h, ph, &params, fee, w)
-        };
-        if let Some(p) = projected {
-            if p < min {
-                self.stop("unprofitable");
-                self.alert(
-                    Level::Warning,
-                    "stopped_unprofitable",
-                    Some(format!("{p:.2}")),
-                );
+        }?;
+        Some(profit < e.min_profit_per_day)
+    }
+
+    /// Refresh the inputs of the hold decision: idle time and profitability, debounced
+    /// unless `fresh` (a start decides on the current reading).
+    fn update_holds(&mut self, fresh: bool) {
+        if self.config.performance.idle_minutes.is_some() {
+            if fresh || self.idle_at.is_none_or(|t| t.elapsed() >= IDLE_POLL) {
+                self.idle_at = Some(Instant::now());
+                self.idle = (self.idle_source)();
             }
+        } else {
+            self.idle = None;
+        }
+        match self.unprofitable_now() {
+            Some(bad) if bad != self.econ_bad => {
+                let since = *self.econ_flip.get_or_insert_with(Instant::now);
+                // Prices move by the hour and solar by the minute: act on a steady change.
+                if fresh
+                    || !self.config.energy.stop_if_unprofitable
+                    || since.elapsed() >= ECON_STEADY
+                {
+                    self.econ_bad = bad;
+                    self.econ_flip = None;
+                }
+            }
+            _ => self.econ_flip = None,
+        }
+    }
+
+    /// Why mining should wait right now, if anything.
+    fn hold_reason(&self) -> Option<&'static str> {
+        let in_use = self
+            .config
+            .performance
+            .idle_minutes
+            .zip(self.idle)
+            .is_some_and(|(m, idle)| idle < u64::from(m) * 60);
+        // Thermostat with hysteresis: wait at `off_above`, start again below `on_below`.
+        // Without a fresh reading nothing changes.
+        let th = &self.config.energy.thermostat;
+        let was_warm = self.held == Some("warm");
+        let warm = match self.room_temp() {
+            Some(t) if was_warm => t > th.on_below_c,
+            Some(t) => t >= th.off_above_c,
+            None => was_warm && th.enabled,
+        };
+        if in_use {
+            Some("in_use")
+        } else if warm {
+            Some("warm")
+        } else if self.econ_bad {
+            Some("unprofitable")
+        } else {
+            None
+        }
+    }
+
+    /// Put mining on hold when a reason appears, resume it when every reason clears.
+    fn apply_holds(&mut self) {
+        if !self.is_active() && self.held.is_none() {
+            return;
+        }
+        self.update_holds(false);
+        match (self.held, self.hold_reason()) {
+            (None, Some(r)) if self.state == RunState::Running => {
+                self.end_session(r);
+                self.state = RunState::Stopped;
+                self.held = Some(r);
+                let code = match r {
+                    "in_use" => "held_in_use",
+                    "warm" => "held_warm",
+                    _ => "held_unprofitable",
+                };
+                self.alert(Level::Info, code, None);
+            }
+            (Some(_), Some(r)) => self.held = Some(r),
+            (Some(_), None) => {
+                self.held = None;
+                match self.start(self.started_by_schedule) {
+                    Ok(()) => self.alert(Level::Info, "mining_resumed", None),
+                    Err(e) => {
+                        self.state = RunState::Error;
+                        self.error = Some(e.clone());
+                        self.alert(Level::Error, "restart_failed", Some(e));
+                    }
+                }
+            }
+            _ => {}
         }
     }
 
@@ -1380,6 +2219,7 @@ impl Engine {
         );
         if active {
             if self.state == RunState::Stopped
+                && self.held.is_none()
                 && !self.schedule_suppressed
                 && self.restart_at.is_none()
                 && self.can_start().is_ok()
@@ -1391,7 +2231,7 @@ impl Engine {
             }
         } else {
             self.schedule_suppressed = false;
-            if self.is_active() && self.started_by_schedule {
+            if (self.is_active() || self.held.is_some()) && self.started_by_schedule {
                 self.stop("schedule");
             }
         }
@@ -1443,7 +2283,17 @@ impl Engine {
     pub fn status(&self) -> Status {
         let now = now_unix();
         let totals = self.store.totals(now - 86_400, now + 1).unwrap_or_default();
-        let (power_w, power_source) = self.power();
+        let device = if self.is_active() {
+            self.coin.device
+        } else {
+            self.wanted_coin().device
+        };
+        let power_w = self.power(device);
+        let power_source = if power_w.is_some() {
+            EnergySource::Measured
+        } else {
+            EnergySource::Unavailable
+        };
         // Clone in its own statement: a guard inside the struct literal would
         // live until the end of it and deadlock with can_start() below.
         let job = self.job.lock().unwrap().clone();
@@ -1483,6 +2333,36 @@ impl Engine {
             mined: self.mined.clone(),
             mined_btc: self.mined_btc(),
             advice: self.advice(),
+            held: self.held,
+            energy_price: {
+                let coin = if self.is_active() {
+                    self.coin
+                } else {
+                    self.wanted_coin()
+                };
+                self.energy_price(coin, self.is_active())
+            },
+            solar_export_w: self.solar_export(),
+            solar_error: self
+                .config
+                .energy
+                .solar
+                .enabled
+                .then(|| self.solar.error.clone())
+                .flatten(),
+            gpus: self.gpu_rows(),
+            room_temp_c: self.room_temp(),
+            room_error: self
+                .config
+                .energy
+                .thermostat
+                .enabled
+                .then(|| self.room.error.clone())
+                .flatten(),
+            idle_secs: self.idle,
+            resume_in_secs: self
+                .resume_at
+                .map(|(t, _)| t.saturating_duration_since(Instant::now()).as_secs()),
         }
     }
 
@@ -1532,6 +2412,17 @@ impl Drop for Engine {
 
 /// Stratum login. Kryptex account mining: `krxID/worker` (Latin letters and digits only).
 /// Monero address pools: the address as user, the worker as password.
+/// unMineable: payout coin, address and worker in the user field.
+fn login_unmineable(btc: &str, worker: &str) -> (String, String) {
+    let w: String = worker.chars().filter(char::is_ascii_alphanumeric).collect();
+    let w = if w.is_empty() {
+        "erebor".to_string()
+    } else {
+        w
+    };
+    (format!("BTC:{btc}.{w}"), "x".into())
+}
+
 fn login(wallet: &str, worker: &str) -> (String, String) {
     if wallet::payout_kind(wallet) == Some(AddressKind::Bitcoin) {
         // unMineable: payout coin, address and worker in the user field.
@@ -1763,6 +2654,28 @@ pub fn spawn_loops(engine: Arc<Mutex<Engine>>) {
         std::thread::sleep(TICK);
         e2.lock().unwrap().tick();
     });
+    // The meter is read outside the engine lock: a slow device never stalls the UI.
+    let e3 = engine.clone();
+    std::thread::spawn(move || loop {
+        let (solar, room) = {
+            let e = e3.lock().unwrap();
+            let on = !e.config.demo_mode;
+            let (s, t) = (&e.config.energy.solar, &e.config.energy.thermostat);
+            (
+                (on && s.enabled).then(|| s.clone()),
+                (on && t.enabled).then(|| t.clone()),
+            )
+        };
+        if let Some(s) = solar {
+            let r = energy::read_solar(&s);
+            e3.lock().unwrap().set_solar(r);
+        }
+        if let Some(t) = room {
+            let r = energy::read_number(&t.url, &t.token, &t.field);
+            e3.lock().unwrap().set_room(r);
+        }
+        std::thread::sleep(Duration::from_secs(15));
+    });
     std::thread::spawn(move || loop {
         let (base, demo) = {
             let e = engine.lock().unwrap();
@@ -1927,11 +2840,6 @@ mod tests {
         e.update_config(c).unwrap();
         assert_eq!(e.start(false), Err("wallet_missing".into()));
         assert_eq!(s.starts.load(Ordering::SeqCst), 0);
-        // Kryptex only for now: a Monero address is not enough to start.
-        let mut c = e.config().clone();
-        c.wallet = WALLET.into();
-        e.update_config(c).unwrap();
-        assert_eq!(e.start(false), Err("kryptex_required".into()));
         let mut c = e.config().clone();
         c.wallet = KRX.into();
         e.update_config(c).unwrap();
@@ -1961,8 +2869,8 @@ mod tests {
         // No name chosen: this PC's hostname. The project's 2% is always "EREBOR".
         let pc = crate::config::default_worker();
         assert_eq!(t.user, format!("krxABC123/{pc}"));
-        let p = e.pool_target(Target::Project);
-        assert!(p.user.ends_with("/EREBOR") || p.pass == "EREBOR", "{p:?}");
+        // No project destination in a test build: no fee (the demo test covers "EREBOR").
+        assert!(e.project_target(e.coin).is_none());
         let mut c = e.config().clone();
         c.pool.worker = "Ufficio".into();
         e.update_config(c).unwrap();
@@ -2054,9 +2962,10 @@ mod tests {
         e.last_tick = Some(Instant::now() - Duration::from_secs(9));
         e.tick();
         assert_eq!(e.status().target, Target::Project);
+        // Project time goes to the project's BTC address on unMineable.
         assert_eq!(
             s.switches.lock().unwrap().as_slice(),
-            ["DEMO-PROJECT-WALLET"]
+            ["BTC:DEMO-PROJECT-BTC.EREBOR"]
         );
         // Hot switch failure → miner restarted on the user target.
         s.fail_switch.store(true, Ordering::SeqCst);
@@ -2139,6 +3048,250 @@ mod tests {
     }
 
     #[test]
+    fn idle_only_mining_waits_while_the_pc_is_in_use() {
+        let d = tempfile::tempdir().unwrap();
+        let (mut e, s) = engine(d.path(), false);
+        e.config.performance.idle_minutes = Some(5);
+        e.idle_source = || Some(10); // someone is typing
+        e.start(false).unwrap();
+        assert_eq!(e.status().held, Some("in_use"));
+        assert_eq!(s.starts.load(Ordering::SeqCst), 0);
+        e.idle_source = || Some(600); // away for 10 minutes
+        e.idle_at = None; // skip the 5 s polling interval
+        e.apply_holds();
+        assert_eq!(e.held, None);
+        assert_eq!(e.state, RunState::Running);
+        assert_eq!(s.starts.load(Ordering::SeqCst), 1);
+        e.idle_source = || Some(0); // back at the keyboard: waits at once
+        e.idle_at = None;
+        e.apply_holds();
+        assert_eq!((e.state, e.held), (RunState::Stopped, Some("in_use")));
+        assert_eq!(s.stops.load(Ordering::SeqCst), 1);
+        e.stop("user"); // stopping by hand forgets the wait
+        assert_eq!(e.held, None);
+        e.idle_source = || Some(600);
+        e.idle_at = None;
+        e.apply_holds();
+        assert_eq!(e.state, RunState::Stopped);
+    }
+
+    #[test]
+    fn unprofitable_mining_waits_and_resumes() {
+        let d = tempfile::tempdir().unwrap();
+        let (mut e, s) = engine(d.path(), false);
+        e.config.energy.stop_if_unprofitable = true; // no market data: never flips on its own
+        e.econ_bad = true;
+        e.start(false).unwrap();
+        assert_eq!(e.held, Some("unprofitable"));
+        assert_eq!(s.starts.load(Ordering::SeqCst), 0);
+        e.econ_bad = false;
+        e.apply_holds();
+        assert_eq!((e.state, e.held), (RunState::Running, None));
+        e.econ_bad = true;
+        e.apply_holds();
+        assert_eq!((e.state, e.held), (RunState::Stopped, Some("unprofitable")));
+    }
+
+    #[test]
+    fn a_stuck_gpu_is_restarted_once_then_accepted() {
+        let d = tempfile::tempdir().unwrap();
+        let (mut e, s) = engine(d.path(), false);
+        e.has_gpu = true;
+        e.gpu_platform = true;
+        e.config.srbminer.path = Some("/mock/srbminer".into());
+        let mut c = e.config().clone();
+        c.coin = "PRL".into();
+        e.update_config(c).unwrap();
+        e.start(false).unwrap();
+        assert_eq!((e.state, e.coin.id), (RunState::Running, "PRL"));
+        e.hashrates.insert("PRL".into(), 1000.0);
+        let long_ago = || Instant::now().checked_sub(DROP_STEADY + Duration::from_secs(1));
+        assert!(!e.hashrate_dropped(950.0)); // normal
+        assert!(e.hashrate_dropped(500.0)); // low, not for long yet
+        assert_eq!(s.starts.load(Ordering::SeqCst), 1);
+        e.low_since = long_ago();
+        assert!(e.hashrate_dropped(500.0)); // low for 5 minutes: restart
+        assert_eq!(s.starts.load(Ordering::SeqCst), 2);
+        assert_eq!(e.state, RunState::Running);
+        e.hashrate_dropped(500.0);
+        e.low_since = long_ago();
+        assert!(!e.hashrate_dropped(500.0)); // still low after the restart: new normal
+        assert_eq!(e.hashrates["PRL"], 500.0);
+        assert_eq!(s.starts.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn stop_for_a_while_starts_again_by_itself() {
+        let d = tempfile::tempdir().unwrap();
+        let (mut e, s) = engine(d.path(), false);
+        e.stop_for(3600); // not mining: nothing to come back to
+        assert_eq!(e.status().resume_in_secs, None);
+        e.start(false).unwrap();
+        e.stop_for(3600);
+        assert_eq!(e.state, RunState::Stopped);
+        assert!(e.status().resume_in_secs.is_some_and(|s| s > 3500));
+        e.resume_at = Some((Instant::now(), false));
+        e.tick();
+        assert_eq!(e.state, RunState::Running);
+        assert_eq!(s.starts.load(Ordering::SeqCst), 2);
+        e.stop_for(3600);
+        e.stop("user"); // a real stop cancels the comeback
+        assert_eq!(e.resume_at, None);
+    }
+
+    #[test]
+    fn thermostat_heats_between_its_two_temperatures() {
+        let d = tempfile::tempdir().unwrap();
+        let (mut e, _) = engine(d.path(), false);
+        e.config.energy.thermostat.enabled = true; // 20 °C on, 21 °C off
+        e.config.energy.thermostat.url = "http://ha.local/api/states/sensor.room".into();
+        let at = |e: &mut Engine, t: f64| {
+            e.set_room(Ok(t));
+            e.apply_holds();
+            (e.state, e.held)
+        };
+        e.set_room(Ok(21.5));
+        e.start(false).unwrap();
+        assert_eq!(e.held, Some("warm"));
+        assert_eq!(at(&mut e, 20.5), (RunState::Stopped, Some("warm")));
+        assert_eq!(at(&mut e, 19.9), (RunState::Running, None));
+        assert_eq!(at(&mut e, 20.5), (RunState::Running, None));
+        assert_eq!(at(&mut e, 21.0), (RunState::Stopped, Some("warm")));
+        // Sensor down: it keeps waiting instead of guessing.
+        e.room = Reading::default();
+        e.apply_holds();
+        assert_eq!(e.held, Some("warm"));
+    }
+
+    #[test]
+    fn mining_comes_back_after_an_app_update() {
+        let d = tempfile::tempdir().unwrap();
+        let (mut e, _) = engine(d.path(), false);
+        e.prepare_update(); // not mining: nothing to remember
+        assert!(!e.take_resume_after_update());
+        e.start(false).unwrap();
+        e.prepare_update();
+        assert!(e.take_resume_after_update());
+        assert!(!e.take_resume_after_update()); // only once
+    }
+
+    #[test]
+    fn efficiency_search_keeps_the_best_limit() {
+        let d = tempfile::tempdir().unwrap();
+        let (mut e, s) = engine(d.path(), false);
+        e.has_gpu = true;
+        e.gpu_platform = true;
+        e.config.srbminer.path = Some("/mock/srbminer".into());
+        let mut c = e.config().clone();
+        c.coin = "PRL".into();
+        e.update_config(c).unwrap();
+        e.start(false).unwrap();
+        e.live.gpus = vec![crate::hardware::GpuLive {
+            power_w: Some(200.0),
+            ..Default::default()
+        }];
+        e.start_tune().unwrap();
+        // Same hashrate at every limit (mock miner), no market data: least watts wins.
+        for _ in 0..5 {
+            assert!(e.tune.is_some(), "{:?}", e.error);
+            e.tune.as_mut().unwrap().step_started = Instant::now()
+                .checked_sub(TUNE_WARM + TUNE_MEASURE)
+                .unwrap();
+            let limit = e.config.performance.gpu_power_limit_w;
+            e.live.gpus[0].power_w = Some(limit.map_or(200.0, f64::from));
+            e.stats = Some(MinerStats {
+                hashrate_10s: Some(1000.0),
+                ..Default::default()
+            });
+            e.tune_tick();
+        }
+        assert!(e.tune.is_none());
+        assert_eq!(e.config().performance.gpu_power_limit_w, Some(120));
+        assert_eq!(s.starts.load(Ordering::SeqCst), 6); // start + one per limit tried + final
+        assert!(e
+            .job
+            .lock()
+            .unwrap()
+            .as_ref()
+            .is_some_and(|j| j.done && j.error.is_none()));
+    }
+
+    #[test]
+    fn own_wallets_go_to_the_chosen_pool_and_fail_over() {
+        let kas = "kaspa:qqkqkzjvr7zwxxmjxjkmxxdwju9kjs6e9u82uh59z07vgaks6gg62v8707g73";
+        let d = tempfile::tempdir().unwrap();
+        let (mut e, s) = engine(d.path(), false);
+        e.has_gpu = true;
+        e.gpu_platform = true;
+        e.config.lolminer.path = Some("/mock/lolMiner".into());
+        // No main payout at all: an own wallet is enough to mine that coin.
+        let mut c = e.config().clone();
+        c.wallet.clear();
+        c.coin = "KAS".into();
+        c.coin_wallets.insert("KAS".into(), kas.into());
+        c.coin_pools.insert(
+            "KAS".into(),
+            crate::config::CoinPoolChoice {
+                pool: "2miners".into(),
+                region: "asia".into(),
+                backup: "woolypooly".into(),
+                ..Default::default()
+            },
+        );
+        e.update_config(c).unwrap();
+        e.start(false).unwrap();
+        let t = e.pool_target(Target::User);
+        assert_eq!(t.url, "asia-kas.2miners.com:2020");
+        assert!(t.user.starts_with(&format!("{kas}.")));
+        // This test build has no project destination: no fee, never the user's wallet.
+        assert!(e.project_target(e.coin).is_none());
+        // Three minutes without a pool connection: the backup takes over.
+        e.stats = Some(MinerStats::default());
+        e.offline_since = Instant::now().checked_sub(FAILOVER_AFTER);
+        e.check_pool_failover();
+        assert!(e.on_backup);
+        assert_eq!(e.pool_target(Target::User).url, "pool.woolypooly.com:3112");
+        assert_eq!(s.starts.load(Ordering::SeqCst), 2);
+        // Later it tries the main pool again.
+        e.backup_since = Instant::now().checked_sub(PRIMARY_RETRY);
+        e.check_pool_failover();
+        assert!(!e.on_backup);
+        // Coins without a destination are not mined; excluded ones are not picked.
+        let etc = coins::find("ETC").unwrap();
+        assert_eq!(e.coin_blocker(etc), Some("wallet_missing"));
+        e.stop("user");
+        let mut c = e.config().clone();
+        c.coin = AUTO_COIN.into();
+        c.auto_exclude.insert("KAS".into());
+        e.update_config(c).unwrap();
+        assert!(!e.candidates().iter().any(|c| c.id == "KAS"));
+        // Unknown pools and bad custom hosts are refused.
+        let mut c = e.config().clone();
+        c.coin_pools.get_mut("KAS").unwrap().pool = "nope".into();
+        assert!(e.update_config(c).is_err());
+        let mut c = e.config().clone();
+        let k = c.coin_pools.get_mut("KAS").unwrap();
+        (k.pool, k.host, k.port) = ("custom".into(), "pool.example.com; rm".into(), 3333);
+        assert!(e.update_config(c).is_err());
+    }
+
+    #[test]
+    fn power_is_the_measured_draw_of_the_mining_device() {
+        let d = tempfile::tempdir().unwrap();
+        let (mut e, _) = engine(d.path(), false);
+        let gpu = |w| crate::hardware::GpuLive {
+            power_w: w,
+            ..Default::default()
+        };
+        e.live.power_w = Some(40.0);
+        e.live.gpus = vec![gpu(Some(150.0)), gpu(None), gpu(Some(100.0))];
+        assert_eq!(e.power(Device::Cpu), Some(40.0));
+        assert_eq!(e.power(Device::Gpu), Some(250.0));
+        e.live.gpus = vec![gpu(None)];
+        assert_eq!(e.power(Device::Gpu), None);
+    }
+
+    #[test]
     fn without_a_gpu_auto_mines_monero_on_the_cpu() {
         let d = tempfile::tempdir().unwrap();
         let (mut e, s) = engine(d.path(), false);
@@ -2147,6 +3300,38 @@ mod tests {
         e.start(false).unwrap();
         assert_eq!(s.coins.lock().unwrap().as_slice(), ["XMR"]);
         assert_eq!(e.status().coin.id, "XMR");
+    }
+
+    #[test]
+    fn coins_off_kryptex_need_an_own_wallet_and_say_everything_missing() {
+        let d = tempfile::tempdir().unwrap();
+        let (mut e, _) = engine(d.path(), false);
+        e.has_gpu = false;
+        let mut c = e.config().clone();
+        c.wallet = KRX.into();
+        e.update_config(c.clone()).unwrap();
+        let firo = coins::find("FIRO").unwrap();
+        assert_eq!(e.coin_blocker(firo), Some("own_wallet_required"));
+        let reqs: Vec<_> = e
+            .requirements(firo)
+            .iter()
+            .map(|r| (r.kind, r.status, r.code))
+            .collect();
+        assert!(reqs.contains(&("hardware", "missing", "no_gpu")));
+        assert!(reqs.contains(&("miner", "warn", "miner_missing")));
+        assert!(reqs.contains(&("payout", "missing", "own_wallet_required")));
+        // An own wallet clears the payout requirement; the missing GPU remains.
+        c.coin_wallets
+            .insert("FIRO".into(), "aFiroPublicAddress1234567890xyz".into());
+        e.update_config(c).unwrap();
+        assert_eq!(e.coin_blocker(firo), Some("no_gpu"));
+        assert!(e
+            .requirements(firo)
+            .iter()
+            .any(|r| r.code == "own_wallet" && r.status == "ok"));
+        // ASIC coins show up, but the automatic choice never takes them.
+        assert!(e.requirements(coins::find("BTC").unwrap())[0].status == "warn");
+        assert!(e.candidates().iter().all(|c| !c.asic));
     }
 
     #[test]
@@ -2223,7 +3408,7 @@ mod tests {
         let a = e.advice();
         assert_eq!(a.device, Device::Gpu);
         assert!(a.coin.is_none());
-        assert_eq!(a.payout, "kryptex");
+        assert_eq!(a.payout, "bitcoin");
         for c in coins::COINS {
             e.hashrates.insert(c.id.into(), 1000.0);
         }
@@ -2231,11 +3416,11 @@ mod tests {
             .iter()
             .map(|c| market(c.id, if c.id == "PRL" { 3e-6 } else { 1e-6 }))
             .collect();
-        // Kryptex only for now: never advises moving to unMineable, even when cheaper.
+        // Pearl costs 3% on Kryptex, 1% on unMineable: BTC through unMineable wins.
         e.market.coins[0].pool_fee_percent = 3.0;
         let a = e.advice();
         assert_eq!(a.coin.unwrap().id, "PRL");
-        assert_eq!(a.payout, "kryptex");
+        assert_eq!(a.payout, "bitcoin");
         // RVN is Kryptex-only.
         e.market.coins = vec![market("RVN", 9e-6)];
         assert_eq!(e.advice().payout, "kryptex");

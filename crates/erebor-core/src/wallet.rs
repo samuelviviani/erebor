@@ -50,7 +50,7 @@ pub enum WalletError {
     WrongNetwork {
         network: Network,
     },
-    /// For now Erebor pays out through a Kryptex account only.
+    /// Main payout: only a Kryptex ID or a Bitcoin address (other coins: per-coin wallets).
     KryptexOnly,
 }
 
@@ -154,14 +154,14 @@ pub fn is_kryptex_id(input: &str) -> bool {
         && s.bytes().all(|b| b.is_ascii_alphanumeric())
 }
 
-/// What a user may enter as payout today: a Kryptex ID only. Monero and Bitcoin payouts
-/// (`validate_payout`) stay in the engine and come back once they are designed properly.
+/// Main payout a user may enter: a Kryptex ID or a Bitcoin address (unMineable). Coins
+/// paid in themselves go through per-coin wallets instead.
 pub fn validate_user_payout(input: &str) -> Result<AddressInfo, WalletError> {
     if input.trim().is_empty() {
         return Err(WalletError::Empty);
     }
     match validate_payout(input) {
-        Ok(i) if i.kind == AddressKind::Kryptex => Ok(i),
+        Ok(i) if matches!(i.kind, AddressKind::Kryptex | AddressKind::Bitcoin) => Ok(i),
         Err(WalletError::LooksLikeSecret) => Err(WalletError::LooksLikeSecret),
         _ => Err(WalletError::KryptexOnly),
     }
@@ -198,9 +198,16 @@ pub fn validate_coin_address(coin: &str, input: &str) -> Result<(), WalletError>
     if s.is_empty() {
         return Err(WalletError::Empty);
     }
-    if s.split_whitespace().count() >= 12
-        || (s.len() == 64 && s.bytes().all(|b| b.is_ascii_hexdigit()))
-    {
+    let hex64 = s.len() == 64 && s.bytes().all(|b| b.is_ascii_hexdigit());
+    // Iron Fish public addresses are 64 hex characters, like a private key elsewhere.
+    if coin == "IRON" {
+        return if hex64 {
+            Ok(())
+        } else {
+            Err(WalletError::UnknownPrefix)
+        };
+    }
+    if s.split_whitespace().count() >= 12 || hex64 {
         return Err(WalletError::LooksLikeSecret);
     }
     let alnum = |t: &str| t.bytes().all(|b| b.is_ascii_alphanumeric());
@@ -225,7 +232,13 @@ pub fn validate_coin_address(coin: &str, input: &str) -> Result<(), WalletError>
         "ETC" | "ETHW" => {
             s.len() == 42 && s.starts_with("0x") && s[2..].bytes().all(|b| b.is_ascii_hexdigit())
         }
-        _ => false,
+        // Other coins: a plausible public address (letters, digits, `:` prefixes like
+        // `kaspa:`); the pool rejects anything else on the first share.
+        _ => {
+            (20..=128).contains(&s.len())
+                && s.bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b':' || b == b'_')
+        }
     };
     if ok {
         Ok(())
@@ -499,6 +512,8 @@ mod tests {
         assert!(validate_coin_address("XEL", "XEL:ABC").is_err());
         assert!(validate_coin_address("ERG", &format!("9{}", "f".repeat(50))).is_ok());
         assert!(validate_coin_address("RVN", &format!("R{}", "a".repeat(33))).is_ok());
+        assert!(validate_coin_address("IRON", &"a1".repeat(32)).is_ok());
+        assert!(validate_coin_address("IRON", "not-hex").is_err());
         assert_eq!(
             validate_coin_address("PRL", "abbey ability able about above absent absorb abstract absurd abuse access accident"),
             Err(WalletError::LooksLikeSecret)

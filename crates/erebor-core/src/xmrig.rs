@@ -163,6 +163,7 @@ pub fn parse_summary(v: &Value) -> MinerStats {
             .pointer("/hashrate/threads")
             .and_then(|t| t.as_array())
             .map(|a| a.len() as u32),
+        gpu_hashrates: Vec::new(),
     }
 }
 
@@ -463,6 +464,7 @@ mod tests {
             algo: "rx/0".into(),
             threads_percent: 50,
             priority: 1,
+            gpu_power_limit_w: None,
         }
     }
 

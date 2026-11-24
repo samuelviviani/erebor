@@ -1,6 +1,6 @@
-import { TrendingUp } from "lucide-react";
+import { RefreshCw, TrendingUp } from "lucide-react";
 import { Cell } from "recharts";
-import { useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import {
   Bar,
   BarChart,
@@ -12,16 +12,24 @@ import {
 } from "recharts";
 import { PageTitle } from "../components/Layout";
 import {
+  Button,
   Card,
+  Empty,
   Explain,
   cx,
   Notice,
   Segmented,
   type HelpTerm,
 } from "../components/ui";
-import { api, type Earnings, type StatsReport } from "../lib/api";
-import { btc, duration, money } from "../lib/format";
-import { useT } from "../lib/i18n";
+import {
+  api,
+  errorText,
+  type Earnings,
+  type PoolAccount,
+  type StatsReport,
+} from "../lib/api";
+import { btc, dateTime, duration, money, xmr } from "../lib/format";
+import { translateError, useT } from "../lib/i18n";
 import { useApp } from "../lib/store";
 
 const DAY = 86_400;
@@ -155,7 +163,81 @@ export default function Stats() {
           onSetPrice={() => setPage("settings")}
         />
       </div>
+      <PoolPayouts />
     </>
+  );
+}
+
+/** Balance and payouts, only where the pool publishes them (SupportXMR, Monero address). */
+function PoolPayouts() {
+  const t = useT();
+  const config = useApp((s) => s.config)!;
+  const lang = config.language;
+  const locale = lang === "it" ? "it-IT" : "en-US";
+  const [account, setAccount] = useState<PoolAccount | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const enabled =
+    !config.demoMode &&
+    /^[48]/.test(config.wallet) &&
+    config.pool.id === "supportxmr";
+
+  const refresh = useCallback(async () => {
+    if (!enabled) return;
+    setLoading(true);
+    try {
+      setAccount(await api.poolAccount());
+      setErr(null);
+    } catch (e) {
+      setErr(translateError(lang, errorText(e)));
+    } finally {
+      setLoading(false);
+    }
+  }, [enabled, lang]);
+
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
+
+  if (!enabled) return null;
+  return (
+    <section className="mt-10">
+      <div className="mb-3 flex items-center justify-between px-1">
+        <h2 className="text-sm font-medium">{t("wallet.payouts")}</h2>
+        <Button variant="ghost" onClick={refresh} loading={loading}>
+          <RefreshCw className="size-4" /> {t("wallet.refresh")}
+        </Button>
+      </div>
+      <div className="rounded-2xl border border-line bg-surface px-4 py-2">
+        {account && (
+          <div className="flex gap-8 py-2 text-sm">
+            <span className="text-muted">
+              {t("wallet.unpaid")}{" "}
+              <span className="num ml-1 text-fg">{xmr(account.unpaidXmr)}</span>
+            </span>
+            <span className="text-muted">
+              {t("wallet.paid")}{" "}
+              <span className="num ml-1 text-fg">{xmr(account.paidXmr)}</span>
+            </span>
+          </div>
+        )}
+        {err ? (
+          <Notice tone="warn">{err}</Notice>
+        ) : !account?.payments.length ? (
+          <Empty>{t("wallet.payouts.empty")}</Empty>
+        ) : (
+          account.payments.slice(0, 20).map((p, i) => (
+            <div
+              key={i}
+              className="flex justify-between border-t border-line py-2 text-sm"
+            >
+              <span className="text-muted">{dateTime(p.ts, locale)}</span>
+              <span className="num">{xmr(p.amountXmr)}</span>
+            </div>
+          ))
+        )}
+      </div>
+    </section>
   );
 }
 
@@ -207,14 +289,16 @@ function ProfitCard({
           <dd className="num shrink-0 text-right">
             {e?.energyCost != null ? (
               `− ${fmt(e.energyCost)}`
-            ) : (
+            ) : price == null ? (
               <button
                 type="button"
                 onClick={onSetPrice}
                 className="text-xs text-accent hover:underline"
               >
-                {t(price == null ? "stats.power.set" : "stats.power.setWatts")}
+                {t("stats.power.set")}
               </button>
+            ) : (
+              "—"
             )}
           </dd>
         </div>

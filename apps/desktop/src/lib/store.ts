@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import { create } from "zustand";
 import { api, errorText, type AppConfig, type AppInfo, type Status } from "./api";
 
-export type Page = "dashboard" | "coins" | "stats" | "wallet" | "settings";
+export type Page = "dashboard" | "coins" | "stats" | "settings";
+export type SettingsTab = "general" | "when" | "energy" | "safety" | "notify" | "data" | "advanced";
 
 /** One reading of the live sensors, for the Home computer charts. */
 export interface Sample {
@@ -10,8 +11,7 @@ export interface Sample {
   cpu: number;
   cpuTemp: number | null;
   mem: number;
-  power: number | null;
-  gpus: { util: number | null; temp: number | null; power: number | null }[];
+  gpus: { util: number | null; temp: number | null; power: number | null; hash: number | null }[];
 }
 /** 2 s polling → 5 minutes of history. */
 export const HISTORY = 150;
@@ -41,6 +41,9 @@ interface AppStore {
   guide: boolean;
   setGuide: (open: boolean) => void;
   setPage: (p: Page) => void;
+  /** Section shown in Settings; other pages can open a given one. */
+  settingsTab: SettingsTab;
+  openSettings: (tab: SettingsTab) => void;
   init: () => Promise<void>;
   refreshStatus: () => Promise<void>;
   /** Persist a modified config; returns the saved config or throws an error string. */
@@ -75,6 +78,8 @@ export const useApp = create<AppStore>((set, get) => ({
   guide: false,
   setGuide: (guide) => set({ guide }),
   setPage: (page) => set({ page }),
+  settingsTab: "general",
+  openSettings: (settingsTab) => set({ settingsTab, page: "settings" }),
   init: async () => {
     try {
       const [info, config] = await Promise.all([api.appInfo(), api.getConfig()]);
@@ -94,8 +99,7 @@ export const useApp = create<AppStore>((set, get) => ({
         cpu: h.cpuUsage,
         cpuTemp: h.cpuTempC,
         mem: h.memTotalBytes ? (h.memUsedBytes / h.memTotalBytes) * 100 : 0,
-        power: status.powerW,
-        gpus: h.gpus.map((g) => ({ util: g.utilPercent, temp: g.tempC, power: g.powerW })),
+        gpus: h.gpus.map((g, i) => ({ util: g.utilPercent, temp: g.tempC, power: g.powerW, hash: status.gpus[i]?.hashrate ?? null })),
       };
       set({ status, history: [...get().history, sample].slice(-HISTORY) });
       // Jobs (install, benchmark) change protected config fields in the backend.
