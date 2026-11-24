@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Local release from a Mac, without GitHub Actions: macOS (universal) + Windows (NSIS,
 # cross-compiled) + signed CLI binaries for macOS and Linux, latest.json, SHA256SUMS, and a DRAFT
-# GitHub release. Linux (.deb/AppImage) needs a Linux machine: build it there and add the
-# files with `gh release upload` (and its entry to latest.json).
+# GitHub release. Only what people download or the updaters read is uploaded: the update
+# signatures live in latest.json. Linux desktop (.deb) needs a Linux machine: build it there
+# and add it with `gh release upload` (and a "linux-x86_64-deb" entry in latest.json).
 #
 #   EREBOR_DEV_FEE_WALLET=krx... scripts/release-local.sh 0.1.3
 #
@@ -32,10 +33,13 @@ pnpm tauri build --runner cargo-xwin --target x86_64-pc-windows-msvc --bundles n
 rm -rf "$OUT" && mkdir -p "$OUT"
 MAC="$ROOT/target/universal-apple-darwin/release/bundle"
 WIN="$ROOT/target/x86_64-pc-windows-msvc/release/bundle/nsis"
+SIGS="$ROOT/target/release-$V-sigs"
+rm -rf "$SIGS" && mkdir -p "$SIGS"
 cp "$MAC/dmg/Erebor_${V}_universal.dmg" "$OUT/"
 cp "$MAC/macos/Erebor.app.tar.gz" "$OUT/Erebor_${V}_universal.app.tar.gz"
-cp "$MAC/macos/Erebor.app.tar.gz.sig" "$OUT/Erebor_${V}_universal.app.tar.gz.sig"
-cp "$WIN/Erebor_${V}_x64-setup.exe" "$WIN/Erebor_${V}_x64-setup.exe.sig" "$OUT/"
+cp "$MAC/macos/Erebor.app.tar.gz.sig" "$SIGS/Erebor_${V}_universal.app.tar.gz.sig"
+cp "$WIN/Erebor_${V}_x64-setup.exe" "$OUT/"
+cp "$WIN/Erebor_${V}_x64-setup.exe.sig" "$SIGS/"
 
 # CLI: one binary per OS/CPU, same names and key the CLI self-update expects.
 # Linux via zig, linked against glibc 2.31 (Ubuntu 20.04+).
@@ -47,23 +51,49 @@ for t in aarch64 x86_64; do
   cp "target/$t-unknown-linux-gnu/release/erebor" "$OUT/erebor-linux-$t"
   for a in "macos-$t" "linux-$t"; do
     (cd apps/desktop && pnpm tauri signer sign "$OUT/erebor-$a" >/dev/null)
+    mv "$OUT/erebor-$a.sig" "$SIGS/"
   done
 done
 
-# latest.json read by the desktop updater (and, for "version", by the CLI).
-sig() { cat "$OUT/$1.sig"; }
+# latest.json: read by the desktop updater, and by the CLI for "version" and (since 0.1.6)
+# its own signatures ("cli").
 APP="Erebor_${V}_universal.app.tar.gz"
 EXE="Erebor_${V}_x64-setup.exe"
 node -e '
-const [v, url, app, appSig, exe, exeSig] = process.argv.slice(1);
-const mac = { url: `${url}/${app}`, signature: appSig };
+const fs = require("fs");
+const [v, url, app, exe, sigs] = process.argv.slice(1);
+const sig = f => fs.readFileSync(`${sigs}/${f}.sig`, "utf8").trim();
+const mac = { url: `${url}/${app}`, signature: sig(app) };
+const cli = {};
+for (const a of ["macos-aarch64", "macos-x86_64", "linux-aarch64", "linux-x86_64"])
+  cli[`erebor-${a}`] = sig(`erebor-${a}`);
 console.log(JSON.stringify({ version: v, notes: `See CHANGELOG.md for ${v}`, pub_date: new Date().toISOString(),
   platforms: { "darwin-aarch64": mac, "darwin-x86_64": mac,
-    "windows-x86_64": { url: `${url}/${exe}`, signature: exeSig } } }, null, 2));
-' "$V" "$URL" "$APP" "$(sig "$APP")" "$EXE" "$(sig "$EXE")" > "$OUT/latest.json"
+    "windows-x86_64": { url: `${url}/${exe}`, signature: sig(exe) } }, cli }, null, 2));
+' "$V" "$URL" "$APP" "$EXE" "$SIGS" > "$OUT/latest.json"
+
+# ponytail: CLIs up to 0.1.5 read erebor-<os>-<arch>.sig from the release: upload them
+# while such CLIs may still be around, then delete this line.
+cp "$SIGS"/erebor-*.sig "$OUT/"
 
 (cd "$OUT" && shasum -a 256 * > SHA256SUMS)
 
+NOTES="$SIGS/notes.md"
+cat > "$NOTES" <<NOTES_EOF
+## Download
+
+| System | File |
+|---|---|
+| macOS (Apple Silicon and Intel) | [Erebor_${V}_universal.dmg]($URL/Erebor_${V}_universal.dmg) |
+| Windows 10/11 | [Erebor_${V}_x64-setup.exe]($URL/Erebor_${V}_x64-setup.exe) |
+| Terminal (macOS, Linux) | \`curl -fsSL https://raw.githubusercontent.com/$REPO/main/scripts/install.sh \| sh\` |
+
+Already installed? Erebor updates itself (terminal: \`erebor update\`).
+
+The other files are read by the automatic updates; \`SHA256SUMS\` lists every checksum.
+Changes: [CHANGELOG.md](https://github.com/$REPO/blob/v$V/CHANGELOG.md).
+NOTES_EOF
+
 gh release create "v$V" "$OUT"/* --repo "$REPO" --draft --target "$(git rev-parse HEAD)" --title "Erebor v$V" \
-  --notes "Draft: Linux build to add. See CHANGELOG.md."
+  --notes-file "$NOTES"
 echo "Draft release ready: https://github.com/$REPO/releases (publish it to start auto-updates)"

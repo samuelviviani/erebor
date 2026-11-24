@@ -8,6 +8,7 @@ Formato: [Keep a Changelog](https://keepachangelog.com/it/1.1.0/), versioni [Sem
 - CLI: `erebor config` (ogni impostazione: `get`, `set`), `erebor coins` (monete con hashrate e guadagno stimato, `coins set`), `erebor logs [-f]`. Nessun comando nascosto in `erebor --help`.
 - Installazione con un comando: `curl -fsSL …/scripts/install.sh | sh` scarica il binario della release e ne verifica lo SHA-256 (non serve più Rust; `--from-source` per compilare).
 - Snapshot: `earnings.energyCostPerDay` e `earnings.netPerDay`.
+- Release più ordinate: le firme degli aggiornamenti stanno in `latest.json` (anche quelle della CLI) invece che in un file `.sig` per ogni download; le note della release hanno una tabella dei download.
 
 ### Changed
 - Dashboard da terminale: il logo compare solo all'avvio; schermata compatta con mining, guadagno netto, tabella dispositivi (temperatura, consumo, carico) e log.

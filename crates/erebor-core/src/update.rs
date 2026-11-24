@@ -62,7 +62,19 @@ pub fn install(version: &str, exe: &Path) -> Result<(), String> {
         asset_name()
     );
     let bin = crate::install::download(&base, &|_, _| {})?;
-    let sig = crate::install::download(&format!("{base}.sig"), &|_, _| {})?;
+    // Since 0.1.6 the signatures are in the release's latest.json (`cli`), so the
+    // release does not need a `.sig` file per binary; older releases only have those.
+    let listed = crate::install::download(
+        &format!("https://github.com/{REPO}/releases/download/v{version}/latest.json"),
+        &|_, _| {},
+    )
+    .ok()
+    .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+    .and_then(|v| v["cli"][asset_name()].as_str().map(|s| s.as_bytes().to_vec()));
+    let sig = match listed {
+        Some(s) => s,
+        None => crate::install::download(&format!("{base}.sig"), &|_, _| {})?,
+    };
     verify(&bin, &sig)?;
     // Same folder, then rename: the old file is never half-written, and a running
     // process keeps executing the old inode until it restarts.
