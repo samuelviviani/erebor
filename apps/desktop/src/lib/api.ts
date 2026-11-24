@@ -1,6 +1,7 @@
 // Typed wrappers over Tauri commands. Types mirror the serde structs in
 // crates/erebor-core (camelCase). Keep both sides in sync.
 import { invoke } from "@tauri-apps/api/core";
+import { openUrl } from "@tauri-apps/plugin-opener";
 
 export type Preset = "eco" | "balanced" | "performance" | "custom";
 export type RunState = "stopped" | "running" | "paused" | "error";
@@ -346,6 +347,12 @@ export interface AddressInfo {
 /** Inside the Erebor app (Tauri) rather than a plain browser (tests, dev preview). */
 export const inApp = () => "__TAURI_INTERNALS__" in window;
 
+/** Open a link in the system browser (a new tab in the browser-only dev UI). */
+export function openExternal(url: string) {
+  if (inApp()) openUrl(url).catch(() => {});
+  else window.open(url, "_blank", "noopener");
+}
+
 /** One engine command (own engine, or the `erebor` agent running on this computer). */
 function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   return invoke<T>("call", { cmd, args });
@@ -382,7 +389,6 @@ export const api = {
   cancelJob: () => call<void>("cancel_job"),
   startMining: () => call<void>("start_mining"),
   stopMining: () => call<void>("stop_mining"),
-  pauseMining: () => call<void>("pause_mining"),
   resumeMining: () => call<void>("resume_mining"),
   getStatus: () => call<Status>("get_status"),
   getLogs: () => call<string[]>("get_logs"),
@@ -390,7 +396,6 @@ export const api = {
     call<StatsReport>("get_stats", { rangeSecs }),
   exportConfig: () => call<string>("export_config"),
   deleteAllData: () => call<AppConfig>("delete_all_data"),
-  dismissAlert: (id: number) => call<void>("dismiss_alert", { id }),
   dataDir: () => call<string>("data_dir"),
 };
 

@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 pub const DEFAULT_FEE_PERCENT: f64 = 2.0;
 /// Minimum project block (seconds). With 2% this is two minutes every ~100 minutes:
 /// fewer, longer blocks waste less time on pool reconnections.
-pub const BLOCK_SECS: f64 = 120.0;
+const BLOCK_SECS: f64 = 120.0;
 
 /// Project wallet, set at build time (`EREBOR_DEV_FEE_WALLET`, a Kryptex ID or a Monero
 /// address). No address is hard-coded.

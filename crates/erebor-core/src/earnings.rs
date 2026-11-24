@@ -76,7 +76,7 @@ pub struct Params {
     pub estimated_watts: Option<f64>,
 }
 
-pub fn energy_kwh(watts: f64, hours: f64) -> f64 {
+fn energy_kwh(watts: f64, hours: f64) -> f64 {
     watts / 1000.0 * hours
 }
 

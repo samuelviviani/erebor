@@ -41,7 +41,7 @@ pub fn now_unix() -> i64 {
         .unwrap_or(0)
 }
 
-/// The desktop app's data folder (Tauri `app_data_dir`): app and node share settings,
+/// The desktop app's data folder (Tauri `app_data_dir`): app, CLI and agent share settings,
 /// statistics and installed miners. Only one of them runs the engine at a time.
 pub fn default_data_dir() -> std::path::PathBuf {
     use std::path::PathBuf;

@@ -1,5 +1,4 @@
 import { open } from "@tauri-apps/plugin-dialog";
-import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   CheckCircle2,
   Download,
@@ -13,7 +12,7 @@ import { useEffect, useState } from "react";
 import {
   api,
   errorText,
-  inApp,
+  openExternal,
   type AppConfig,
   type MinerKind,
   type PoolInfo,
@@ -34,11 +33,6 @@ import {
 
 /** Kryptex sign-in: after login it shows the account's real BTC balance. */
 export const KRYPTEX_LOGIN = "https://www.kryptex.com/login";
-
-export function openExternal(url: string) {
-  if (inApp()) openUrl(url).catch(() => {});
-  else window.open(url, "_blank", "noopener");
-}
 
 /** Erebor's BTC figure is an estimate from the work done; the real one is on Kryptex. */
 export function RealBalanceLink() {

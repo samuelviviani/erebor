@@ -1,23 +1,23 @@
 import type { Metadata } from "next";
 import { Doc } from "@/components/chrome";
 
-export const metadata: Metadata = { title: "Termini di utilizzo", alternates: { canonical: "/terms" } };
+export const metadata: Metadata = { title: "Terms of use", alternates: { canonical: "/terms" } };
 
 export default function Terms() {
   return (
-    <Doc title="Termini di utilizzo" lead="Bozza: non costituisce una revisione legale. Da verificare con un professionista prima della distribuzione commerciale.">
-      <h2>Licenza</h2>
-      <p>Erebor è software open source distribuito con licenza MIT, &quot;così com&apos;è&quot;, senza garanzie di alcun tipo. XMRig è un progetto separato con licenza GPLv3.</p>
-      <h2>Uso responsabile</h2>
+    <Doc title="Terms of use" lead="Draft, not a legal review. To be checked by a professional before commercial distribution.">
+      <h2>Licence</h2>
+      <p>Erebor is open-source software released under the MIT licence, &quot;as is&quot;, without warranty of any kind. The miners it runs are separate projects under their own licences.</p>
+      <h2>Responsible use</h2>
       <ul>
-        <li>Usa Erebor solo su hardware di tua proprietà o per cui hai un&apos;autorizzazione esplicita.</li>
-        <li>Il mining aumenta consumi elettrici, calore e usura dell&apos;hardware: ne sei responsabile.</li>
-        <li>Verifica che il mining di criptovalute sia consentito dalle leggi, dai contratti e dalle regole fiscali che ti riguardano.</li>
+        <li>Use Erebor only on hardware you own or are explicitly allowed to use.</li>
+        <li>Mining increases power use, heat and hardware wear: that is your responsibility.</li>
+        <li>Check that cryptocurrency mining is allowed by the laws, contracts and tax rules that apply to you.</li>
       </ul>
-      <h2>Nessuna promessa di rendimento</h2>
-      <p>Le ricompense mostrate sono stime. I pagamenti dipendono esclusivamente dalla pool. Erebor non garantisce rendimenti e non fornisce consulenza finanziaria.</p>
-      <h2>Commissioni</h2>
-      <p>Le commissioni applicate sono descritte nella pagina Commissioni e indicate nell&apos;app (schermata iniziale e Impostazioni › Commissioni).</p>
+      <h2>No promised return</h2>
+      <p>Earnings shown are estimates. Payments depend solely on the pool. Erebor guarantees no return and gives no financial advice.</p>
+      <h2>Fees</h2>
+      <p>The fees that apply are described on the Fees page and shown in the app.</p>
     </Doc>
   );
 }

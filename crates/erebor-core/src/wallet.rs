@@ -71,7 +71,7 @@ fn decode_block(block: &[u8], out_size: usize) -> Option<Vec<u8>> {
 }
 
 /// Monero-flavoured base58 (8-byte blocks -> 11 chars).
-pub fn base58_decode(s: &str) -> Option<Vec<u8>> {
+fn base58_decode(s: &str) -> Option<Vec<u8>> {
     let raw = s.as_bytes();
     let full = raw.len() / 11;
     let rem = raw.len() % 11;
@@ -112,7 +112,7 @@ fn prefix_info(prefix: u8) -> Option<(Network, AddressKind)> {
 }
 
 /// Parse any Monero address (any network).
-pub fn parse_monero_address(input: &str) -> Result<AddressInfo, WalletError> {
+fn parse_monero_address(input: &str) -> Result<AddressInfo, WalletError> {
     let s = input.trim();
     if s.is_empty() {
         return Err(WalletError::Empty);

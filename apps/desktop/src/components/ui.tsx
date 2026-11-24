@@ -54,16 +54,12 @@ export function CardTitle({
 
 /** Glossary terms explained in plain language (texts in i18n: `help.<term>.title/.body`). */
 export type HelpTerm =
-  | "hashrate"
   | "earnings"
-  | "fee"
   | "coin"
-  | "algo"
   | "pool"
   | "wallet"
   | "kryptex"
   | "gpu"
-  | "share"
   | "auto"
   | "temp"
   | "power"
@@ -194,55 +190,6 @@ export function Tip({ text }: { text: string }) {
         {text}
       </span>
     </span>
-  );
-}
-
-export function Stat({
-  label,
-  value,
-  sub,
-  tip,
-  help,
-  loading,
-  accent,
-  icon,
-}: {
-  label: string;
-  value: ReactNode;
-  sub?: ReactNode;
-  tip?: string;
-  help?: HelpTerm;
-  loading?: boolean;
-  accent?: boolean;
-  icon?: ReactNode;
-}) {
-  return (
-    <Card className="min-w-0">
-      <div className="mb-3 flex items-center gap-2 text-[13px] text-muted">
-        {icon && (
-          <span className="flex size-8 items-center justify-center rounded-xl bg-surface-2 text-muted [&>svg]:size-4">
-            {icon}
-          </span>
-        )}
-        <span className="truncate">{label}</span>
-        {help ? <Explain term={help} /> : tip && <Tip text={tip} />}
-      </div>
-      {loading ? (
-        <div className="skeleton h-8 w-28" />
-      ) : (
-        <div
-          className={cx(
-            "num truncate text-[26px] leading-tight font-semibold tracking-tight",
-            accent && "text-accent",
-          )}
-        >
-          {value}
-        </div>
-      )}
-      {sub && (
-        <div className="num mt-1.5 truncate text-xs text-faint">{sub}</div>
-      )}
-    </Card>
   );
 }
 

@@ -4,23 +4,23 @@ import { Doc } from "@/components/chrome";
 export const metadata: Metadata = { title: "FAQ", alternates: { canonical: "/faq" } };
 
 const faq = [
-  ["Erebor mi farà guadagnare?", "Non necessariamente. Il mining con CPU produce piccole quantità di Monero e i costi elettrici possono superare le ricompense. Erebor stima ricavi, costi e profitto netto e ti dice quando i dati non bastano per una stima affidabile. Non promettiamo alcun rendimento."],
-  ["Erebor custodisce i miei fondi?", "No. Le ricompense sono pagate dalla pool direttamente al tuo indirizzo, secondo le regole e la soglia minima della pool. Erebor non gestisce prelievi e non conosce le tue chiavi."],
-  ["Perché mi serve solo l'indirizzo pubblico?", "Per ricevere pagamenti basta l'indirizzo. Seed phrase e chiavi private servono a spendere: Erebor non li chiede mai e rifiuta gli input che sembrano segreti."],
-  ["Quali criptovalute sono supportate?", "Con la scheda video (NVIDIA o AMD, su Windows e Linux): Pearl, Ethereum Classic, EthereumPoW, Ergo, Ravencoin, Xelis, Qubitcoin, Quai e OctaSpace, tramite SRBMiner-MULTI. Con la CPU: Monero, Zephyr e Tari (RandomX) tramite XMRig. Tutte si minano su Kryptex e i guadagni ti arrivano in Bitcoin sul tuo account Kryptex."],
-  ["Come sceglie Erebor cosa minare?", "In modalità automatica Erebor riconosce la tua scheda video, ne ricava la velocità attesa per ogni moneta dalle statistiche pubbliche di WhatToMine e mina quella che rende di più ai prezzi di oggi (WhatToMine, Kryptex), ricontrollando ogni mezz'ora. Puoi anche scegliere tu la moneta nella pagina Mining."],
-  ["Posso ricevere Bitcoin senza minare Bitcoin?", "Sì, ed è il modo consigliato: minare Bitcoin con un computer normale non conviene. Il tuo computer mina la moneta più adatta e la pool la converte in BTC. I BTC arrivano sul tuo account Kryptex, da cui prelevi quando vuoi. Il pagamento diretto su un tuo wallet arriverà in una versione futura."],
-  ["Kryptex custodisce i miei guadagni?", "Sì: con l'ID Kryptex il saldo resta sul tuo account Kryptex finché non prelevi. Erebor non ha accesso a quell'account. Se preferisci ricevere direttamente su un tuo wallet, scegli \"Il mio wallet Bitcoin\" (tramite unMineable) oppure un indirizzo Monero."],
-  ["Posso usare la GPU?", "Sì: se Erebor trova una scheda video NVIDIA o AMD e hai un ID Kryptex, installa SRBMiner-MULTI (programma gratuito ma non open source, con una sua commissione dallo 0,65% al 3% secondo l'algoritmo) e mina con la scheda video. Su macOS il mining GPU non è disponibile."],
-  ["Il mining parte da solo?", "No. Parte solo quando premi Avvia, oppure nella fascia oraria che hai configurato tu. L'avvio con il sistema operativo non è attivo. Chiudendo Erebor il mining si arresta."],
-  ["Che differenza c'è tra stima e pagamento?", "Le ricompense stimate derivano da hashrate e difficoltà di rete. Il saldo non pagato e i pagamenti confermati arrivano dall'API della pool, quando disponibile. Erebor li mostra sempre separati."],
-  ["Il mio antivirus segnala XMRig.", "È comune: molti malware usano XMRig di nascosto. Erebor scarica solo la release ufficiale fissata e ne verifica l'hash; non tenta di aggirare l'antivirus. La decisione resta tua."],
-  ["Erebor raccoglie dati?", "No. Non esistono account, telemetria o analytics. Erebor contatta solo la pool, CoinGecko per il prezzo di XMR e GitHub per installare XMRig."],
+  ["Will Erebor make me money?", "Not necessarily. A home computer earns small amounts, and electricity can cost more than it earns. Erebor estimates earnings, costs and net profit, and tells you when there isn't enough data for a reliable estimate. No return is promised."],
+  ["Does Erebor hold my funds?", "No. The pool credits your earnings to your Kryptex account, under the pool's rules and minimum payout. Erebor handles no withdrawals and never knows your keys."],
+  ["Why only a public ID?", "Receiving payments needs only an ID or an address. Seed phrases and private keys are for spending: Erebor never asks for them and refuses input that looks like one."],
+  ["Which coins are supported?", "With a graphics card (NVIDIA or AMD, on Windows and Linux): Pearl, Ethereum Classic, EthereumPoW, Ergo, Ravencoin, Xelis, Qubitcoin, Quai, OctaSpace (SRBMiner-MULTI), Alephium, Conflux, Nexa, Kaspa and Tari (lolMiner). With the processor: Monero, Zephyr and Tari (XMRig). Everything is mined on Kryptex and paid in Bitcoin to your Kryptex account."],
+  ["How does Erebor choose what to mine?", "In automatic mode it recognises your hardware, estimates the speed for each coin (public WhatToMine data first, then what it measures on your computer) and mines what pays most at today's prices, re-checking every half hour. You can also pick the coin yourself."],
+  ["Can I get Bitcoin without mining Bitcoin?", "Yes, and that is how it works: mining Bitcoin with a normal computer doesn't pay. Your computer mines the coin that suits it best and the pool converts it to BTC on your Kryptex account, where you withdraw whenever you want."],
+  ["Does Kryptex hold my earnings?", "Yes: the balance stays on your Kryptex account until you withdraw it. Erebor has no access to that account. Payouts straight to your own wallet will come in a later version."],
+  ["Can I use my GPU?", "Yes: with an NVIDIA or AMD graphics card Erebor installs SRBMiner-MULTI or lolMiner (free but closed source, each with its own fee per algorithm) and mines with the card. GPU mining isn't available on macOS."],
+  ["Does mining start by itself?", "No. It starts when you press Start, or in a schedule you set. Starting with the computer is off unless you turn it on. Quitting the app stops mining."],
+  ["What's the difference between estimate and payment?", "Estimated earnings come from hashrate, network difficulty and prices. What you are actually paid is on your Kryptex account: the app links to it."],
+  ["My antivirus flags a miner.", "It's common: malware often installs miners secretly. Erebor downloads only the pinned official release and checks its hash; it never tries to get around the antivirus. On Windows it explains the warning and, only if you agree, excludes its own miners folder. The decision is yours."],
+  ["Does Erebor collect data?", "No. No accounts, no telemetry, no analytics. Erebor contacts only the pool, public market data services (WhatToMine, Kryptex, CoinGecko) and GitHub for miners and updates."],
 ];
 
 export default function Faq() {
   return (
-    <Doc title="Domande frequenti">
+    <Doc title="Frequently asked questions">
       <div className="mt-8 space-y-3">
         {faq.map(([q, a]) => (
           <details key={q} className="group rounded-xl border border-line bg-surface p-5">

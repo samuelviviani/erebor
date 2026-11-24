@@ -109,7 +109,8 @@ impl Store {
         Self::init(Connection::open(path)?)
     }
 
-    pub fn in_memory() -> rusqlite::Result<Self> {
+    #[cfg(test)]
+    fn in_memory() -> rusqlite::Result<Self> {
         Self::init(Connection::open_in_memory()?)
     }
 
@@ -121,7 +122,7 @@ impl Store {
         Ok(s)
     }
 
-    pub fn schema_version(&self) -> rusqlite::Result<usize> {
+    fn schema_version(&self) -> rusqlite::Result<usize> {
         self.conn
             .pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
             .map(|v| v as usize)

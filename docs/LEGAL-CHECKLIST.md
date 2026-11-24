@@ -1,19 +1,28 @@
-# Verifiche legali e commerciali ancora necessarie
+# Legal and business checks still open
 
-**Nessuna revisione legale è stata effettuata.** Prima di una distribuzione pubblica o commerciale:
+**No legal review has been done.** Before wider or commercial distribution:
 
-- [ ] **Nome e marchio "Erebor"**: ricerca di anteriorità (EUIPO, USPTO, WIPO) e rischi legati alla proprietà intellettuale tolkieniana (Middle-earth Enterprises / Tolkien Estate) e a marchi esistenti nel settore crypto/finanza.
-- [ ] **Dominio** e identificativo app (`org.erebor.desktop` in `tauri.conf.json` è provvisorio).
-- [ ] **Privacy Policy** conforme GDPR (titolare, basi giuridiche, trasferimenti extra-UE verso pool/CoinGecko/GitHub, diritti dell'interessato).
-- [ ] **Termini di utilizzo** e limitazione di responsabilità validati.
-- [ ] **Commissione di sviluppo**: inquadramento fiscale dei ricavi del progetto (cripto-attività), eventuali obblighi informativi; conformità delle informative al Codice del Consumo / Direttiva 2011/83/UE se considerata servizio a pagamento.
-- [ ] **MiCA / normativa cripto-attività**: confermare che un software non-custodial che non gestisce fondi non rientri tra i servizi regolamentati.
-- [ ] **Normative locali sul mining** (alcuni Paesi lo limitano) e avvertenze sui consumi.
-- [ ] **Licenze**: generare l'elenco completo delle dipendenze transitive; confermare gli obblighi GPLv3 se XMRig verrà incluso nei pacchetti.
-- [ ] **Termini CoinGecko** per uso in software distribuito pubblicamente (eventuale chiave API / attribuzione).
-- [ ] **Firma del codice** e reputazione SmartScreen/antivirus (i miner sono spesso classificati come PUA).
+- [ ] **Name and trademark "Erebor"**: prior-art search (EUIPO, USPTO, WIPO), risks around
+      Tolkien intellectual property (Middle-earth Enterprises / Tolkien Estate) and existing
+      crypto/finance marks.
+- [ ] **Domain** and app identifier (`org.erebor.desktop` in `tauri.conf.json`).
+- [ ] **Privacy policy** compliant with the GDPR (controller, legal bases, transfers outside
+      the EU to pools, CoinGecko, WhatToMine, GitHub; data subject rights).
+- [ ] **Terms of use** and limitation of liability reviewed.
+- [ ] **Dev fee**: tax treatment of the project's revenue (crypto-assets) and any disclosure
+      duties; consumer-law disclosures (EU Directive 2011/83/EU) if it counts as a paid service.
+- [ ] **MiCA**: confirm that non-custodial software that never handles funds is not a
+      regulated service.
+- [ ] **Local mining rules** (some countries restrict it) and power-use warnings.
+- [ ] **Licences**: generate the full list of transitive dependencies; confirm GPL
+      obligations if a GPL miner is ever bundled in the packages.
+- [ ] **CoinGecko and WhatToMine terms** for use in publicly distributed software (API key,
+      attribution).
+- [ ] **Code signing** and SmartScreen/antivirus reputation (miners are often flagged as PUA).
 
-## SRBMiner-MULTI
+## Closed-source miners
 
-- [ ] Chiedere all'autore (doktor83) conferma scritta che scaricare la release ufficiale ed eseguirla non modificata da Erebor sia consentito dalla licenza ("incorporating into another product" è vietato senza permesso).
-- [ ] In alternativa, valutare miner GPU open source per gli algoritmi supportati.
+- [ ] Ask the SRBMiner-MULTI author (doktor83) for written confirmation that downloading the
+      official release and running it unmodified from Erebor is allowed by the licence
+      ("incorporating into another product" is forbidden without permission).
+- [ ] Same question to the lolMiner author.

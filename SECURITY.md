@@ -1,27 +1,40 @@
-# Sicurezza
+# Security
 
-## Segnalare una vulnerabilità
+## Reporting a vulnerability
 
-Non aprire issue pubbliche per problemi di sicurezza. Usa **GitHub › Security › Report a vulnerability** (private vulnerability reporting) sul repository ufficiale. Indica versione, piattaforma, passi per riprodurre e impatto. Puntiamo a confermare la ricezione entro 7 giorni.
+Please don't open public issues for security problems. Use **GitHub › Security › Report a
+vulnerability** (private vulnerability reporting) on this repository. Include the version,
+platform, steps to reproduce and impact. We aim to acknowledge reports within 7 days.
 
-> Prima della pubblicazione del repository il maintainer deve abilitare il private vulnerability reporting (o aggiungere qui un contatto dedicato).
+## Supported versions
 
-## Versioni supportate
+Only the latest release receives security fixes.
 
-Solo l'ultima release riceve correzioni di sicurezza.
+## Security model (summary)
 
-## Modello di sicurezza (sintesi)
+- **No user secrets.** Only public payout identifiers are stored. Input that looks like a seed
+  phrase or a private key is refused.
+- **Only verified miners run by default.** Each miner (XMRig, SRBMiner-MULTI, lolMiner,
+  cpuminer-opt) is installed from a manifest pinned by SHA-256, with download URLs limited to
+  the project's own GitHub releases. A binary picked by hand is marked "not verified". The
+  binary's hash is re-checked on every start.
+- **No shell.** Processes start with fixed arguments; every config field is validated.
+- **Loopback only.** Miner APIs listen on `127.0.0.1` with a random per-session token where the
+  miner supports one; config files are `0600`. The agent socket is `0600` and checks the peer
+  UID on both sides. No port is opened to the network.
+- **Minimal Tauri permissions** (`core:default`, file picker, updater, restart, opening a short
+  allowlist of payout sites) and a restrictive CSP.
+- **No hidden persistence.** Start at login, start mining on launch and the always-on service
+  are opt-in. Mining stops when the app quits (unless the user runs the agent as a service);
+  orphaned miners are killed on the next start.
+- **Signed updates.** The app and the CLI install updates only if their minisign signature
+  matches the project key. Signing keys are never stored in the repository.
+- **Errors without secrets.** Miner API tokens are never shown or logged.
 
-- Nessun segreto utente: solo indirizzi pubblici. Input che sembrano seed phrase o chiavi private vengono rifiutati.
-- L'unico eseguibile avviato è XMRig: installato da manifest fissato con SHA-256 (URL limitati a `github.com/xmrig/xmrig/releases/download/`), oppure scelto esplicitamente dall'utente (marcato "non verificato"). L'hash del binario viene ricontrollato a ogni avvio.
-- Processi avviati con argomenti fissi, mai tramite shell; tutti i campi di configurazione sono validati.
-- API di XMRig solo su loopback, token casuale per sessione, file di config 0600. Nessuna porta pubblica.
-- Permessi Tauri minimi (`core:default`, `dialog:allow-open`), CSP restrittiva.
-- Nessuna persistenza nascosta: niente avvio automatico con il sistema; mining arrestato alla chiusura; miner orfani terminati all'avvio successivo.
-- Errori senza segreti: il token API non viene mai mostrato né registrato.
-- Aggiornamenti: previsti tramite updater firmato di Tauri (vedi `docs/RELEASE.md`). Le chiavi di firma non vanno mai nel repository.
+## Known limits
 
-## Limiti noti
-
-- Senza firma del codice (Authenticode / Apple) i sistemi operativi mostrano avvisi.
-- La firma GPG di `SHA256SUMS` di XMRig non è ancora verificata automaticamente: lo script del manifest verifica gli hash, la firma va controllata manualmente dal maintainer.
+- Without code signing (Authenticode / Apple notarisation) the operating systems show warnings.
+- The GPG signature of XMRig's `SHA256SUMS` is not checked automatically: the manifest script
+  verifies the hashes and the maintainer checks the signature by hand.
+- SRBMiner-MULTI and lolMiner are closed source: Erebor verifies that the binary is the
+  official one, not what it does.

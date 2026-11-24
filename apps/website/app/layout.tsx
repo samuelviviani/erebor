@@ -14,8 +14,8 @@ export const metadata: Metadata = {
     siteName: site.name,
     title: `${site.name} — ${site.tagline}`,
     description: site.description,
-    images: [{ url: "/screenshot-dashboard-demo.jpg", width: 1326, height: 796, alt: "Dashboard di Erebor (dati demo)" }],
-    locale: "it_IT",
+    images: [{ url: "/screenshot-dashboard-demo.jpg", width: 1326, height: 796, alt: "Erebor dashboard (demo data)" }],
+    locale: "en_US",
   },
   twitter: { card: "summary_large_image" },
   alternates: { canonical: "/" },
@@ -25,10 +25,10 @@ export const viewport: Viewport = { themeColor: "#0e0f10", colorScheme: "dark" }
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="it">
+    <html lang="en">
       <body className="min-h-screen">
         <a href="#main" className="sr-only focus:not-sr-only focus:absolute focus:p-3">
-          Vai al contenuto
+          Skip to content
         </a>
         <Header />
         <main id="main">{children}</main>

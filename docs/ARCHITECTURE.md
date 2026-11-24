@@ -1,85 +1,131 @@
-# Architettura
+# Architecture
 
-## Processi e interfacce
+## Processes
 
 ```text
- erebor (CLI)   erebor monitor (TUI)        App desktop (Tauri/React)
+ erebor (CLI)   erebor monitor (TUI)        Desktop app (Tauri/React)
       │                │                      │
-      └──── socket Unix locale (UID verificato) ┘
+      └──── local Unix socket (peer UID checked) ┘
                        │
-        ┌──────────────▼──── un solo proprietario del motore ─────────────┐
-        │ erebor-agent   oppure   app desktop (motore interno)            │
-        │      └─ Arc<Mutex<Engine>>  (lock su <cartella dati>/engine.lock) │
+        ┌──────────────▼──────── one engine owner per data folder ────────┐
+        │ erebor-agent   or   desktop app (in-process engine)             │
+        │      └─ Arc<Mutex<Engine>>  (lock on <data dir>/engine.lock)    │
         └──────────────────────────────┬──────────────────────────────────┘
-                                       │ processi figli
-                                 XMRig / SRBMiner  (o DemoMiner simulato)
+                                       │ child processes
+                    XMRig · SRBMiner-MULTI · lolMiner · cpuminer-opt  (or the demo miner)
 ```
 
-| Crate | Ruolo |
+| Path | Role |
 |---|---|
-| `crates/erebor-core` | Motore condiviso: miner, configurazione, wallet, pool, hashrate, statistiche, hardware, dev fee, avvio/arresto, errori. Più `rpc` (dispatcher unico dei comandi), `ipc` (socket locale + controllo verificato), `fleet` (identità e snapshot versionati) |
-| `crates/erebor-agent` | Lib + binario `erebor-agent`: possiede il motore, serve il socket, gestisce segnali, arresto pulito |
-| `crates/erebor-cli` | Binario `erebor` (clap); include l'agent (`agent start --foreground`) e la TUI |
-| `crates/erebor-tui` | Dashboard ratatui/crossterm, `fmt` condiviso con la CLI |
-| `apps/desktop` | App Tauri; serve il socket quando possiede il motore, altrimenti si collega all'agent |
+| `crates/erebor-core` | The engine and everything it needs: miners, coin choice, earnings, pools, hardware, dev fee, SQLite, config. Also `rpc` (the single command dispatcher), `ipc` (local socket and verified control) and `fleet` (device identity and the versioned status snapshot) |
+| `crates/erebor-agent` | Library + `erebor-agent` binary: owns the engine, serves the socket, handles signals and self-update |
+| `crates/erebor-cli` | The `erebor` binary (clap): commands, guided setup, `doctor`; embeds the agent and the TUI |
+| `crates/erebor-tui` | Terminal dashboard (ratatui/crossterm) |
+| `apps/desktop` | Tauri 2 app; owns the engine and serves the socket, or connects to a running agent |
+| `apps/website` | Public website (Next.js static export) |
 
-Scelte:
+Principles:
 
-- **Una sola fonte di stato**: il motore vive in un solo processo per cartella dati (lock). Chi lo possiede serve il socket; tutti gli altri lo comandano con gli stessi comandi di `rpc::call`. Nessuna configurazione divergente: le modifiche passano da `update_config` del motore.
-- **Agent proprietario del ciclo di vita** quando è attivo: l'app desktop aperta dopo l'agent non crea un secondo motore e non avvia un secondo miner.
-- **Protocollo nel core, non in un crate separato** (`erebor-protocol` del piano): oggi ogni consumatore dipende già dal core; si separerà quando un consumatore non dovrà dipendere dal motore (vedi [FLEET.md](FLEET.md)).
-- **Dev fee nel motore**: il `DevFeeManager` è unico; `can_start` rifiuta il mining reale senza wallet o miner. Nessun frontend duplica queste regole.
-- **Controllo verificato** (`ipc::control`): CLI e TUI riportano successo solo se lo stato del motore è davvero cambiato.
+- **One source of state.** The engine lives in exactly one process per data folder (file lock;
+  a second owner fails with `engine_busy`). The owner serves the socket; everyone else sends
+  it the same `rpc::call` commands. Config changes always go through the engine's
+  `update_config`, with the same validation for every frontend.
+- **The agent owns the lifecycle when it runs.** A desktop app opened after the agent does
+  not create a second engine or a second miner: it becomes a client.
+- **Rules live in the engine.** `can_start` refuses real mining without a payout or a miner;
+  the `DevFeeManager` is the only fee logic. No frontend duplicates these rules.
+- **Verified control** (`ipc::control`): the CLI and the TUI report success only when the
+  engine state actually changed.
 
-Documenti: [CLI](CLI.md) · [AGENT](AGENT.md) · [TUI](TUI.md) · [FLEET](FLEET.md)
+More: [CLI](CLI.md) · [Agent](AGENT.md) · [TUI](TUI.md)
 
-## Motore e app desktop (dettaglio)
+## Engine modules
 
 ```
 ┌──────────────────────── apps/desktop ────────────────────────┐
 │ React UI (Vite, Tailwind, Zustand, Recharts)                  │
-│   └─ src/lib/api.ts  ── invoke() tipizzato ──┐                │
-│ src-tauri/src/main.rs (comandi Tauri)  <─────┘                │
-│   └─ Arc<Mutex<Engine>>  +  thread: tick 2s, mercato 10 min   │
+│   └─ src/lib/api.ts ── invoke("call", {cmd, args}) ─┐         │
+│ src-tauri/src/main.rs ── rpc::call  <───────────────┘         │
+│   └─ Arc<Mutex<Engine>> + engine loops (tick 2 s, market 10 min)
 └───────────────────────────────┬──────────────────────────────┘
                                 │
 ┌──────────────────── crates/erebor-core ──────────────────────┐
-│ engine   ciclo di vita, sessioni, sample 10s, sicurezza, job  │
-│ miner    trait MinerAdapter + DemoMiner                       │
-│ xmrig    config JSON, processo figlio, API HTTP su 127.0.0.1  │
-│ devfee   DevFeeManager (macchina a stati, ledger persistito)  │
-│ earnings stime: lordo → donazione → fee pool → netto → costi  │
-│ pools    catalogo, raggiungibilità, API nodejs-pool, prezzo   │
-│ hardware sysinfo + adapter per piattaforma (GPU, RAPL)        │
-│ install  manifest fissato, download, SHA-256, estrazione      │
-│ store    SQLite (rusqlite), migrazioni con user_version       │
-│ wallet   validazione indirizzi Monero (base58 + Keccak)       │
-│ config   configurazione JSON, validazione, scrittura atomica  │
+│ engine    lifecycle, coin choice, sessions, samples, safety, jobs
+│ miner     MinerKind, MinerAdapter trait, DemoMiner            │
+│ xmrig · srbminer · lolminer · cpuminer   one adapter per miner│
+│ coins     catalog, market data, benchmarks, profitability     │
+│ devfee    DevFeeManager (state machine, persisted ledger)     │
+│ earnings  estimates: gross → fees → net → electricity         │
+│ pools     catalog, reachability, pool APIs                    │
+│ hardware  sysinfo + per-platform GPU/power/temperature        │
+│ install   pinned manifests, download, SHA-256, extraction     │
+│ update    signed self-update of the CLI                       │
+│ store     SQLite (rusqlite), migrations via user_version      │
+│ wallet    address validation (Kryptex, Monero, Bitcoin, …)    │
+│ config    JSON config, validation, atomic writes              │
+│ autostart start at login (LaunchAgent / XDG / Run key)        │
 └───────────────────────────────────────────────────────────────┘
 ```
 
-### Scelte principali
+### Design choices
 
-- **Un solo crate core** al posto dei crate separati suggeriti (`mining-core`, `hardware`, `earnings`, `dev-fee`, `pools`): i moduli sono piccoli e fortemente collegati; un crate li testa senza Tauri. Si possono separare quando un secondo consumatore lo giustifica.
-- **Niente `packages/*` condivisi**: l'app e il sito non condividono componenti né tipi. I tipi TS in `apps/desktop/src/lib/api.ts` rispecchiano le struct serde (camelCase).
-- **XMRig come processo figlio** (non sidecar): il binario viene installato a runtime da un manifest fissato con hash, così i pacchetti di Erebor non ridistribuiscono codice GPL e l'utente può selezionare un binario proprio (marcato "non verificato").
-- **Avvio senza shell**: `Command::new(binary).arg("--config=<file>")`. Tutti i valori utente sono validati (`AppConfig::validate`) prima di finire nel JSON di XMRig.
-- **API XMRig** su `127.0.0.1`, porta libera casuale, token casuale per sessione; file di config con permessi 0600.
-- **Stop affidabile**: l'arresto uccide il processo figlio senza dipendere dall'API. Il PID è salvato su file: se Erebor crasha, all'avvio successivo un eventuale XMRig orfano viene terminato.
-- **Polling**: la UI interroga `get_status` ogni 2 s. Più semplice degli eventi e sufficiente.
+- **One core crate.** The modules are small and tightly linked; one crate tests them
+  without Tauri. Split only when a second consumer needs part of it.
+- **No shared JS packages.** The app and the website share nothing. The TS types in
+  `apps/desktop/src/lib/api.ts` mirror the serde structs (camelCase): change both together.
+- **Miners are child processes, installed at runtime** from a manifest pinned by SHA-256
+  (`crates/erebor-core/*-manifest.json`, URLs limited to each project's GitHub releases).
+  Erebor's packages never redistribute miner code. A binary the user picks by hand is
+  marked "not verified" and never auto-updated.
+- **No shell.** Miners start with `Command::new(binary)` and fixed arguments; every user
+  value is validated (`AppConfig::validate`) before it reaches a miner config.
+- **Miner APIs on loopback only**, on a random free port with a per-session token where the
+  miner supports one; config files are `0600`.
+- **Reliable stop.** Stopping kills the child process without relying on its API. The PID is
+  written to `miner.pid`, so an orphaned miner is killed on the next start after a crash.
+- **Polling.** The UI calls `get_status` every 2 s: simpler than events and good enough.
+
+### Coin choice
+
+In automatic mode the engine ranks the coins this computer can mine by hashrate × network
+reward per hash × price, net of pool and miner fees, and mines the best one. Hashrates are
+measured on this PC once a coin has run; before that, GPU coins use the expected hashrate of
+the GPU model from `crates/erebor-core/gpu-hashrates.json` (refreshed by
+`scripts/update-gpu-hashrates.mjs`). It re-checks every 30 minutes and switches only with a
+clear margin. Market data comes from WhatToMine, Kryptex pool stats and CoinGecko.
 
 ### Dev fee
 
-`DevFeeManager::tick(effective_secs)` accumula solo il tempo di mining effettivo (in esecuzione, non in pausa, hashrate > 0, gap > 10 s scartati). Quando il debito `rate × totale − progetto` raggiunge 60 s passa al target `Project`; torna a `User` quando il debito è saldato. Con 1%: ~1 minuto ogni ~100 minuti. Il passaggio usa `PUT /1/config` di XMRig (hot reload, senza rigenerare il dataset RandomX); se fallisce, il miner viene riavviato sul target giusto. Il ledger è salvato in SQLite: i riavvii non azzerano né raddoppiano la commissione. Disattivata se manca il consenso o se la build non ha `EREBOR_DEV_FEE_WALLET` (validato come indirizzo mainnet).
+`DevFeeManager::tick(effective_secs)` counts only effective mining time (running, not
+paused, hashrate reported; long gaps are discarded). When the project's share falls behind
+2% of the total by a full block, it switches to the `Project` target for a block of 120 s,
+then back to `User`: about 2 minutes every 100 minutes. XMRig switches pool in place
+(`PUT /1/config`, no RandomX dataset rebuild); other miners restart on the new target. The
+ledger is stored in SQLite, so restarts neither reset nor double-charge the fee. Builds
+without `EREBOR_DEV_FEE_WALLET` have no fee.
 
-### Stime economiche
+### Earnings
 
-Ogni sample (10 s) salva hashrate medio, target, share, `xmr_per_hash` (= ricompensa blocco / difficoltà al momento), potenza **misurata** (se disponibile) e temperatura. Le potenze stimate dall'utente sono applicate in fase di query, così modificarle non riscrive lo storico. Il lordo include solo i sample `user`; la quota Erebor è riportata a parte e non sottratta due volte.
+Every sample (10 s) stores the average hashrate, target, shares, the net BTC per hash at that
+moment, the **measured** power (when available) and temperatures. User-entered power
+estimates are applied at query time, so changing them never rewrites history. Gross earnings
+count only `User` samples; the Erebor share is reported separately and never subtracted twice.
 
-### Demo vs produzione
+### Demo mode
 
-La modalità demo usa `DemoMiner` (nessun processo, nessuna rete), dati di mercato fissi marcati `demo` e un database separato (`erebor-demo.db`).
+`DemoMiner` starts no process and uses no network; market data is fixed and flagged `demo`;
+statistics go to a separate database (`erebor-demo.db`).
 
-### Dati locali
+### Device identity and snapshot
 
-Cartella dati dell'app (Tauri `app_data_dir`): `config.json`, `erebor.db`, `erebor-demo.db`, `miners/xmrig-<versione>/`, `run/xmrig-config.json`, `miner.pid`.
+- `<data dir>/device.json`: a random 128-bit id generated once (never derived from hardware
+  serials) and a name (default: hostname), shown by `erebor device show`.
+- `fleet::Snapshot` (schema 1) is the typed status that `erebor status --json` prints
+  ([format](CLI.md#json-output)). New optional fields don't bump the schema; removing a
+  field or changing its meaning does. `ipc::PROTOCOL_VERSION` versions the socket protocol.
+
+### Local data
+
+The data folder (Tauri `app_data_dir`, shared by app, CLI and agent): `config.json`,
+`erebor.db`, `erebor-demo.db`, `device.json`, `miners/<miner>-<version>/`, `run/` (miner
+configs), `miner.pid`, `engine.lock`, `agent.sock`, `agent.log`.

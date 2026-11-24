@@ -8,7 +8,7 @@ import { ChartTile } from "./Spark";
 import { Explain } from "./ui";
 
 /** Colour for a temperature against the user's safety limit. */
-export function tempTone(t: number | null | undefined, max: number) {
+function tempTone(t: number | null | undefined, max: number) {
   if (t == null) return "text-muted";
   if (t >= max) return "text-stop";
   if (t >= max - 10) return "text-hold";

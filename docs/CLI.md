@@ -1,164 +1,205 @@
 # Erebor CLI (`erebor`)
 
-Interfaccia da terminale di Erebor. Legge e comanda lo **stesso motore** dell'app desktop: ogni comando che riguarda il mining passa dal processo che possiede il motore (Agent o app desktop) tramite il socket locale. CLI, TUI e GUI vedono quindi sempre lo stesso stato.
+Erebor from the terminal. It drives **the same engine** as the desktop app: every mining
+command goes through the process that owns the engine (the agent or the desktop app) over the
+local socket, so the CLI, the TUI and the app always see the same state.
 
-## In breve
-
-```bash
-erebor               # dashboard live (al primo avvio: setup guidato)
-erebor start         # avvia il mining; Erebor resta attivo in background anche chiudendo il terminale
-erebor stop          # ferma il mining
-erebor status        # riepilogo
-erebor power max     # usa tutta la CPU (eco 25% · balanced 50%, predefinito · max 100%); erebor power mostra il livello
-erebor service on    # mina sempre: Erebor e il mining partono con il computer (off per disattivare)
-erebor update        # installa l'ultima versione firmata (lo fa anche da solo, vedi sotto)
-```
-
-Non serve avviare l'agent a mano: i comandi che ne hanno bisogno (`start`, dashboard, `wallet set`, `demo`, …) lo avviano da soli. Quelli di sola lettura (`status`, `doctor`, elenchi) non avviano nulla.
-
-### Mina sempre, anche dopo un riavvio
-
-`erebor service on` registra Erebor come servizio utente (systemd `--user` su Linux, LaunchAgent su macOS, senza root), imposta `startOnLaunch` e riavvia l'agent sotto il servizio: dopo ogni riavvio del computer il mining riparte da solo. Su Linux attiva anche `loginctl enable-linger` per partire al boot senza login; se il sistema lo nega, la CLI indica il comando con `sudo`. Su macOS parte al login dell'utente. `erebor service` mostra lo stato, `erebor service off` lo disattiva (e ferma il mining in background). Il mining reale resta soggetto a consenso e configurazione valida.
-
-### Aggiornamenti automatici
-
-La CLI installata dai binari di release (o compilata in release con `scripts/install.sh`) si aggiorna da sola: l'agent controlla ogni ora le release GitHub, scarica il binario per il tuo sistema e lo installa **solo se la firma minisign corrisponde alla chiave del progetto** (la stessa dell'app desktop). Poi si riavvia sulla nuova versione mantenendo lo stesso processo (anche sotto systemd/launchd) e, se stava minando, riprende. `erebor update` fa lo stesso a mano. Le build di debug e il binario `erebor-agent` non si aggiornano da soli. Se la cartella del programma non è scrivibile (es. installato con `sudo` in `/usr/local/bin`), l'aggiornamento fallisce senza toccare nulla.
-
-## Compilazione su Ubuntu
+## In short
 
 ```bash
-# Toolchain (una volta)
-sudo apt update && sudo apt install -y build-essential curl git
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-source "$HOME/.cargo/env"
-
-# Dalla radice del repository: solo CLI + Agent (non servono le dipendenze Tauri)
-cargo build --release -p erebor-cli -p erebor-agent
-export PATH="$PWD/target/release:$PATH"     # oppure: sudo install target/release/erebor /usr/local/bin/
-
-# Test automatici (miner simulati, nessun mining reale)
-cargo test -p erebor-core -p erebor-agent -p erebor-tui -p erebor-cli
+erebor               # live dashboard (first run: guided setup)
+erebor start         # start mining; Erebor keeps running in the background after the terminal closes
+erebor stop          # stop mining
+erebor status        # summary
+erebor power max     # use the whole CPU (eco 25% · balanced 50%, default · max 100%); `erebor power` shows the level
+erebor service on    # always mine: Erebor and mining start with the computer (`off` to undo)
+erebor update        # install the latest signed release (it also does this by itself, see below)
 ```
 
-`cargo test --workspace` compila anche l'app desktop e richiede le dipendenze Tauri (vedi [DEVELOPMENT.md](../DEVELOPMENT.md)).
+You don't need to start the agent by hand: commands that need it (`start`, the dashboard,
+`wallet set`, `demo`, …) start it. Read-only commands (`status`, `doctor`, lists) start
+nothing.
 
-## Installazione (un comando)
+### Mine always, also after a reboot
+
+`erebor service on` registers Erebor as a user service (systemd `--user` on Linux, a
+LaunchAgent on macOS, no root), sets `startOnLaunch` and restarts the agent under the
+service: mining resumes after every reboot. On Linux it also runs `loginctl enable-linger`
+to start at boot without logging in; if the system refuses, the CLI prints the `sudo`
+command. On macOS it starts at login. `erebor service` shows the state, `erebor service off`
+turns it off (and stops background mining).
+
+### Automatic updates
+
+The CLI installed from release binaries updates itself: every hour the agent checks the
+GitHub releases, downloads the binary for your system and installs it **only if its minisign
+signature matches the project key** (the same key as the desktop app). It then restarts into
+the new version in the same process (also under systemd/launchd) and resumes mining if it was
+mining. `erebor update` does the same on demand. Debug builds and the `erebor-agent` binary
+never update themselves. If the program's folder isn't writable (for example installed with
+`sudo` into `/usr/local/bin`), the update fails without touching anything.
+
+## Install (one command)
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/samuelviviani/erebor/main/scripts/install.sh | sh
 ```
 
-Scarica dall'ultima release GitHub il binario `erebor` per il tuo sistema (macOS e Linux, x86_64 e aarch64), ne verifica lo SHA-256 con `SHA256SUMS`, lo copia in `~/.local/bin` (senza root), indica come aggiungerlo al `PATH` e lancia `erebor onboard`. Non serve Rust. Dopo si aggiorna da solo (vedi sopra).
+It downloads the `erebor` binary for your system from the latest GitHub release (macOS and
+Linux, x86_64 and aarch64), checks its SHA-256 against `SHA256SUMS`, copies it to
+`~/.local/bin` (no root), tells you how to add that to `PATH` and runs `erebor onboard`. No
+Rust needed. It updates itself afterwards (see above).
 
-Opzioni (dopo `| sh -s --`): `--version vX.Y.Z`, `--no-onboard`, `--prefix DIR`, `--yes`, `--from-source` (compila con Rust: anche `--repo URL`, `--ref REF`; dal checkout `sh scripts/install.sh --from-source`).
+Options (after `| sh -s --`): `--version vX.Y.Z`, `--no-onboard`, `--prefix DIR`, `--yes`,
+`--from-source` (build with Rust; also `--repo URL`, `--ref REF`; from a checkout:
+`sh scripts/install.sh --from-source`).
 
-### `erebor onboard`
-
-Parte da sola anche lanciando `erebor` senza argomenti la prima volta. Mostra **tutte** le opzioni, divise in sezioni, ognuna con un valore predefinito (Invio lo accetta):
-
-1. **Mode**: mining reale o demo (miner simulato).
-2. **Payout**: ID Kryptex, validato subito; seed phrase e chiavi private vengono riconosciute e rifiutate.
-3. **Mining**: moneta (auto o una delle monete minabili su questo computer), thread CPU (eco 25%, balanced 50%, max 100%, custom %), nome worker.
-4. **Electricity**: valuta e prezzo per kWh (facoltativo), stop quando il mining costa più di quanto rende.
-5. **Safety**: temperatura massima, riavvio automatico del miner.
-6. **Miners**: XMRig e, con una GPU supportata, SRBMiner-MULTI e lolMiner (build fissate, SHA-256 verificato).
-7. **Running**: agent in background, avvio con il computer, avvio immediato del mining.
-
-Alla fine un **riepilogo** chiede conferma: prima di quella non cambia nulla (anche Ctrl-C non cambia nulla). Poi avvia l'agent, salva tramite il motore, installa i miner, esegue il controllo di salute e mostra i prossimi comandi.
-
-Senza prompt (script, provisioning); il resto si regola dopo con `erebor config set`:
+## Build from source (Ubuntu)
 
 ```bash
-erebor onboard --non-interactive --wallet <KRYPTEX_ID> [--coin ID|auto] [--worker NOME] \
+# Toolchain (once)
+sudo apt update && sudo apt install -y build-essential curl git
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+source "$HOME/.cargo/env"
+
+# From the repository root: CLI + agent only (no Tauri dependencies needed)
+cargo build --release -p erebor-cli -p erebor-agent
+export PATH="$PWD/target/release:$PATH"
+
+# Tests (simulated miners, no real mining)
+cargo test -p erebor-core -p erebor-agent -p erebor-tui -p erebor-cli
+```
+
+`cargo test --workspace` also builds the desktop app and needs the Tauri dependencies (see
+[DEVELOPMENT.md](../DEVELOPMENT.md)).
+
+## `erebor onboard`
+
+Runs by itself the first time you launch `erebor` with no arguments. It shows **every**
+option, in sections, each with a default (Enter accepts it):
+
+1. **Mode**: real mining or demo (simulated miner).
+2. **Payout**: your Kryptex ID, validated on the spot; seed phrases and private keys are
+   recognised and refused.
+3. **Mining**: coin (auto, or one this computer can mine), CPU threads (eco 25%, balanced
+   50%, max 100%, custom %), worker name.
+4. **Electricity**: currency and price per kWh (optional), stop when mining costs more than it
+   earns.
+5. **Safety**: maximum temperature, automatic miner restart.
+6. **Miners**: XMRig and, with a supported GPU, SRBMiner-MULTI and lolMiner (pinned builds,
+   SHA-256 verified).
+7. **Running**: background agent, start with the computer, start mining now.
+
+A final **summary** asks for confirmation: nothing changes before that (Ctrl-C changes
+nothing either). Then it starts the agent, saves through the engine, installs the miners, runs
+the health check and shows the next commands.
+
+Without prompts (scripts, provisioning); fine-tune afterwards with `erebor config set`:
+
+```bash
+erebor onboard --non-interactive --wallet <KRYPTEX_ID> [--coin ID|auto] [--worker NAME] \
   [--pool ID] [--performance eco|balanced|max] [--no-install-miner] [--install-service] \
   [--start] [--no-background] [--skip-health] [--reset]
 erebor onboard --non-interactive --mode demo --start
 ```
 
-## Prova rapida (modalità demo)
+## Quick try (demo mode)
 
 ```bash
-erebor doctor            # ambiente, hardware, miner, wallet, pool, agent
-erebor agent start       # agent in background (log: <cartella dati>/agent.log)
-erebor demo on           # miner simulato: nessun uso di CPU/GPU, nessuna rete
-erebor mining start
+erebor doctor            # environment, hardware, miners, wallet, pool, agent
+erebor demo on           # simulated miner: no CPU/GPU use, no network
+erebor start
 erebor status
-erebor monitor           # TUI; Q esce lasciando il mining attivo
-erebor mining stop
-erebor agent stop        # ferma mining e agent
+erebor monitor           # TUI; Q quits and leaves mining running
+erebor stop
+erebor agent stop        # stop mining and the agent
 ```
 
-## Mining reale
+## Real mining
 
-Parte solo con configurazione valida (wallet e miner):
+It starts only with a valid configuration (payout and miner):
 
 ```bash
 erebor demo off
-erebor wallet set <KRYPTEX_ID>   # ID Kryptex (krx…)
-erebor miner install xmrig       # release fissata, SHA-256 verificato
+erebor wallet set <KRYPTEX_ID>   # Kryptex ID (krx…)
+erebor miner install xmrig       # pinned release, SHA-256 verified
 erebor pools test
-erebor mining start
+erebor start
 ```
 
-Commissioni e condizioni sono descritte sul sito e nel README; `erebor status` e la dashboard mostrano la dev fee in tempo reale.
+Fees are described on the website and in the README; `erebor status` and the dashboard show
+the dev fee live.
 
-## Cartella dati
+## Data folder
 
-Condivisa con l'app desktop: `~/.local/share/org.erebor.desktop` (Linux), `~/Library/Application Support/org.erebor.desktop` (macOS), `%APPDATA%\org.erebor.desktop` (Windows). Si cambia con `--data-dir DIR` o `EREBOR_DATA_DIR=DIR` (utile per prove isolate).
+Shared with the desktop app: `~/.local/share/org.erebor.desktop` (Linux),
+`~/Library/Application Support/org.erebor.desktop` (macOS), `%APPDATA%\org.erebor.desktop`
+(Windows). Override with `--data-dir DIR` or `EREBOR_DATA_DIR=DIR` (handy for isolated tests).
 
-## Comandi
+## Commands
 
-| Comando | Cosa fa | `--json` |
+| Command | What it does | `--json` |
 |---|---|---|
-| `erebor onboard` | Setup guidato (vedi sopra); `erebor` senza argomenti lo apre al primo avvio | ✓ |
-| `erebor config` | Tutte le impostazioni come `chiave = valore` (`config.json`, nomi camelCase) | ✓ |
-| `erebor config get <KEY>` | Un valore, o tutte le chiavi di una sezione (`config get energy`) | ✓ |
-| `erebor config set <KEY> <VALUE>` | Cambia un'impostazione; VALUE è JSON (`true`, `0.25`, `null`, `[…]`) o testo. Il motore la valida come per l'app; chiavi gestite da Erebor (percorsi dei miner, versione) restano invariate e la CLI lo segnala | ✓ |
-| `erebor coins` | Monete: algoritmo, CPU/GPU, hashrate misurato qui, guadagno stimato al giorno, perché non è minabile (`*` = scelta) | ✓ |
-| `erebor coins set <COIN\|auto>` | Mina quella moneta (il miner mancante si installa da solo) o torna alla scelta automatica | ✓ |
-| `erebor logs [-f]` | Log del motore; `-f` continua a stampare le righe nuove | ✓ |
-| `erebor status` | Stato, miner, moneta/algoritmo, pool, hashrate, uptime, share, temperatura, consumo, ricompense stimate, dev fee | ✓ |
-| `erebor doctor [--offline]` | OS, CPU/GPU, sensori, utente/permessi, cartella dati, agent, configurazione, consenso, wallet, miner, connettività pool | ✓ |
-| `erebor mining start\|stop\|pause\|resume\|restart` | Comandi verificati: riporta successo solo se lo stato è davvero cambiato | ✓ |
-| `erebor hardware list` | CPU e GPU | ✓ |
-| `erebor hardware info` | Dettagli, sensori live, capacità (build miner disponibili, sensori) | ✓ |
-| `erebor wallet show` | Wallet di pagamento e wallet per moneta | ✓ |
-| `erebor wallet set <ADDR> [--coin ID]` | Imposta e valida l'indirizzo (mai seed phrase o chiavi private) | ✓ |
-| `erebor pools list` | Catalogo pool (`*` = configurata) | ✓ |
-| `erebor pools test [--all]` | Compatibilità con il wallet e raggiungibilità (latenza TCP) | ✓ |
-| `erebor pools set <POOL_ID>` | Usa una pool del catalogo | ✓ |
-| `erebor monitor` | Apre la TUI ([TUI.md](TUI.md)) | |
-| `erebor agent start [--foreground]` | Avvia l'agent ([AGENT.md](AGENT.md)) | ✓ |
-| `erebor agent stop\|status` | Ferma (con il mining) / stato dell'agent | ✓ |
-| `erebor agent install-service\|uninstall-service` | Avvio al login, opzionale, disattivato di default | |
-| `erebor demo on\|off` | Modalità demo esplicita | ✓ |
-| `erebor miner install [xmrig\|srbminer]` | Scarica e verifica il miner fissato | ✓ |
-| `erebor device show` / `device name <NOME>` | Nome e id di questo computer | ✓ |
+| `erebor` | Dashboard; the guided setup on first run | |
+| `erebor start` / `stop` | Start / stop mining | ✓ |
+| `erebor status` | State, miner, coin/algorithm, pool, hashrate, uptime, shares, temperature, power, estimated earnings, dev fee | ✓ |
+| `erebor power [eco\|balanced\|max]` | CPU share used by mining; a running miner restarts with the new level | ✓ |
+| `erebor service [on\|off]` | Always mine, also after a reboot | ✓ |
+| `erebor update` | Install the latest signed release | ✓ |
+| `erebor onboard` | Guided setup (see above) | ✓ |
+| `erebor config` | Every setting as `key = value` (`config.json`, camelCase names) | ✓ |
+| `erebor config get <KEY>` | One value, or all keys of a section (`config get energy`) | ✓ |
+| `erebor config set <KEY> <VALUE>` | Change a setting; VALUE is JSON (`true`, `0.25`, `null`, `[…]`) or text. The engine validates it like the app does; keys managed by Erebor (miner paths, versions) stay unchanged and the CLI says so | ✓ |
+| `erebor coins` | Coins: algorithm, CPU/GPU, hashrate measured here, estimated earnings per day, why a coin can't be mined (`*` = chosen) | ✓ |
+| `erebor coins set <COIN\|auto>` | Mine that coin (a missing miner installs itself) or go back to automatic | ✓ |
+| `erebor logs [-f]` | Engine log; `-f` keeps printing new lines | ✓ |
+| `erebor doctor [--offline]` | OS, CPU/GPU, sensors, user/permissions, data folder, agent, config, wallet, miners, pool connectivity | ✓ |
+| `erebor mining start\|stop\|pause\|resume\|restart` | Verified control: success only if the state actually changed | ✓ |
+| `erebor hardware list` | CPU and GPUs | ✓ |
+| `erebor hardware info` | Details, live sensors, capabilities | ✓ |
+| `erebor wallet show` | Payout address | ✓ |
+| `erebor wallet set <ADDR>` | Set and validate the payout (never seed phrases or private keys) | ✓ |
+| `erebor pools list` | Pool catalog (`*` = in use) | ✓ |
+| `erebor pools test [--all]` | Wallet compatibility and reachability (TCP latency) | ✓ |
+| `erebor pools set <POOL_ID>` | Use a pool from the catalog | ✓ |
+| `erebor monitor` | The TUI ([TUI.md](TUI.md)) | |
+| `erebor agent start [--foreground]` | Start the agent ([AGENT.md](AGENT.md)) | ✓ |
+| `erebor agent stop\|status` | Stop (with mining) / agent state | ✓ |
+| `erebor agent install-service\|uninstall-service` | Start at login only, without `startOnLaunch` | |
+| `erebor demo on\|off` | Demo mode | ✓ |
+| `erebor miner install [xmrig\|srbminer\|lolminer\|cpuminer]` | Download and verify the pinned miner | ✓ |
+| `erebor device show` / `device name <NAME>` | This computer's name and id | ✓ |
 
-Tutti i comandi compaiono in `erebor --help`: nessuno è nascosto.
+Every command appears in `erebor --help`: none is hidden.
 
-Impostazioni utili: `performance.preset` (`eco`, `balanced`, `performance`, `custom`) e `performance.customThreadsPercent`; `pool.worker`; `safety.maxTempC`, `safety.autoRestart`; `energy.pricePerKwh`, `energy.currency`, `energy.estimatedWatts`, `energy.stopIfUnprofitable`, `energy.minProfitPerDay`; `schedule.enabled`, `schedule.startMinute`, `schedule.endMinute`, `schedule.days`; `autoUpdateMiners`; `startOnLaunch`.
+Useful settings: `performance.preset` (`eco`, `balanced`, `performance`, `custom`) and
+`performance.customThreadsPercent`; `pool.worker`; `safety.maxTempC`, `safety.autoRestart`;
+`energy.pricePerKwh`, `energy.currency`, `energy.estimatedWatts`, `energy.stopIfUnprofitable`,
+`energy.minProfitPerDay`; `schedule.enabled`, `schedule.startMinute`, `schedule.endMinute`,
+`schedule.days`; `autoUpdateMiners`; `startOnLaunch`.
 
-`pause`/`resume` funzionano solo se il miner lo supporta (`pause_unsupported` altrimenti). `--json` e `--data-dir` sono opzioni globali: valgono prima o dopo il sottocomando.
+`pause`/`resume` work only if the miner supports it (`pause_unsupported` otherwise). `--json`
+and `--data-dir` are global: they go before or after the subcommand.
 
-## Codici d'uscita
+## Exit codes
 
-| Codice | Significato |
+| Code | Meaning |
 |---|---|
-| 0 | Riuscito (anche "nulla da fare": es. `mining start` con mining già attivo, `changed: false`) |
-| 1 | Comando fallito (errore del motore, validazione, `doctor` con problemi bloccanti) |
-| 2 | Uso errato (argomenti non validi) |
-| 3 | Agent non raggiungibile |
+| 0 | Success (also "nothing to do", e.g. `start` while already mining: `changed: false`) |
+| 1 | Command failed (engine error, validation, `doctor` with blocking problems) |
+| 2 | Wrong usage (invalid arguments) |
+| 3 | Agent unreachable |
 
-## Formato JSON
+## JSON output
 
-Stabile e versionato. In caso di errore, con `--json`, su stdout:
+Stable and versioned. On error, with `--json`, on stdout:
 
 ```json
 {"error": "wallet_missing", "message": "…", "hint": "erebor wallet set <ADDRESS>   (or try first: erebor demo on)"}
 ```
 
-`erebor status --json` restituisce lo **Snapshot** (schema 1, definito in `crates/erebor-core/src/fleet.rs`):
+`erebor status --json` prints the **Snapshot** (schema 1, defined in
+`crates/erebor-core/src/fleet.rs`):
 
 ```jsonc
 {
@@ -166,40 +207,42 @@ Stabile e versionato. In caso di errore, con `--json`, su stdout:
   "state": "running",            // stopped | running | paused | error
   "demo": false,
   "error": null,
-  "startBlocker": null,          // perché non può partire (codice), se applicabile
+  "startBlocker": null,          // why mining can't start (code), if so
   "miner": {"id": "xmrig", "name": "XMRig", "version": "6.26.0", "supportsPause": true},
   "coin": "XMR", "coinName": "Monero", "algo": "rx/0", "autoCoin": true,
   "poolId": "kryptex",
   "pool": "xmr.kryptex.network:7029",
   "poolConnected": true,
-  "hashrate": 4250.0,            // H/s, null se non disponibile
+  "hashrate": 4250.0,            // H/s, null when unavailable
   "uptimeSecs": 3723,
   "accepted": 148, "rejected": 2,
-  "cpuTempC": 64.0,              // null se il sistema non lo espone
+  "cpuTempC": 64.0,              // null when the system doesn't expose it
   "gpus": [{"name": "…", "tempC": null, "powerW": null, "utilPercent": null}],
   "powerW": null,
   "powerSource": "unavailable",  // measured | estimated | unavailable
   "devFee": {"enabled": true, "percent": 2.0, "active": "user"},
   "earnings": {"valuePerDay": 0.82, "currency": "EUR", "btcPerDay": 0.0000141, "live": true,
-               "energyCostPerDay": 0.32, "netPerDay": 0.50},  // null senza prezzo kWh
+               "energyCostPerDay": 0.32, "netPerDay": 0.50},  // null without a price per kWh
   "restartInSecs": null,
-  "job": null                    // installazione/benchmark in corso
+  "job": null                    // install/benchmark in progress
 }
 ```
 
-Regole di compatibilità: nuovi campi possono essere aggiunti senza cambiare `schema`; `schema` aumenta solo se un campo viene rimosso o cambia significato. I valori non disponibili sono `null`, mai inventati.
+Compatibility: new fields may be added without changing `schema`; `schema` goes up only when
+a field is removed or changes meaning. Unavailable values are `null`, never invented.
 
-`mining … --json` → `{"changed": bool, "snapshot": Snapshot}`; `doctor --json` → `{"ok": bool, "checks": [{"id","status":"ok|warn|fail","message","hint"}]}`.
+`mining … --json` → `{"changed": bool, "snapshot": Snapshot}`; `doctor --json` →
+`{"ok": bool, "checks": [{"id","status":"ok|warn|fail","message","hint"}]}`.
 
-## Risoluzione dei problemi
+## Troubleshooting
 
-| Messaggio / codice | Soluzione |
+| Message / code | Fix |
 |---|---|
-| `agent_unreachable` (exit 3) | `erebor agent start`; se fallisce, leggi `<cartella dati>/agent.log` |
-| `engine_busy` | Un altro Erebor (app desktop, nodo o agent) possiede già la cartella dati: la CLI lo comanda direttamente, non serve un secondo agent |
-| `wallet_missing` | `erebor wallet set <INDIRIZZO>` oppure prova prima con `erebor demo on` |
+| `agent_unreachable` (exit 3) | `erebor agent start`; if it fails, read `<data dir>/agent.log` |
+| `engine_busy` | Another Erebor (desktop app or agent) already owns the data folder: the CLI talks to it directly, no second agent needed |
+| `wallet_missing` | `erebor wallet set <KRYPTEX_ID>`, or try `erebor demo on` first |
 | `miner_not_configured` / `miner_binary_changed` | `erebor miner install xmrig` |
-| `protocol_version` | CLI e agent di versioni diverse: `erebor agent stop && erebor agent start` |
-| `not_agent` su `agent stop` | Il motore è dell'app desktop: chiudi l'app (il mining si ferma con lei) |
-| Temperatura/consumo `n/a` | Il sistema non espone il sensore: su Ubuntu `sudo apt install lm-sensors`; i contatori RAPL sono spesso leggibili solo da root (Erebor non chiede root) |
-| Pool non raggiungibile | Firewall/rete; prova `erebor pools test --all` e `erebor pools set <id>` |
+| `protocol_version` | CLI and agent versions differ: `erebor agent stop && erebor agent start` |
+| `not_agent` on `agent stop` | The desktop app owns the engine: quit the app (mining stops with it) |
+| Temperature/power `n/a` | The system doesn't expose the sensor: on Ubuntu `sudo apt install lm-sensors`; RAPL counters are often root-only (Erebor never asks for root) |
+| Pool unreachable | Firewall/network; try `erebor pools test --all` and `erebor pools set <id>` |

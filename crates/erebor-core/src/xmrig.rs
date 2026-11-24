@@ -19,17 +19,9 @@ use std::time::Duration;
 pub const XMRIG_DONATE_LEVEL: u8 = 1;
 const MAX_LOG_LINES: usize = 500;
 
-pub fn binary_name() -> &'static str {
-    crate::miner::MinerKind::Xmrig.binary_name()
-}
-
-/// A user-selected binary must be an existing absolute file whose name starts with "xmrig".
-pub fn validate_binary_path(p: &str) -> Result<PathBuf, String> {
-    validate_binary_path_prefix(p, "xmrig")
-}
-
-/// Same check for any miner: absolute, existing file, name starting with `prefix`.
-pub fn validate_binary_path_prefix(p: &str, prefix: &str) -> Result<PathBuf, String> {
+/// A user-selected miner must be an existing absolute file whose name starts with `prefix`
+/// ("xmrig", "srbminer", …).
+pub fn validate_binary_path(p: &str, prefix: &str) -> Result<PathBuf, String> {
     let path = PathBuf::from(p);
     if !path.is_absolute() {
         return Err("path must be absolute".into());
@@ -49,7 +41,7 @@ pub fn validate_binary_path_prefix(p: &str, prefix: &str) -> Result<PathBuf, Str
 }
 
 /// Parse `XMRig 6.22.2` from `xmrig --version` output.
-pub fn parse_version(output: &str) -> Option<String> {
+fn parse_version(output: &str) -> Option<String> {
     output.lines().find_map(|l| {
         let rest = l.trim().strip_prefix("XMRig ")?;
         let v = rest.split_whitespace().next()?;
@@ -75,7 +67,7 @@ pub fn sha256_file(path: &Path) -> Result<String, String> {
     Ok(format!("{:x}", Sha256::digest(&bytes)))
 }
 
-pub fn pool_json(pool: &PoolTarget) -> Value {
+fn pool_json(pool: &PoolTarget) -> Value {
     json!({
         "algo": "rx/0",
         "coin": "monero",
@@ -93,7 +85,7 @@ pub fn pool_json(pool: &PoolTarget) -> Value {
 }
 
 /// Full XMRig JSON config. The HTTP API listens on loopback only with a random token.
-pub fn build_config(spec: &LaunchSpec, api_port: u16, token: &str) -> Value {
+fn build_config(spec: &LaunchSpec, api_port: u16, token: &str) -> Value {
     json!({
         "autosave": false,
         "background": false,
@@ -176,7 +168,7 @@ pub fn parse_summary(v: &Value) -> MinerStats {
 
 /// Parse the 10s/60s speed from a stdout line like
 /// `miner    speed 10s/60s/15m 4123.1 4101.9 n/a H/s max 4200.2 H/s`.
-pub fn parse_speed_line(line: &str) -> Option<(Option<f64>, Option<f64>)> {
+fn parse_speed_line(line: &str) -> Option<(Option<f64>, Option<f64>)> {
     let idx = line.find("speed 10s/60s/15m")?;
     let mut it = line[idx + "speed 10s/60s/15m".len()..].split_whitespace();
     let a = it.next()?.parse().ok();
@@ -191,7 +183,7 @@ pub fn free_loopback_port() -> Result<u16, String> {
         .map_err(|e| e.to_string())
 }
 
-pub fn random_token() -> String {
+fn random_token() -> String {
     use rand::Rng;
     let bytes: [u8; 24] = rand::thread_rng().gen();
     bytes.iter().map(|b| format!("{b:02x}")).collect()
@@ -448,7 +440,7 @@ pub fn run_benchmark(
 }
 
 /// The config file contains the API token: keep it private to the user.
-pub fn restrict_permissions(_path: &Path) {
+fn restrict_permissions(_path: &Path) {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -545,12 +537,14 @@ mod tests {
 
     #[test]
     fn rejects_bad_binary_paths() {
-        assert!(validate_binary_path("relative/xmrig").is_err());
-        assert!(validate_binary_path("/bin/sh").is_err());
+        assert!(validate_binary_path("relative/xmrig", "xmrig").is_err());
+        assert!(validate_binary_path("/bin/sh", "xmrig").is_err());
         let dir = tempfile::tempdir().unwrap();
-        let p = dir.path().join(binary_name());
+        let p = dir
+            .path()
+            .join(crate::miner::MinerKind::Xmrig.binary_name());
         std::fs::write(&p, b"x").unwrap();
-        assert!(validate_binary_path(p.to_str().unwrap()).is_ok());
+        assert!(validate_binary_path(p.to_str().unwrap(), "xmrig").is_ok());
     }
 
     #[test]

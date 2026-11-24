@@ -1,4 +1,3 @@
-import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   Bitcoin,
   Check,
@@ -8,7 +7,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { useState } from "react";
-import { inApp } from "../lib/api";
+import { openExternal } from "../lib/api";
 import { useT } from "../lib/i18n";
 import { WalletInput } from "./shared";
 import { cx, Explain } from "./ui";
@@ -52,11 +51,6 @@ function detect(wallet: string): PayoutMode | null {
 export function payoutMode(wallet: string): PayoutMode {
   return detect(wallet) ?? "kryptex";
 }
-
-const open = (url: string) =>
-  inApp()
-    ? openUrl(url).catch(() => {})
-    : window.open(url, "_blank", "noopener");
 
 /**
  * "Where do you want your earnings?" in two plain steps: Bitcoin or the mined coins, then
@@ -225,7 +219,7 @@ export function PayoutChoice({
         {method.signup && !value && (
           <button
             type="button"
-            onClick={() => open(method.signup!)}
+            onClick={() => openExternal(method.signup!)}
             className="mt-2 inline-flex items-center gap-1.5 text-xs text-accent hover:underline"
           >
             {t(`payout.${mode}.signup`)} <ExternalLink className="size-3.5" />

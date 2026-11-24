@@ -1,22 +1,25 @@
-# Contribuire
+# Contributing
 
-Grazie! Prima di aprire una PR:
+Thanks! Before opening a pull request:
 
-1. Leggi [ARCHITECTURE.md](ARCHITECTURE.md) e [DEVELOPMENT.md](DEVELOPMENT.md).
-2. Esegui `pnpm -r typecheck && pnpm -r test && cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace`.
-3. Aggiungi test per la logica nuova (soprattutto denaro, commissioni, processi, validazione).
-4. Aggiorna `PROGRESS.md` / `CHANGELOG.md` se cambia il comportamento.
+1. Read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [DEVELOPMENT.md](DEVELOPMENT.md).
+2. Run `pnpm -r typecheck && pnpm test && pnpm lint:rust && cargo test --workspace`.
+3. Add tests for new logic (especially money, fees, processes and validation).
+4. Update `CHANGELOG.md` when behaviour changes.
 
-## Regole non negoziabili
+## Non-negotiable rules
 
-- Nessun mining senza consenso, nessun avvio nascosto, nessuna offuscazione.
-- Nessun indirizzo wallet, token o credenziale nel codice.
-- Nessun comando shell costruito da input utente.
-- Nessun numero inventato: i dati mancanti si mostrano come "non disponibile".
-- Nuove dipendenze solo se indispensabili, con licenza compatibile (aggiornare `THIRD_PARTY_NOTICES.md`).
+- No mining without the user's action, no hidden start, no obfuscation.
+- No wallet address, token or credential in the code.
+- No shell command built from user input.
+- No invented numbers: missing data is shown as "not available".
+- New dependencies only when essential, with a compatible licence (update
+  `THIRD_PARTY_NOTICES.md`).
 
-## Nuovi miner
+## New miners
 
-Implementa `MinerAdapter` (`crates/erebor-core/src/miner.rs`), aggiungi la factory in `engine::default_factory`, un manifest fissato e test con processo simulato. Non dichiarare supporto finché non è verificato.
+Implement `MinerAdapter` (`crates/erebor-core/src/miner.rs`), add it to the engine's miner
+factory, pin a manifest with SHA-256 and add tests with a simulated process. Don't claim
+support until it has been tested on real hardware.
 
-Contribuendo accetti che il tuo codice sia distribuito con licenza MIT.
+By contributing you agree that your code is distributed under the MIT licence.

@@ -102,7 +102,7 @@ mod self_update {
 }
 
 /// `run` with the stop channel supplied by the caller (tests).
-pub fn run_until(data_dir: PathBuf, tx: Sender<()>, rx: Receiver<()>) -> Result<(), String> {
+fn run_until(data_dir: PathBuf, tx: Sender<()>, rx: Receiver<()>) -> Result<(), String> {
     // The data-folder lock makes a second agent (or an open desktop app) fail here,
     // before it can touch the miner: one engine, one miner, per computer.
     let engine = Engine::new(data_dir.clone(), engine::default_factory()).map_err(|e| {

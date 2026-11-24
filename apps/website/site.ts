@@ -1,32 +1,21 @@
-import releases from "./releases.json";
-
 export const site = {
   name: "Erebor",
-  tagline: "Mining, under your control.",
+  tagline: "Mining, without the maze.",
   description:
-    "Erebor è un mining manager open source e non-custodial: gestisci il mining dal tuo computer, monitora prestazioni, consumi e ricompense, mantenendo il controllo del tuo wallet.",
+    "Erebor is an open-source, local-first mining manager for your own computer: it picks the coin, runs verified miners and shows what it really earns.",
   url: process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000",
-  repoUrl: process.env.NEXT_PUBLIC_REPO_URL || null,
+  repoUrl: "https://github.com/samuelviviani/erebor",
   devFeePercent: 2,
   xmrigDonatePercent: 1,
 };
 
-export interface ReleaseAsset {
-  platform: string;
-  label: string;
-  file: string;
-  url: string;
-  sha256: string;
-  size: number;
-}
-
-/** Filled by the release workflow. Only platforms with a real, published build appear. */
-export const release = releases as { version: string | null; date: string | null; assets: ReleaseAsset[] };
+export const latestRelease = `${site.repoUrl}/releases/latest`;
+export const installCommand = `curl -fsSL https://raw.githubusercontent.com/samuelviviani/erebor/main/scripts/install.sh | sh`;
 
 export const nav = [
-  { href: "/#come-funziona", label: "Come funziona" },
-  { href: "/#funzionalita", label: "Funzionalità" },
-  { href: "/fees", label: "Commissioni" },
-  { href: "/docs", label: "Documentazione" },
+  { href: "/#how-it-works", label: "How it works" },
+  { href: "/#features", label: "Features" },
+  { href: "/fees", label: "Fees" },
+  { href: "/docs", label: "Docs" },
   { href: "/faq", label: "FAQ" },
 ];

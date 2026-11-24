@@ -215,7 +215,7 @@ pub mod fmt {
                 None,
             ),
             _ if code.starts_with("engine_busy") => (
-                "another Erebor (agent, desktop app or node) already owns this data folder",
+                "another Erebor (agent or desktop app) already owns this data folder",
                 Some("the CLI talks to it directly: erebor status"),
             ),
             _ => return (code.to_string(), None),

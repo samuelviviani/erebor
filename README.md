@@ -78,9 +78,11 @@ Download the latest version from **[Releases](https://github.com/samuelviviani/e
 
 | System | File | |
 |---|---|---|
-| **Windows 10/11** | `Erebor_x.y.z_x64-setup.exe` · `.msi` | `setup.exe` recommended |
-| **Linux** | `Erebor_x.y.z_amd64.AppImage` · `.deb` | the AppImage updates itself |
+| **Windows 10/11** | `Erebor_x.y.z_x64-setup.exe` | |
+| **Linux** (Ubuntu 22.04+) | `Erebor_x.y.z_amd64.deb` | `sudo apt install ./Erebor_*.deb` |
 | **macOS** | `Erebor_x.y.z_universal.dmg` | Apple Silicon and Intel |
+
+Once installed, Erebor updates itself from signed releases.
 
 > [!TIP]
 > Check the download against `SHA256SUMS`, attached to every release. Details in

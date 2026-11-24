@@ -1,70 +1,69 @@
-# Componenti di terze parti
+# Third-party components
 
-Elenco delle dipendenze dirette e delle relative licenze (dichiarate dai pacchetti). Prima di ogni release generare l'elenco completo, incluse le dipendenze transitive, ad es. con `cargo about` / `cargo deny` e `pnpm licenses list --prod`, e verificarlo.
+Direct dependencies and their licences (as declared by the packages). Before each release,
+generate and review the full list including transitive dependencies, e.g. with
+`cargo about` / `cargo deny` and `pnpm licenses list --prod`.
 
-## XMRig (non incluso)
+## Miners (not bundled)
 
-- Progetto: https://github.com/xmrig/xmrig — **GPL-3.0**
-- Erebor **non ridistribuisce** XMRig: lo scarica dalle release ufficiali su richiesta dell'utente e lo esegue come processo separato, comunicando via file di configurazione e API HTTP locale. Erebor non è un'opera derivata e mantiene licenza MIT.
-- **Se in futuro XMRig venisse incluso nei pacchetti** (sidecar), si applicherebbero gli obblighi GPLv3 per quella componente: includere licenza e copyright, fornire il codice sorgente corrispondente (o un'offerta scritta), indicare eventuali modifiche. Erebor non modifica il codice di XMRig.
-- Donazione: XMRig dona di default l'1% del tempo ai propri sviluppatori (`donate-level`, minimo 1 nelle build ufficiali, `src/donate.h`). Erebor la mantiene e la dichiara.
+Erebor **does not redistribute** any miner. On demand it downloads the official release from
+the project's GitHub page, checks it against a SHA-256 pinned in this repository
+(`crates/erebor-core/*-manifest.json`), extracts it and runs it **unmodified** as a separate
+process with fixed arguments, talking to it through config files and a local API. Erebor is
+not a derivative work and stays MIT-licensed.
 
-## SRBMiner-MULTI (non incluso)
+| Miner | Licence | Developer fee | Notes |
+|---|---|---|---|
+| [XMRig](https://github.com/xmrig/xmrig) | GPL-3.0 | 1% of time (`donate-level`, the minimum of official builds, `src/donate.h`) | If XMRig were ever bundled, GPLv3 obligations would apply to it (licence, copyright, corresponding source) |
+| [SRBMiner-MULTI](https://github.com/doktor83/SRBMiner-Multi) | free, closed source, © doktor83 | per algorithm (e.g. pearlhash 2%, etchash 0.65%, kawpow 0.85%) | The licence forbids modifying, redistributing or "incorporating into another product" without permission: written confirmation from the author is still pending ([LEGAL-CHECKLIST](docs/LEGAL-CHECKLIST.md)). Its stats API is read-only; Erebor doesn't enable the remote restart/shutdown URLs |
+| [lolMiner](https://github.com/Lolliedieb/lolMiner-releases) | free, closed source | per algorithm (e.g. Alephium and Kaspa 0.75%, Conflux and Nexa 2%, Tari SHA3x 1%, C29 2%) | API bound to `127.0.0.1` (`--apihost`) instead of all interfaces |
+| [cpuminer-opt](https://github.com/JayDDee/cpuminer-opt) | GPL-2.0 | none | Official builds exist for Windows only |
 
-- Progetto: https://github.com/doktor83/SRBMiner-Multi — **software proprietario gratuito** (closed source), © doktor83.
-- Erebor **non ridistribuisce** SRBMiner: su richiesta dell'utente scarica la release ufficiale da GitHub (archivio verificato: MD5 pubblicato dall'autore + SHA-256 fissato in `srbminer-manifest.json`), estrae solo l'eseguibile e lo avvia **senza modificarlo**, come processo separato con argomenti fissi.
-- La licenza vieta estrazione, modifica, reverse engineering e ridistribuzione dei binari e "l'incorporazione in un altro prodotto" senza permesso scritto. Erebor non incorpora né modifica il binario, ma **prima di una release pubblica conviene chiedere conferma scritta all'autore** che questo uso sia consentito (vedi `docs/LEGAL-CHECKLIST.md`).
-- Commissione dello sviluppatore integrata, variabile per algoritmo (es. pearlhash 2%, etchash 0,65%, kawpow 0,85%): Erebor la include nelle stime e la indica nell'app.
-- L'API statistiche di SRBMiner (`--api-enable`) è in sola lettura; Erebor non abilita gli URL di riavvio/spegnimento remoto.
+Developer fees are included in Erebor's estimates and shown in the app.
 
-## lolMiner (non incluso)
+## Coin logos
 
-- Progetto: https://github.com/Lolliedieb/lolMiner-releases — **software proprietario gratuito** (closed source).
-- Erebor **non ridistribuisce** lolMiner: scarica la release ufficiale da GitHub (SHA-256 pubblicato da GitHub, verificato e fissato in `lolminer-manifest.json`), estrae solo l'eseguibile e lo avvia **senza modificarlo**, come processo separato con argomenti fissi. Anche qui, prima di una release pubblica conviene chiedere conferma all'autore.
-- Commissione dello sviluppatore integrata per algoritmo (es. Alephium e Kaspa 0,75%, Conflux e Nexa 2%, Tari SHA3x 1%, C29 2%), inclusa nelle stime.
-- L'API statistiche è legata a `127.0.0.1` (`--apihost`), non a tutte le interfacce come da default.
+`apps/desktop/public/coins/*.png`: logos of the catalog coins, downloaded from CoinGecko
+(coin-images.coingecko.com) and resized (Ergo and Pearl cropped to a circle). They are
+trademarks of their projects, used only to identify the coins; no affiliation or endorsement
+is implied.
 
-## cpuminer-opt (non incluso)
+## Data services
 
-- Progetto: https://github.com/JayDDee/cpuminer-opt — licenza **GPLv2**. Nessuna commissione.
-- Erebor scarica la release ufficiale per Windows (SHA-256 pubblicato da GitHub, fissato in `cpuminer-manifest.json`), ne estrae i file così come sono e avvia la build adatta al processore. Su Linux e macOS non ci sono build ufficiali.
+- WhatToMine (`coins.json`, `asic.json`, GPU pages): network difficulty, rewards, BTC prices,
+  expected GPU hashrates.
+- Kryptex (`pool.kryptex.com/<coin>/api/v1/pool/stats`): pool fee per coin and network data.
+- CoinGecko API: BTC and coin prices in EUR/USD. Subject to CoinGecko's terms; check their
+  limits for public use.
+- SupportXMR public API, when that pool is selected: subject to the pool's terms.
 
-## Loghi delle monete
+## Rust
 
-`apps/desktop/public/coins/*.png`: loghi delle monete del catalogo (Monero, Pearl, Ethereum Classic, EthereumPoW, Ergo, Ravencoin, Xelis, Bitcoin il 2026-11-16; Qubitcoin, Quai, OctaSpace, Zephyr, Tari, Alephium, Conflux, Nexa, Kaspa, Bitcoin Cash, Bitcoin SV, eCash, Litecoin, DigiByte il 2026-11-24), scaricati da CoinGecko (coin-images.coingecko.com) e ridimensionati (Ergo e Pearl ritagliati in cerchio). Sono marchi dei rispettivi progetti, usati solo per identificare le monete; non implicano affiliazione o approvazione.
-
-## Servizi di mercato
-
-- WhatToMine (`coins.json`): difficoltà/ricompense di rete e prezzi in BTC delle monete GPU.
-- Kryptex (`pool.kryptex.com/<coin>/api/v1/pool/stats`): fee della pool per moneta e dati di rete di XMR.
-
-## Rust (crates/erebor-core, apps/desktop/src-tauri)
-
-| Crate | Licenza |
+| Crate | Licence |
 |---|---|
-| tauri, tauri-build, tauri-plugin-dialog | MIT OR Apache-2.0 |
+| tauri, tauri-build, tauri-plugin-dialog, -opener, -updater, -process | MIT OR Apache-2.0 |
 | serde, serde_json | MIT OR Apache-2.0 |
-| rusqlite (con SQLite bundled, public domain) | MIT |
+| rusqlite (bundled SQLite, public domain) | MIT |
 | sysinfo | MIT |
 | ureq (rustls, webpki-roots) | MIT OR Apache-2.0 (webpki-roots: MPL-2.0 / CDLA) |
-| sha2, tiny-keccak (CC0-1.0) | MIT OR Apache-2.0 / CC0 |
-| flate2, tar | MIT OR Apache-2.0 |
+| sha2, base64, flate2, tar, rand, chrono, tempfile | MIT OR Apache-2.0 |
+| tiny-keccak | CC0-1.0 |
 | zip | MIT |
-| rand, chrono | MIT OR Apache-2.0 |
+| minisign-verify | MIT |
+| clap, anstream, anstyle | MIT OR Apache-2.0 |
+| dialoguer | MIT |
+| ratatui, crossterm | MIT |
+| ctrlc | MIT OR Apache-2.0 |
 
 ## JavaScript
 
-| Pacchetto | Licenza |
+| Package | Licence |
 |---|---|
 | react, react-dom | MIT |
-| @tauri-apps/api, @tauri-apps/plugin-dialog, @tauri-apps/cli | MIT OR Apache-2.0 |
+| @tauri-apps/api, @tauri-apps/plugin-*, @tauri-apps/cli | MIT OR Apache-2.0 |
 | lucide-react | ISC |
 | recharts | MIT |
 | zustand | MIT |
 | next | MIT |
-| tailwindcss, vite, vitest, typescript | MIT / Apache-2.0 (typescript) |
-
-## Servizi
-
-- CoinGecko API (prezzi): soggetta ai termini d'uso di CoinGecko; verificarne i limiti per l'uso pubblico.
-- API pubblica di SupportXMR: soggetta ai termini della pool.
+| tailwindcss, vite, vitest | MIT |
+| typescript | Apache-2.0 |

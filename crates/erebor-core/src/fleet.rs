@@ -1,5 +1,5 @@
-//! Erebor Fleet foundations: a stable identity for this device and typed, versioned
-//! snapshots of its miner, read over the local socket by the CLI and the TUI.
+//! This computer's identity and typed, versioned snapshots of its miner, read over the
+//! local socket by the CLI and the TUI.
 //!
 //! Compatibility: `SCHEMA_VERSION` changes only when a field is removed or changes
 //! meaning. New optional fields can be added without a bump (readers ignore unknown
@@ -12,9 +12,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::path::Path;
 
-pub const SCHEMA_VERSION: u32 = 1;
+const SCHEMA_VERSION: u32 = 1;
 
-/// This device as other Erebor instances will know it. Kept in `device.json`.
+/// This computer's identity: a random id and a name. Kept in `device.json`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Device {

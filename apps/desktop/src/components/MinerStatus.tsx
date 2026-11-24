@@ -7,13 +7,13 @@ import { useApp } from "../lib/store";
 import { CoinIcon } from "./CoinIcon";
 import { cx } from "./ui";
 
-export const DOT = { running: "bg-go", paused: "bg-hold", error: "bg-stop", stopped: "bg-faint" } as const;
+const DOT = { running: "bg-go", paused: "bg-hold", error: "bg-stop", stopped: "bg-faint" } as const;
 
 /**
  * What the miner is doing right now, in a few words, including the moments in between
  * (coin change, start-up, connecting) so the state never looks blank.
  */
-export function useMinerPhase(): { state: keyof typeof DOT; text: string; busy: boolean } {
+function useMinerPhase(): { state: keyof typeof DOT; text: string; busy: boolean } {
   const t = useT();
   const { status, coinBusy, config, restartUntil } = useApp();
   const state = status?.state ?? "stopped";
@@ -35,7 +35,7 @@ export function useMinerPhase(): { state: keyof typeof DOT; text: string; busy: 
 }
 
 /** Coloured dot that pulses while something is in progress. */
-export function StateDot({ state, busy }: { state: keyof typeof DOT; busy?: boolean }) {
+function StateDot({ state, busy }: { state: keyof typeof DOT; busy?: boolean }) {
   return (
     <span className="relative flex size-2 shrink-0">
       {(busy || state === "running") && <span className={cx("absolute inline-flex size-full animate-ping rounded-full opacity-60", DOT[state])} />}

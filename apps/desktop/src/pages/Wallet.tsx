@@ -1,4 +1,3 @@
-import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   Bitcoin,
   Check,
@@ -32,7 +31,7 @@ import {
   Modal,
   Notice,
 } from "../components/ui";
-import { api, errorText, inApp, type Coin, type PoolAccount } from "../lib/api";
+import { api, errorText, openExternal, type Coin, type PoolAccount } from "../lib/api";
 import { btcFull, dateTime, money, xmr } from "../lib/format";
 import { translateError, useT } from "../lib/i18n";
 import { useApp } from "../lib/store";
@@ -200,11 +199,7 @@ export default function WalletPage() {
               <Button
                 variant="ghost"
                 className="border border-line"
-                onClick={() =>
-                  inApp()
-                    ? openUrl(url).catch((e) => toast("error", errorText(e)))
-                    : window.open(url, "_blank", "noopener")
-                }
+                onClick={() => openExternal(url)}
               >
                 <ExternalLink className="size-4" /> {t("wallet.balance")}
               </Button>

@@ -1,15 +1,21 @@
 # Privacy
 
-Erebor è local-first e non raccoglie dati.
+Erebor is local-first and collects no data.
 
-- **Nessun account, telemetria o analytics.**
-- **Dati locali** (cartella dati dell'app): configurazione (indirizzo wallet pubblico, pool, preferenze), statistiche di mining, sessioni, contabilità della commissione, XMRig installato. Esportabili ed eliminabili dalle impostazioni.
-- **Servizi esterni**:
-  - la **pool** scelta: riceve indirizzo pubblico, nome worker e IP (mining); la sua API pubblica viene interrogata con l'indirizzo pubblico per saldo e pagamenti;
-  - **CoinGecko**: prezzo XMR (ogni 10 minuti; nessun dato personale oltre all'IP);
-  - **GitHub**: solo per scaricare XMRig;
-  - **server di donazione di XMRig**: per la donazione integrata nel miner (1% del tempo).
-- In modalità demo non avviene alcuna richiesta di rete per mining o prezzi.
-- Il sito web è statico, senza cookie né analytics.
+- **No accounts, telemetry or analytics.**
+- **Local data** (the app's data folder): configuration (public payout ID, pool, preferences),
+  mining statistics, sessions, the fee ledger, installed miners. It can be exported and
+  deleted from the settings.
+- **External services** (each sees your IP address):
+  - the **pool** (Kryptex): receives your payout ID and worker name while mining;
+  - **WhatToMine**, **Kryptex pool stats** and **CoinGecko**: public market data (difficulty,
+    rewards, prices), fetched about every 10 minutes, with no personal data;
+  - **GitHub**: downloads of the pinned miners, the GPU hashrate table and Erebor's own updates;
+  - the miners' **developer-fee servers**: XMRig donates 1% of time; SRBMiner-MULTI and lolMiner
+    keep their own fee per algorithm.
+- Demo mode makes no network requests for mining or market data.
+- The website is static, with no cookies or analytics.
 
-Nota: questo documento descrive il comportamento tecnico. Un'informativa conforme al GDPR per la distribuzione pubblica deve essere validata da un professionista (vedi `docs/LEGAL-CHECKLIST.md`).
+Note: this document describes the software's technical behaviour. A GDPR-compliant notice
+for public distribution must be reviewed by a professional (see
+[docs/LEGAL-CHECKLIST.md](docs/LEGAL-CHECKLIST.md)).

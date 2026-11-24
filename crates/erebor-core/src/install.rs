@@ -92,7 +92,7 @@ impl Manifest {
     }
 }
 
-pub fn verify_sha256(data: &[u8], expected: &str) -> Result<(), String> {
+fn verify_sha256(data: &[u8], expected: &str) -> Result<(), String> {
     let got = format!("{:x}", Sha256::digest(data));
     if got.eq_ignore_ascii_case(expected) {
         Ok(())
@@ -132,13 +132,8 @@ fn is_binary_entry(path: &str, name: &str) -> bool {
         .is_some_and(|n| n == name)
 }
 
-/// Extract only the XMRig executable from a .tar.gz or .zip archive.
-pub fn extract_binary(archive: &[u8], url: &str, dest_dir: &Path) -> Result<PathBuf, String> {
-    extract_binary_named(archive, url, dest_dir, MinerKind::Xmrig.binary_name())
-}
-
 /// Extract only the executable called `name` from a .tar.gz or .zip archive.
-pub fn extract_binary_named(
+fn extract_binary(
     archive: &[u8],
     url: &str,
     dest_dir: &Path,
@@ -191,8 +186,8 @@ pub fn extract_binary_named(
 /// "access denied" (os error 5) or "virus detected" (225): say so instead.
 fn write_miner(dest: &Path, bytes: &[u8]) -> Result<(), String> {
     std::fs::write(dest, bytes).map_err(|e| {
-        let blocked = e.kind() == std::io::ErrorKind::PermissionDenied
-            || e.raw_os_error() == Some(225);
+        let blocked =
+            e.kind() == std::io::ErrorKind::PermissionDenied || e.raw_os_error() == Some(225);
         if cfg!(windows) && blocked {
             "blocked_by_antivirus".to_string()
         } else {
@@ -225,16 +220,9 @@ pub struct Installed {
     pub sha256: String,
 }
 
-/// Download, verify and extract the pinned XMRig build into `miners_dir/xmrig-<version>/`.
+/// Download, verify and extract the pinned build of `kind` into
+/// `miners_dir/<prefix>-<version>/<binary>`.
 pub fn install_pinned(
-    miners_dir: &Path,
-    progress: &dyn Fn(u64, Option<u64>),
-) -> Result<Installed, String> {
-    install_pinned_kind(MinerKind::Xmrig, miners_dir, progress)
-}
-
-/// Same for any miner: `miners_dir/<prefix>-<version>/<binary>`.
-pub fn install_pinned_kind(
     kind: MinerKind,
     miners_dir: &Path,
     progress: &dyn Fn(u64, Option<u64>),
@@ -248,7 +236,7 @@ pub fn install_pinned_kind(
         extract_zip_files(&data, &dir)?;
         dir.join(kind.binary_name())
     } else {
-        extract_binary_named(&data, &asset.url, &dir, kind.binary_name())?
+        extract_binary(&data, &asset.url, &dir, kind.binary_name())?
     };
     // Defender quarantines a miner as soon as it is written or read.
     let sha256 = crate::xmrig::sha256_file(&path).map_err(|e| {
@@ -351,7 +339,7 @@ mod tests {
             for (name, body) in [
                 ("xmrig-6.0.0/config.json", &b"{}"[..]),
                 (
-                    &format!("xmrig-6.0.0/{}", crate::xmrig::binary_name())[..],
+                    &format!("xmrig-6.0.0/{}", MinerKind::Xmrig.binary_name())[..],
                     &b"BINARY"[..],
                 ),
             ] {
@@ -364,7 +352,13 @@ mod tests {
             b.into_inner().unwrap().finish().unwrap();
         }
         let dir = tempfile::tempdir().unwrap();
-        let p = extract_binary(&tar_bytes, "x.tar.gz", dir.path()).unwrap();
+        let p = extract_binary(
+            &tar_bytes,
+            "x.tar.gz",
+            dir.path(),
+            MinerKind::Xmrig.binary_name(),
+        )
+        .unwrap();
         assert_eq!(std::fs::read(&p).unwrap(), b"BINARY");
         assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
     }
@@ -378,13 +372,19 @@ mod tests {
             let o = zip::write::SimpleFileOptions::default();
             z.start_file("xmrig-6.0.0/WinRing0x64.sys", o).unwrap();
             z.write_all(b"driver").unwrap();
-            z.start_file(format!("xmrig-6.0.0/{}", crate::xmrig::binary_name()), o)
+            z.start_file(format!("xmrig-6.0.0/{}", MinerKind::Xmrig.binary_name()), o)
                 .unwrap();
             z.write_all(b"EXE").unwrap();
             z.finish().unwrap();
         }
         let dir = tempfile::tempdir().unwrap();
-        let p = extract_binary(buf.get_ref(), "x.zip", dir.path()).unwrap();
+        let p = extract_binary(
+            buf.get_ref(),
+            "x.zip",
+            dir.path(),
+            MinerKind::Xmrig.binary_name(),
+        )
+        .unwrap();
         assert_eq!(std::fs::read(&p).unwrap(), b"EXE");
     }
 }

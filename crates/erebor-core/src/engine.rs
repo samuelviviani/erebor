@@ -21,14 +21,14 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-pub const TICK: Duration = Duration::from_secs(2);
+const TICK: Duration = Duration::from_secs(2);
 /// Larger gaps (sleep, suspended process) are not counted as mining time.
 const MAX_TICK_GAP: f64 = 10.0;
 const SAMPLE_SECS: f64 = 10.0;
 const HOT_TICKS_TO_STOP: u32 = 3;
 const MAX_AUTO_RESTARTS: u32 = 3;
 const RETENTION_DAYS: i64 = 90;
-pub const BENCHMARK_SECS: u64 = 90;
+const BENCHMARK_SECS: u64 = 90;
 /// Automatic choice: how often to re-check profitability, and the gain needed to switch.
 const REEVAL_SECS: u64 = 1800;
 const SWITCH_GAIN: f64 = 1.10;
@@ -193,7 +193,7 @@ pub fn default_factory() -> Factory {
             if cfg!(windows) && !Path::new(p).exists() {
                 return Err("blocked_by_antivirus".into()); // quarantined after install
             }
-            let path = xmrig::validate_binary_path_prefix(p, coin.miner.dir_prefix())?;
+            let path = xmrig::validate_binary_path(p, coin.miner.dir_prefix())?;
             if let Some(expected) = &mc.sha256 {
                 if xmrig::sha256_file(&path)? != *expected {
                     return Err("miner_binary_changed".into());
@@ -438,7 +438,7 @@ impl Engine {
 
     /// Best (coin, payout) for BTC on this PC, among measured coins, each valued with
     /// that payout's pool fee. Ties go to Kryptex (it lists every coin).
-    pub fn advice(&self) -> Advice {
+    fn advice(&self) -> Advice {
         let gpu = coins::COINS
             .iter()
             .any(|c| c.device == Device::Gpu && self.hardware_blocker(c).is_none());
@@ -521,7 +521,7 @@ impl Engine {
     }
 
     /// New GPU table downloaded from the repository.
-    pub fn set_gpu_table(&mut self, table: &coins::GpuTable) {
+    fn set_gpu_table(&mut self, table: &coins::GpuTable) {
         let names: Vec<&str> = self.gpu_names.iter().map(String::as_str).collect();
         self.estimates = coins::estimate(&names, table);
     }
@@ -781,7 +781,7 @@ impl Engine {
         if self.is_active() {
             return Err("stop_mining_first".into());
         }
-        let p = xmrig::validate_binary_path_prefix(path, kind.dir_prefix())?;
+        let p = xmrig::validate_binary_path(path, kind.dir_prefix())?;
         let version = match kind {
             MinerKind::Xmrig => Some(xmrig::detect_version(&p)?),
             _ => None,
@@ -826,7 +826,7 @@ impl Engine {
 
     // ---------- lifecycle ----------
 
-    pub fn can_start(&self) -> Result<(), String> {
+    fn can_start(&self) -> Result<(), String> {
         let coin = self.wanted_coin();
         if !self.config.demo_mode {
             if self.config.wallet.is_empty() {
@@ -1400,7 +1400,7 @@ impl Engine {
     // ---------- market data ----------
 
     /// Network difficulty is global: use the current pool's API, else any pool that has one.
-    pub fn market_api_base(&self) -> &'static str {
+    fn market_api_base(&self) -> &'static str {
         pools::find(&self.config.pool.id)
             .filter(|p| p.api == pools::PoolApi::NodejsPool)
             .or_else(|| {
@@ -1412,7 +1412,7 @@ impl Engine {
             .unwrap_or("")
     }
 
-    pub fn set_market(
+    fn set_market(
         &mut self,
         network: Result<NetworkStats, String>,
         price: Result<Price, String>,
@@ -1519,10 +1519,6 @@ impl Engine {
         self.monitor.detect()
     }
 
-    pub fn dismiss_alert(&mut self, id: u64) {
-        self.alerts.retain(|a| a.id != id);
-    }
-
     pub fn cancel_job(&self) {
         self.cancel_job.store(true, Ordering::Relaxed);
     }
@@ -1592,16 +1588,11 @@ fn set_job(job: &Arc<Mutex<Option<JobStatus>>>, s: JobStatus) {
     *job.lock().unwrap() = Some(s);
 }
 
-/// Download, verify and install the pinned XMRig release.
-pub fn spawn_install(engine: Arc<Mutex<Engine>>) -> Result<(), String> {
-    spawn_install_kind(engine, MinerKind::Xmrig)
-}
-
 /// Miners Erebor installed that are older than the build pinned in this app version:
 /// update them in the background (or only announce it, when automatic updates are off).
 /// The new build goes to its own folder, so a running miner is untouched; it is used from
 /// the next start. Binaries the user picked by hand are never replaced.
-pub fn update_miners(engine: &Arc<Mutex<Engine>>) {
+fn update_miners(engine: &Arc<Mutex<Engine>>) {
     for kind in MinerKind::ALL {
         let pinned = install::manifest_for(kind);
         let dir = {
@@ -1623,7 +1614,7 @@ pub fn update_miners(engine: &Arc<Mutex<Engine>>) {
             }
             e.data_dir.join("miners")
         };
-        let res = install::install_pinned_kind(kind, &dir, &|_, _| {});
+        let res = install::install_pinned(kind, &dir, &|_, _| {});
         let mut e = engine.lock().unwrap();
         match res {
             Ok(inst) => {
@@ -1652,7 +1643,7 @@ pub fn update_miners(engine: &Arc<Mutex<Engine>>) {
 }
 
 /// Download, verify and install the pinned release of `kind`.
-pub fn spawn_install_kind(engine: Arc<Mutex<Engine>>, kind: MinerKind) -> Result<(), String> {
+pub fn spawn_install(engine: Arc<Mutex<Engine>>, kind: MinerKind) -> Result<(), String> {
     let (job, miners_dir) = {
         let e = engine.lock().unwrap();
         if e.job_running() {
@@ -1675,7 +1666,7 @@ pub fn spawn_install_kind(engine: Arc<Mutex<Engine>>, kind: MinerKind) -> Result
     set_job(&job, mk(0.0, None));
     std::thread::spawn(move || {
         let j = job.clone();
-        let res = install::install_pinned_kind(kind, &miners_dir, &move |got, total| {
+        let res = install::install_pinned(kind, &miners_dir, &move |got, total| {
             let p = total.map(|t| got as f64 / t.max(1) as f64).unwrap_or(0.0);
             set_job(&j, mk(p.min(0.99), Some(got as f64)));
         });
@@ -1716,7 +1707,7 @@ pub fn spawn_benchmark(engine: Arc<Mutex<Engine>>) -> Result<(), String> {
             return Err("not_in_demo".into());
         }
         let path = e.config.miner.path.clone().ok_or("miner_not_configured")?;
-        let binary = xmrig::validate_binary_path(&path)?;
+        let binary = xmrig::validate_binary_path(&path, "xmrig")?;
         e.cancel_job.store(false, Ordering::Relaxed);
         (
             e.job.clone(),

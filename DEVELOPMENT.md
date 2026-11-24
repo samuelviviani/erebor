@@ -1,50 +1,65 @@
-# Sviluppo
+# Development
 
-## Requisiti
+## Requirements
 
 - Node.js ≥ 20.9, pnpm 10
-- Rust stable (via [rustup](https://rustup.rs)), con `rustfmt` e `clippy`
-- Dipendenze di sistema Tauri 2:
-  - **Linux (Ubuntu)**: Ubuntu 22.04+: `sudo apt install build-essential curl wget file libwebkit2gtk-4.1-dev libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev patchelf`
-  - **Windows**: Microsoft C++ Build Tools, WebView2 (preinstallato su Windows 11)
+- Rust stable (via [rustup](https://rustup.rs)) with `rustfmt` and `clippy`
+- Tauri 2 system dependencies:
+  - **Linux (Ubuntu 22.04+)**: `sudo apt install build-essential curl wget file libwebkit2gtk-4.1-dev libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev patchelf`
+  - **Windows**: Microsoft C++ Build Tools, WebView2 (preinstalled on Windows 11)
   - **macOS**: Xcode Command Line Tools
 
-## Comandi
+The CLI, agent and TUI alone need only Rust ([docs/CLI.md](docs/CLI.md#build-from-source-ubuntu)).
 
-| Comando | Cosa fa |
+## Commands
+
+| Command | What it does |
 |---|---|
-| `pnpm install` | dipendenze JS |
-| `pnpm --filter @erebor/desktop tauri dev` | app desktop con hot reload |
-| `pnpm --filter @erebor/desktop dev` | solo UI su http://localhost:1420 con backend simulato (`src/dev/mockBackend.ts`, solo in dev) |
-| `pnpm --filter @erebor/desktop tauri build` | installer per la piattaforma corrente |
-| `pnpm --filter @erebor/website dev` | sito su http://localhost:3000 |
-| `pnpm -r typecheck` / `pnpm -r test` / `pnpm -r build` | controlli JS |
-| `cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings` | lint Rust |
-| `cargo test --workspace` | test Rust (nessun mining reale: i processi sono simulati) |
+| `pnpm install` | JS dependencies |
+| `pnpm --filter @erebor/desktop tauri dev` | desktop app with hot reload |
+| `pnpm --filter @erebor/desktop dev` | UI only, at http://localhost:1420, with a simulated backend (`src/dev/mockBackend.ts`, dev only) |
+| `pnpm --filter @erebor/desktop tauri build` | installers for the current platform |
+| `pnpm --filter @erebor/website dev` | website at http://localhost:3000 |
+| `pnpm -r typecheck` / `pnpm test` / `pnpm -r build` | JS checks |
+| `pnpm lint:rust` | `cargo fmt --check` + `clippy -D warnings` |
+| `cargo test --workspace` | Rust tests (no real mining: miner processes are simulated) |
 
-## Variabili di build
+## Build variables
 
-| Variabile | Uso |
+| Variable | Use |
 |---|---|
-| `EREBOR_DEV_FEE_WALLET` | indirizzo pubblico Monero del progetto (compile-time). Assente o non valido ⇒ nessuna commissione. **Non** inserire indirizzi nel codice. |
-| `EREBOR_REPO_URL` | URL repository mostrato nelle Informazioni |
-| `NEXT_PUBLIC_SITE_URL`, `NEXT_PUBLIC_REPO_URL` | sito (vedi `apps/website/.env.example`) |
+| `EREBOR_DEV_FEE_WALLET` | the project's Kryptex ID (compile time). Missing or invalid ⇒ no fee. **Never** put an address in the code. |
+| `EREBOR_DEV_FEE_BTC` | the project's Bitcoin address, for users paid through unMineable (not exposed yet) |
+| `EREBOR_REPO_URL` | repository URL shown in the app's About section |
+| `NEXT_PUBLIC_SITE_URL` | website base URL (see `apps/website/.env.example`) |
 
-## Fissare una versione di XMRig
+## Pinning a miner version
 
 ```bash
-node scripts/update-xmrig-manifest.mjs 6.22.2   # scarica SHA256SUMS + archivi, verifica, scrive il manifest
-cargo test -p erebor-core install               # il manifest viene validato dai test
+node scripts/update-xmrig-manifest.mjs 6.26.0          # downloads SHA256SUMS + archives, verifies, writes the manifest
+node scripts/update-srbminer-manifest.mjs <version>
+node scripts/update-github-manifest.mjs lolminer 1.98a  # or: cpuminer v26.1
+cargo test -p erebor-core install                      # the tests validate every manifest
 ```
 
-Il manifest è incluso nel binario (`include_str!`). Finché non viene fissata una versione, l'installazione automatica è disattivata e l'utente può solo selezionare un binario esistente.
+Manifests are compiled into the binary (`include_str!`). Installed miners older than the
+pinned build update themselves (`autoUpdateMiners`).
 
-## Test e mining reale
+`scripts/update-gpu-hashrates.mjs` refreshes `crates/erebor-core/gpu-hashrates.json`
+(expected hashrate per GPU and algorithm); the app also fetches the latest copy from `main`.
 
-I test automatici non avviano mai XMRig né contattano pool: `engine` usa un `MockMiner`, il frontend usa `mockIPC` di Tauri. Un test manuale con mining reale richiede: manifest fissato, wallet di test personale, consenso esplicito; documentarne l'esito in `PROGRESS.md`.
+## Tests and real mining
 
-## Convenzioni
+Automated tests never start a real miner or contact a pool: the engine uses a mock miner and
+the frontend uses Tauri's `mockIPC`. A manual test with real mining needs a Kryptex ID of your
+own.
 
-- Errori dei comandi: codici stringa (`fees_not_accepted`, …) tradotti dalla UI in `src/lib/i18n.ts` (`err.*`).
-- Nuovo testo UI: aggiungere la chiave sia in `it` che in `en` (il tipo `Record<Key, string>` e un test lo impongono).
-- Tipi condivisi: modificare insieme la struct Rust e l'interfaccia in `apps/desktop/src/lib/api.ts`.
+## Conventions
+
+- Command errors are string codes (`wallet_missing`, …) that the UI translates in
+  `src/lib/i18n.ts` (`err.*`).
+- UI text: English is the default; add every key to both `en` and `it` (the
+  `Record<Key, string>` type enforces it).
+- Shared types: change the Rust struct and the interface in `apps/desktop/src/lib/api.ts`
+  together.
+- Code, comments and documentation are in English.

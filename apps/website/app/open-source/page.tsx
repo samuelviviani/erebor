@@ -6,23 +6,19 @@ export const metadata: Metadata = { title: "Open source", alternates: { canonica
 
 export default function OpenSource() {
   return (
-    <Doc title="Open source" lead="Tutto ciò che Erebor fa sul tuo computer è verificabile nel codice sorgente.">
+    <Doc title="Open source" lead="Everything Erebor does on your computer can be checked in the source code.">
       <ul className="mt-6">
-        <li>Licenza di Erebor: MIT.</li>
-        <li>XMRig (GPLv3) non è incluso nel pacchetto: viene scaricato dalla release ufficiale fissata e verificato con SHA-256.</li>
-        <li>Le licenze delle dipendenze sono elencate in <code>THIRD_PARTY_NOTICES.md</code>.</li>
-        <li>Nessun codice offuscato, nessuna persistenza nascosta, nessun avvio senza consenso.</li>
-        <li>Build e release avvengono tramite GitHub Actions pubbliche; i download riportano l&apos;hash SHA-256.</li>
+        <li>Erebor&apos;s licence: MIT.</li>
+        <li>No miner is bundled: each is downloaded from its official release and verified with a SHA-256 pinned in the repository.</li>
+        <li>Dependency licences are listed in <code>THIRD_PARTY_NOTICES.md</code>.</li>
+        <li>No obfuscated code, no hidden persistence, no start without your action.</li>
+        <li>Every release lists the SHA-256 of its files; app and CLI updates are signed.</li>
       </ul>
-      {site.repoUrl ? (
-        <p>
-          Repository: <a href={site.repoUrl} rel="noopener">{site.repoUrl}</a>
-        </p>
-      ) : (
-        <p>Il link al repository sarà pubblicato con la prima release.</p>
-      )}
-      <h2>Contribuire</h2>
-      <p>Leggi <code>CONTRIBUTING.md</code> e <code>DEVELOPMENT.md</code>. Le vulnerabilità vanno segnalate in privato seguendo <code>SECURITY.md</code>.</p>
+      <p>
+        Repository: <a href={site.repoUrl} rel="noopener">{site.repoUrl}</a>
+      </p>
+      <h2>Contributing</h2>
+      <p>Read <code>CONTRIBUTING.md</code> and <code>DEVELOPMENT.md</code>. Report vulnerabilities privately, as described in <code>SECURITY.md</code>.</p>
     </Doc>
   );
 }

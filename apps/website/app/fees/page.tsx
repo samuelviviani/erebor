@@ -2,69 +2,65 @@ import type { Metadata } from "next";
 import { Doc } from "@/components/chrome";
 import { site } from "@/site";
 
-export const metadata: Metadata = { title: "Commissioni", alternates: { canonical: "/fees" } };
+export const metadata: Metadata = { title: "Fees", alternates: { canonical: "/fees" } };
+
+const fees = [
+  ["Erebor fee", `${site.devFeePercent}% of effective mining time`, "The Erebor project, on its Kryptex account with the worker \"EREBOR\""],
+  ["XMRig donation (processor)", `${site.xmrigDonatePercent}% of time (the minimum of official builds)`, "XMRig developers"],
+  ["SRBMiner-MULTI fee (graphics card)", "0.65–3% depending on the algorithm (e.g. Pearl 2%)", "SRBMiner-MULTI developer"],
+  ["lolMiner fee (graphics card)", "0.75–2% depending on the algorithm", "lolMiner developer"],
+  ["Pool fee", "Kryptex: 1% for most coins, Pearl 3%", "The pool"],
+];
 
 export default function Fees() {
   return (
-    <Doc title="Commissioni" lead="Erebor è gratuito. Qui trovi tutte le voci di costo: nell'app sono riassunte in una riga e consultabili in Impostazioni › Commissioni.">
+    <Doc title="Fees" lead="Erebor is free. This page lists every cost; the app's estimates already deduct them.">
       <div className="mt-8 overflow-x-auto rounded-xl border border-line">
         <table className="w-full text-sm">
           <thead className="bg-surface text-left text-muted">
             <tr>
-              <th className="p-3 font-medium">Voce</th>
-              <th className="p-3 font-medium">Valore</th>
-              <th className="p-3 font-medium">Chi la riceve</th>
+              <th className="p-3 font-medium">Item</th>
+              <th className="p-3 font-medium">Amount</th>
+              <th className="p-3 font-medium">Paid to</th>
             </tr>
           </thead>
           <tbody className="text-muted">
-            <tr className="border-t border-line">
-              <td className="p-3 text-fg">Commissione Erebor</td>
-              <td className="p-3">{site.devFeePercent}% del tempo di mining effettivo</td>
-              <td className="p-3">Progetto Erebor, sull&apos;account Kryptex del progetto con il worker &quot;EREBOR&quot;</td>
-            </tr>
-            <tr className="border-t border-line">
-              <td className="p-3 text-fg">Donazione XMRig</td>
-              <td className="p-3">{site.xmrigDonatePercent}% del tempo (minimo delle build ufficiali)</td>
-              <td className="p-3">Sviluppatori di XMRig</td>
-            </tr>
-            <tr className="border-t border-line">
-              <td className="p-3 text-fg">Commissione SRBMiner (solo scheda video)</td>
-              <td className="p-3">0,65–3% secondo l&apos;algoritmo (es. Pearl 2%)</td>
-              <td className="p-3">Sviluppatore di SRBMiner-MULTI</td>
-            </tr>
-            <tr className="border-t border-line">
-              <td className="p-3 text-fg">Fee della pool</td>
-              <td className="p-3">Dipende dalla pool e dalla moneta (Kryptex: 1% per la maggior parte, Pearl 3%; unMineable: circa 1%; SupportXMR: 0,6%)</td>
-              <td className="p-3">La pool</td>
-            </tr>
+            {fees.map(([item, amount, to]) => (
+              <tr key={item} className="border-t border-line">
+                <td className="p-3 text-fg">{item}</td>
+                <td className="p-3">{amount}</td>
+                <td className="p-3">{to}</td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>
-      <h2>Come funziona la commissione Erebor</h2>
+      <p className="text-sm">cpuminer-opt has no fee. Only the miner in use applies its own fee.</p>
+      <h2>How the Erebor fee works</h2>
       <ul>
-        <li>Nulla viene mai prelevato dal tuo wallet: Erebor non ha accesso ai tuoi fondi.</li>
+        <li>Nothing is ever taken from your wallet: Erebor has no access to your funds.</li>
         <li>
-          Per circa 2 minuti ogni 100 minuti di mining effettivo, il miner lavora per l&apos;account del progetto. Turni da 2
-          minuti invece di tanti brevi cambi riducono il tempo perso nelle riconnessioni alla pool.
+          For about 2 minutes every 100 minutes of effective mining, the miner works for the project&apos;s account. Two-minute
+          blocks instead of many short switches waste less time reconnecting to the pool.
         </li>
-        <li>Conta solo il tempo in cui il miner sta effettivamente calcolando: pause, arresti e periodi di inattività non generano commissioni.</li>
-        <li>La contabilità del tempo è salvata localmente: un riavvio non azzera né raddoppia la commissione.</li>
-        <li>L&apos;app mostra in tempo reale quando sta lavorando per il progetto e quanto tempo gli è stato dedicato.</li>
-        <li>Il tempo del progetto è registrato con un unico nome di worker, uguale per tutti: il progetto non vede i nomi dei tuoi computer.</li>
-        <li>Il mining parte solo quando premi Avvia e puoi fermarlo in qualsiasi momento.</li>
-        <li>L&apos;indirizzo del progetto è un parametro di compilazione pubblico e verificabile. Le build senza indirizzo configurato non applicano alcuna commissione.</li>
+        <li>Only time the miner is actually hashing counts: pauses, stops and idle time generate no fee.</li>
+        <li>The time ledger is saved locally: a restart neither resets nor doubles the fee.</li>
+        <li>The app shows live when it is working for the project.</li>
+        <li>Project time uses a single worker name, the same for everyone: the project never sees your computers&apos; names.</li>
+        <li>Mining starts only when you press Start and you can stop it at any time.</li>
+        <li>The project&apos;s account is a public build parameter. Builds without it apply no fee.</li>
       </ul>
-      <h2>La donazione di XMRig</h2>
+      <h2>Miner fees</h2>
       <p>
-        XMRig include una donazione ai propri sviluppatori, regolata dall&apos;opzione <code>donate-level</code>: per quella
-        percentuale di tempo il miner si collega a un server di donazione. Le build ufficiali impongono un minimo
-        dell&apos;1%. È una voce diversa e indipendente dalla commissione Erebor.
+        Miners keep a share of time for their developers. XMRig&apos;s is set by its <code>donate-level</code> option, with a 1%
+        minimum in official builds; SRBMiner-MULTI and lolMiner set theirs per algorithm. They are separate from, and
+        independent of, the Erebor fee.
       </p>
-      <h2>Costo complessivo</h2>
+      <h2>Total cost</h2>
       <p>
-        Con la pool proposta (Kryptex) il costo dichiarato è circa {site.devFeePercent}% + {site.xmrigDonatePercent}% del
-        tempo + 1% delle ricompense. Le statistiche di Erebor separano ricavi lordi, donazione XMRig, fee della pool, costi
-        energetici e risultato netto, senza sottrarre due volte la stessa voce.
+        With Kryptex, mining Monero costs about {site.devFeePercent}% + {site.xmrigDonatePercent}% of time plus 1% of the
+        rewards. Erebor&apos;s statistics separate gross earnings, fees, electricity and net result, without subtracting the
+        same item twice.
       </p>
     </Doc>
   );

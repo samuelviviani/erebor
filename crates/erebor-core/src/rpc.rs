@@ -96,7 +96,7 @@ pub fn call(e: &Shared, cmd: &str, args: &Value) -> R {
                     .filter(|k| !g.config().demo_mode && g.config().miner_for(*k).path.is_none())
             };
             if let Some(kind) = missing {
-                let _ = engine::spawn_install_kind(e.clone(), kind);
+                let _ = engine::spawn_install(e.clone(), kind);
             }
             ok(lock(e).config())
         }
@@ -139,7 +139,7 @@ pub fn call(e: &Shared, cmd: &str, args: &Value) -> R {
         "detect_hardware" => ok(lock(e).detect_hardware()),
         "install_miner" => {
             let kind: Option<MinerKind> = arg(args, "kind")?;
-            engine::spawn_install_kind(e.clone(), kind.unwrap_or(MinerKind::Xmrig))
+            engine::spawn_install(e.clone(), kind.unwrap_or(MinerKind::Xmrig))
                 .map(|_| Value::Null)
                 .map_err(err)
         }
@@ -192,11 +192,6 @@ pub fn call(e: &Shared, cmd: &str, args: &Value) -> R {
             let mut g = lock(e);
             g.delete_all_data().map_err(err)?;
             ok(g.config())
-        }
-        "dismiss_alert" => {
-            let id: u64 = arg(args, "id")?;
-            lock(e).dismiss_alert(id);
-            Ok(Value::Null)
         }
         "data_dir" => ok(lock(e).data_dir().to_string_lossy()),
         _ => Err(err("unknown_command")),

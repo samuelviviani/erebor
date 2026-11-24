@@ -1,16 +1,18 @@
 # Erebor TUI (`erebor monitor`)
 
-Dashboard da terminale (ratatui + crossterm), funziona in qualsiasi terminale Ubuntu (anche via SSH). È collegata all'Agent tramite il socket locale: mostra lo **stesso stato** della GUI e della CLI.
+A terminal dashboard (ratatui + crossterm) that works in any terminal, SSH included. It talks
+to the agent over the local socket, so it shows **the same state** as the app and the CLI.
 
 ```bash
-erebor            # apre la dashboard (al primo avvio: setup guidato)
-erebor dashboard  # stessa cosa (alias di erebor monitor)
+erebor            # opens the dashboard (first run: guided setup)
+erebor dashboard  # same thing (alias of erebor monitor)
 ```
 
-Se Erebor non è già attivo in background, parte da solo. All'apertura compare per un secondo il logo (qualsiasi tasto lo salta); poi solo la dashboard, senza logo né titoli.
+If Erebor is not already running in the background, it starts. The logo shows for a second
+on open (any key skips it); then only the dashboard.
 
 ```text
- ● Running  1h 02m 03s   Monero (XMR) · rx/0 · auto                      erebor 0.1.5
+ ● Running  1h 02m 03s   Monero (XMR) · rx/0 · auto                      erebor 0.1.6
 ── Mining ──────────────────────────────────────────────────────────────────────────────
  Hashrate  4.25 kH/s                           Earnings  0.82 EUR/day  24.60 EUR/month
  Shares    148 ✓  2 ✗  1.3% rejected           Net       0.50 EUR/day  power 0.32 EUR/day
@@ -30,29 +32,38 @@ Se Erebor non è già attivo in background, parte da solo. All'apertura compare 
  P pause   X stop   R restart   ↑↓ log   ? help   Q quit
 ```
 
-- **Riga in alto**: stato, uptime, moneta e algoritmo (`auto` se scelta da Erebor), `DEMO` in modalità demo.
-- **Mining**: hashrate, share accettate/rifiutate con percentuale di scarto, pool (● connessa, ◌ in connessione), worker, miner; guadagni stimati al giorno e al mese, netto dopo il costo dell'energia (serve `energy.pricePerKwh`), consumo, uso della CPU, dev fee in tempo reale.
-- **Devices**: una riga per CPU e GPU con temperatura (gialla a 15 °C dal limite, rossa a 5 °C), consumo e carico.
-- **Riga sotto**: esito dell'ultima azione, errore, riavvio automatico in corso, cosa impedisce di avviare il mining, oppure installazione in corso.
-- **Tasti**: solo quelli che servono nello stato attuale (`P` solo se il miner supporta la pausa).
+- **Top line**: state, uptime, coin and algorithm (`auto` when Erebor picked it), `DEMO` in
+  demo mode.
+- **Mining**: hashrate, accepted/rejected shares, pool (● connected, ◌ connecting), worker,
+  miner; estimated earnings per day and month, net after electricity (needs
+  `energy.pricePerKwh`), power draw, CPU share, live dev fee.
+- **Devices**: one row per CPU and GPU with temperature (yellow 15 °C below the limit, red
+  at 5 °C), power and load.
+- **Status line**: result of the last action, errors, a pending auto-restart, what blocks
+  mining from starting, or an install in progress.
+- **Keys**: only those that make sense in the current state (`P` only if the miner supports
+  pausing).
 
-## Tasti
+## Keys
 
-| Tasto | Azione |
+| Key | Action |
 |---|---|
-| `S` | avvia il mining |
-| `P` | pausa / ripresa (solo se il miner la supporta) |
-| `X` | arresta il mining |
-| `R` | riavvia il mining |
-| `↑` `↓` `PgUp` `PgDn` `Home` `End` | scorre i log |
-| `?` | aiuto |
-| `Q`, `Esc`, `Ctrl-C` | esce **senza fermare il mining** (per fermarlo: `X`, scelta esplicita) |
+| `S` | start mining |
+| `P` | pause / resume (only if the miner supports it) |
+| `X` | stop mining |
+| `R` | restart mining |
+| `↑` `↓` `PgUp` `PgDn` `Home` `End` | scroll the log |
+| `?` | help |
+| `Q`, `Esc`, `Ctrl-C` | quit **without stopping mining** (to stop: `X`, an explicit choice) |
 
-Ogni azione è verificata: la riga sopra i tasti dice `done`, `already …` o l'errore (es. `wallet_missing`).
+Every action is verified: the status line says `done`, `already …` or the error (for
+example `wallet_missing`).
 
-## Comportamento
+## Behaviour
 
-- Aggiornamento ogni secondo; ridimensionamento gestito (≥ 76 colonne: due colonne; sotto: una; terminali molto piccoli: si taglia senza errori).
-- Valori non disponibili mostrati come `n/a` (temperatura, consumo, ricompense senza prezzo): mai stimati di nascosto. Il consumo stimato è marcato `(estimated)`.
-- Agent non raggiungibile: schermata "Agent offline" con il comando per avviarlo; riprova da sola ogni secondo.
-- Stile: sfondo scuro, testo chiaro, accenti oro, separatori grigi.
+- Refreshes every second; handles resizing (≥ 76 columns: two columns; below: one; very small
+  terminals are clipped without errors).
+- Values that aren't available show as `n/a` (temperature, power, earnings without a price):
+  never silently estimated. Estimated power is marked `(estimated)`.
+- Agent unreachable: an "Agent offline" screen with the command to start it; it retries
+  every second.

@@ -8,17 +8,17 @@ use base64::Engine as _;
 use minisign_verify::{PublicKey, Signature};
 use std::path::Path;
 
-pub const REPO: &str = "samuelviviani/erebor";
+const REPO: &str = "samuelviviani/erebor";
 /// The updater public key of `apps/desktop/src-tauri/tauri.conf.json`, decoded.
 const PUBLIC_KEY: &str = "RWSdKo7ff9UNAS3NRoFf+5WIdVPynFW4bsFMMyym+L5bWGEHF1BACK8u";
 
 /// Release asset for this platform, e.g. `erebor-linux-x86_64`.
-pub fn asset_name() -> String {
+fn asset_name() -> String {
     format!("erebor-{}-{}", std::env::consts::OS, std::env::consts::ARCH)
 }
 
 /// `true` when `latest` (e.g. "0.2.0" or "v0.2.0") is newer than `current`.
-pub fn is_newer(latest: &str, current: &str) -> bool {
+fn is_newer(latest: &str, current: &str) -> bool {
     let parse = |v: &str| -> Vec<u64> {
         v.trim_start_matches('v')
             .split(['.', '-', '+'])
@@ -30,7 +30,7 @@ pub fn is_newer(latest: &str, current: &str) -> bool {
 }
 
 /// Version of the latest published release (not drafts or pre-releases).
-pub fn latest_version() -> Result<String, String> {
+fn latest_version() -> Result<String, String> {
     let url = format!("https://github.com/{REPO}/releases/latest/download/latest.json");
     let body = crate::install::download(&url, &|_, _| {})
         .map_err(|e| format!("update_check_failed: {e}"))?;
@@ -70,7 +70,11 @@ pub fn install(version: &str, exe: &Path) -> Result<(), String> {
     )
     .ok()
     .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
-    .and_then(|v| v["cli"][asset_name()].as_str().map(|s| s.as_bytes().to_vec()));
+    .and_then(|v| {
+        v["cli"][asset_name()]
+            .as_str()
+            .map(|s| s.as_bytes().to_vec())
+    });
     let sig = match listed {
         Some(s) => s,
         None => crate::install::download(&format!("{base}.sig"), &|_, _| {})?,

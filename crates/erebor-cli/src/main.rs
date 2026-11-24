@@ -226,7 +226,7 @@ enum Kind {
 enum DeviceCmd {
     /// Name, id, OS and CPU of this device.
     Show,
-    /// Set the name other Erebor instances will show for this device.
+    /// Set this computer's name (default: the hostname).
     Name { name: String },
 }
 

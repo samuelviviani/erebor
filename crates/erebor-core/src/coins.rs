@@ -60,7 +60,7 @@ impl Coin {
     }
 
     /// Kryptex pool slug ("quai-kawpow" for QUAI), as in the endpoint host.
-    pub fn kryptex_slug(&self) -> &'static str {
+    fn kryptex_slug(&self) -> &'static str {
         self.host.split('.').next().unwrap_or(self.host)
     }
 }
@@ -473,7 +473,7 @@ fn per_hash(reward: f64, net_hashrate: f64, block_time: f64) -> Option<f64> {
 }
 
 /// Parse WhatToMine `coins.json` into (tag → (coin_per_hash, price_btc)).
-pub fn parse_wtm(v: &serde_json::Value) -> HashMap<String, (f64, f64)> {
+fn parse_wtm(v: &serde_json::Value) -> HashMap<String, (f64, f64)> {
     let mut out = HashMap::new();
     let Some(coins) = v.get("coins").and_then(|c| c.as_object()) else {
         return out;
@@ -506,7 +506,7 @@ pub fn parse_wtm(v: &serde_json::Value) -> HashMap<String, (f64, f64)> {
 }
 
 /// Kryptex `/{ticker}/api/v1/pool/stats` → (pool fee %, coin_per_hash).
-pub fn parse_kryptex_stats(v: &serde_json::Value) -> Option<(f64, Option<f64>)> {
+fn parse_kryptex_stats(v: &serde_json::Value) -> Option<(f64, Option<f64>)> {
     let fee = v.get("fee")?.as_f64()? * 100.0;
     let f = |k: &str| v.get(k).and_then(|x| x.as_f64());
     let cph = match (f("block_reward"), f("net_hashrate"), f("block_time")) {
@@ -614,7 +614,7 @@ pub type GpuTable = HashMap<String, HashMap<String, f64>>;
 const GPU_TABLE_URL: &str =
     "https://raw.githubusercontent.com/samuelviviani/erebor/main/crates/erebor-core/gpu-hashrates.json";
 
-pub fn parse_gpu_table(v: &serde_json::Value) -> Option<GpuTable> {
+fn parse_gpu_table(v: &serde_json::Value) -> Option<GpuTable> {
     serde_json::from_value(v.get("gpus")?.clone()).ok()
 }
 
@@ -708,7 +708,11 @@ mod tests {
         for c in COINS {
             // "XTM-C29" uses Tari's logo, as CoinIcon does.
             let base = c.id.split('-').next().unwrap();
-            assert!(dir.join(format!("{base}.png")).is_file(), "{} has no logo", c.id);
+            assert!(
+                dir.join(format!("{base}.png")).is_file(),
+                "{} has no logo",
+                c.id
+            );
         }
     }
 

@@ -1,58 +1,85 @@
 # Erebor Agent
 
-L'Agent è il processo leggero che **possiede il motore di mining** (`erebor_core::engine::Engine`) e quindi i processi figli dei miner. CLI, TUI e app desktop lo comandano; lui è l'unica fonte autorevole dello stato.
+The agent is the small background process that **owns the mining engine**
+(`erebor_core::engine::Engine`) and therefore the miner processes. The CLI, the TUI and the
+desktop app control it; it is the single source of truth for the mining state.
 
-## Avvio e arresto
+## Start and stop
 
 ```bash
-erebor agent start               # background, staccato dal terminale (nuova sessione), log in <cartella dati>/agent.log
-erebor agent start --foreground  # in questo terminale (sviluppo); Ctrl-C = arresto pulito
-erebor agent status              # owner, pid, versione, protocollo, uptime, socket
-erebor agent stop                # ferma il mining, poi l'agent
-erebor-agent [--data-dir DIR]    # binario dedicato, equivalente a "agent start --foreground"
+erebor agent start               # background, detached from the terminal; log in <data dir>/agent.log
+erebor agent start --foreground  # in this terminal (development); Ctrl-C = clean shutdown
+erebor agent status              # owner, pid, version, protocol, uptime, socket
+erebor agent stop                # stop mining, then the agent
+erebor-agent [--data-dir DIR]    # standalone binary, same as "agent start --foreground"
 ```
 
-- **Mai mining automatico**: all'avvio l'agent non mina, salvo `startOnLaunch: true` impostato esplicitamente in configurazione; il mining reale richiede comunque consenso e configurazione valida (controllo nel motore).
-- **Segnali**: SIGINT/SIGTERM (e `erebor agent stop`) fermano il miner (`stop("agent_exit")`), chiudono la sessione nelle statistiche, rimuovono il socket ed escono con codice 0.
-- **Istanza unica**: il motore prende un lock esclusivo su `<cartella dati>/engine.lock`. Un secondo agent o l'app desktop sulla stessa cartella falliscono con `engine_busy` prima di toccare il miner. Niente miner duplicati.
-- **Crash del miner**: rilevato a ogni tick (2 s); stato `error`. Il riavvio automatico avviene solo se `safety.autoRestart` è attivo (max 3 tentativi, 10/20/30 s). Se l'agent stesso viene ucciso con SIGKILL, il PID del miner resta in `miner.pid` e il miner orfano viene terminato al successivo avvio del motore.
-- **Configurazione**: salvata dal motore (`config.json`, scrittura atomica). La CLI modifica la configurazione solo tramite l'agent (`update_config`), con la stessa validazione della GUI.
-- **Dev fee**: gestita dal `DevFeeManager` nel motore, unico per Desktop, CLI e Agent.
+You rarely need these: commands that need the agent (`start`, the dashboard, `wallet set`,
+`demo`, …) start it by themselves.
 
-## Comunicazione locale (IPC)
+- **No surprise mining.** The agent does not mine on start unless `startOnLaunch: true` is
+  set (`erebor service on` sets it); real mining still needs a valid payout and miner.
+- **Signals.** SIGINT/SIGTERM (and `erebor agent stop`) stop the miner, close the session in
+  the statistics, remove the socket and exit with code 0.
+- **Single instance.** The engine takes an exclusive lock on `<data dir>/engine.lock`. A
+  second agent, or the desktop app on the same folder, fails with `engine_busy` before it can
+  touch the miner.
+- **Miner crash.** Detected on every tick (2 s), state `error`. It restarts automatically
+  only with `safety.autoRestart` (up to 3 attempts, after 10/20/30 s). If the agent itself is
+  killed with SIGKILL, the miner PID stays in `miner.pid` and the orphan is killed when the
+  engine next starts.
+- **Config.** Saved by the engine (`config.json`, atomic write). The CLI changes settings only
+  through the agent (`update_config`), with the same validation as the app.
+
+## Local IPC
 
 | | |
 |---|---|
-| Trasporto | Unix domain socket `<cartella dati>/agent.sock` (per percorsi molto lunghi: `$XDG_RUNTIME_DIR` o cartella temporanea dell'utente, nome = hash della cartella dati) |
-| Permessi | socket `0600`, cartella dati `0700` |
-| Autenticazione | a ogni connessione il server verifica che l'UID del client (`SO_PEERCRED` su Linux, `getpeereid` su macOS) sia il proprio; il client verifica lo stesso del server (`agent_untrusted` altrimenti) |
-| Protocollo | v1: una riga JSON per richiesta e una per risposta. `{"v":1,"cmd":"get_status","args":{}}` → `{"ok":…}` oppure `{"err":"codice"}` |
-| Comandi | quelli di `erebor_core::rpc::call` (gli stessi della GUI) + `snapshot`, `device_info`, `set_device_name`, `agent_info` (risponde a ogni versione, per diagnosticare mismatch), `shutdown` (solo l'agent) |
-| Rete | nessuna porta TCP: solo il socket locale |
+| Transport | Unix domain socket `<data dir>/agent.sock` (for very long paths: `$XDG_RUNTIME_DIR` or the user's temp folder, named after a hash of the data folder) |
+| Permissions | socket `0600`, data folder `0700` |
+| Authentication | on every connection the server checks that the client's UID (`SO_PEERCRED` on Linux, `getpeereid` on macOS) is its own; the client checks the server the same way (`agent_untrusted` otherwise) |
+| Protocol | v1: one JSON line per request and one per reply. `{"v":1,"cmd":"get_status","args":{}}` → `{"ok":…}` or `{"err":"code"}` |
+| Commands | those of `erebor_core::rpc::call` (the same as the app), plus `agent_info` (answers any protocol version, to diagnose mismatches) and `shutdown` (agent only) |
+| Network | none: no TCP port, only the local socket |
 
-Windows: il trasporto named pipe non è ancora implementato (`ipc_unsupported_platform`); il protocollo è indipendente dal trasporto (`ipc::handle` riceve e restituisce righe), quindi l'adapter deve solo spostare byte. Su Windows resta l'app desktop.
+Windows: the named-pipe transport is not implemented (`ipc_unsupported_platform`); there the
+desktop app runs the engine itself. The protocol is transport-agnostic (`ipc::handle` takes
+and returns lines), so a pipe adapter only has to move bytes.
 
-## Chi serve il socket
+## Who serves the socket
 
-Il processo che possiede il motore: Agent (`owner: "agent"`) o app desktop (`"desktop"`). Quindi `erebor status` funziona anche con la sola app aperta. Se l'agent è attivo quando apri l'app desktop, l'app non crea un secondo motore: si collega all'agent tramite socket e mostra stato, hashrate, pool, ricompense, temperature e consumi dell'agent; uno stop dalla GUI si vede subito in CLI e TUI.
+Whoever owns the engine: the agent (`owner: "agent"`) or the desktop app (`"desktop"`). So
+`erebor status` works with only the app open. If the agent is running when you open the app,
+the app connects to it instead of starting a second engine; a stop from the app shows up in
+the CLI and the TUI at once.
 
-## Aggiornamento automatico
+## Self-update
 
-Solo per il binario `erebor` compilato in release, su Unix. Ogni ora (primo controllo dopo 60 s) l'agent legge `latest.json` dell'ultima release, scarica `erebor-<os>-<arch>` e la sua `.sig`, verifica la firma minisign con la chiave pubblica del progetto e sostituisce il file in modo atomico (scrittura accanto + `rename`). Ogni 10 s controlla se il proprio eseguibile è cambiato (aggiornamento, `erebor update`, reinstallazione): in quel caso ferma il mining in modo pulito, scrive `<cartella dati>/resume-mining` se stava minando e fa `exec` del nuovo binario con gli stessi argomenti. Stesso PID, quindi systemd/launchd non vedono un'uscita; il nuovo agent riprende il mining e cancella il file.
+Only the release build of `erebor`, on Unix. Every hour (first check after 60 s) the agent
+reads `latest.json` from the latest GitHub release, downloads `erebor-<os>-<arch>`, verifies
+its minisign signature (listed in `latest.json`) against the project's public key and
+replaces the file atomically (write next to it, then `rename`). Every 10 s it checks whether
+its own executable changed (update, `erebor update`, reinstall): if so it stops mining
+cleanly, writes `<data dir>/resume-mining` if it was mining, and `exec`s the new binary with
+the same arguments. Same PID, so systemd/launchd see no exit; the new agent resumes mining
+and deletes the file.
 
-## Servizio systemd (utente, opzionale)
+## User service (optional)
 
 ```bash
-erebor service on                # consigliato: servizio + startOnLaunch + linger (mina sempre)
-erebor agent install-service     # solo il servizio: ~/.config/systemd/user/org.erebor.agent.service, enable --now
+erebor service on                # recommended: service + startOnLaunch + linger (always mining)
+erebor agent install-service     # service only: ~/.config/systemd/user/org.erebor.agent.service, enable --now
 systemctl --user status org.erebor.agent
 journalctl --user -u org.erebor.agent
 erebor agent uninstall-service
-loginctl enable-linger "$USER"    # solo se deve girare anche senza login
+loginctl enable-linger "$USER"   # only to run without logging in
 ```
 
-Unità utente, nessun privilegio root. `Restart=on-failure`: riavvio dopo un crash, non dopo un arresto pulito (`erebor agent stop`, `systemctl --user stop`). Disattivato di default: viene installato solo con il comando esplicito. Su macOS: LaunchAgent con `KeepAlive.SuccessfulExit=false`.
+A user unit, no root. `Restart=on-failure`: it restarts after a crash, not after a clean stop
+(`erebor agent stop`, `systemctl --user stop`). Off by default: installed only by an explicit
+command. On macOS: a LaunchAgent with `KeepAlive.SuccessfulExit=false`.
 
-## Log
+## Logs
 
-`<cartella dati>/agent.log` (avvio in background) o il journal (servizio). I log essenziali del miner sono in `erebor monitor` e nel comando `get_logs`.
+`<data dir>/agent.log` (background start) or the journal (service). The miner's log is in
+`erebor logs`, `erebor monitor` and the `get_logs` command.

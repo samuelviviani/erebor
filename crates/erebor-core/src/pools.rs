@@ -94,7 +94,7 @@ fn agent() -> ureq::Agent {
         .build()
 }
 
-pub const ATOMIC_PER_XMR: f64 = 1e12;
+const ATOMIC_PER_XMR: f64 = 1e12;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -113,7 +113,7 @@ impl NetworkStats {
     }
 }
 
-pub fn parse_network_stats(v: &serde_json::Value) -> Option<NetworkStats> {
+fn parse_network_stats(v: &serde_json::Value) -> Option<NetworkStats> {
     let difficulty = v.get("difficulty")?.as_f64()?;
     let reward = v.get("value")?.as_f64()? / ATOMIC_PER_XMR;
     Some(NetworkStats {
@@ -155,7 +155,7 @@ pub struct Payment {
     pub tx_hash: Option<String>,
 }
 
-pub fn parse_miner_stats(v: &serde_json::Value) -> PoolAccount {
+fn parse_miner_stats(v: &serde_json::Value) -> PoolAccount {
     let num = |k: &str| v.get(k).and_then(|x| x.as_f64());
     PoolAccount {
         unpaid_xmr: num("amtDue").map(|a| a / ATOMIC_PER_XMR),
@@ -167,7 +167,7 @@ pub fn parse_miner_stats(v: &serde_json::Value) -> PoolAccount {
     }
 }
 
-pub fn parse_payments(v: &serde_json::Value) -> Vec<Payment> {
+fn parse_payments(v: &serde_json::Value) -> Vec<Payment> {
     v.as_array()
         .map(|arr| {
             arr.iter()
@@ -227,7 +227,7 @@ pub struct Price {
     pub source: &'static str,
 }
 
-pub fn parse_price(v: &serde_json::Value) -> Option<Price> {
+fn parse_price(v: &serde_json::Value) -> Option<Price> {
     let m = v.get("monero")?;
     Some(Price {
         eur: m.get("eur")?.as_f64()?,

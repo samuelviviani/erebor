@@ -21,7 +21,7 @@ export function defaultConfig(): AppConfig {
     version: 1,
     onboardingCompleted: false,
     demoMode: false,
-    language: "it",
+    language: "en",
     theme: "light",
     coin: "AUTO",
     wallet: "",
@@ -469,7 +469,6 @@ export function installMockBackend(initial?: Partial<AppConfig>): MockState {
         return st.config;
       case "data_dir":
         return "/demo/erebor";
-      case "dismiss_alert":
       case "cancel_job":
       case "run_benchmark":
         return null;

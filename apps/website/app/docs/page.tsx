@@ -1,48 +1,68 @@
 import type { Metadata } from "next";
 import { Doc } from "@/components/chrome";
+import { installCommand, site } from "@/site";
 
-export const metadata: Metadata = { title: "Documentazione", alternates: { canonical: "/docs" } };
+export const metadata: Metadata = { title: "Docs", alternates: { canonical: "/docs" } };
 
 export default function Docs() {
   return (
-    <Doc title="Documentazione">
-      <h2 id="primo-avvio">Primo avvio</h2>
-      <p>Erebor guida la configurazione in tre passaggi:</p>
+    <Doc title="Documentation">
+      <h2 id="first-run">First run</h2>
+      <p>Erebor walks you through three steps:</p>
       <ul>
-        <li><strong>Dove ricevi i guadagni</strong>: il tuo <em>ID Kryptex</em> (<code>krx…</code>). I guadagni arrivano in BTC sul tuo account Kryptex, per tutte le monete. Altri wallet arriveranno in seguito.</li>
-        <li><strong>Preparazione del PC</strong>: rilevamento dell&apos;hardware e installazione automatica di XMRig verificato. Nelle opzioni avanzate puoi selezionare un binario esistente.</li>
-        <li><strong>Pronto</strong>: il mining parte quando premi Inizia.</li>
+        <li><strong>Where earnings go</strong>: your <em>Kryptex ID</em> (<code>krx…</code>). Earnings for every coin arrive in BTC on your Kryptex account. Other payout options will follow.</li>
+        <li><strong>PC setup</strong>: hardware detection and automatic install of the verified miners your computer needs.</li>
+        <li><strong>Ready</strong>: mining starts when you press Start.</li>
       </ul>
-      <p>Pool personalizzate, prestazioni, sicurezza ed energia si configurano in seguito, nelle Impostazioni.</p>
-      <h2 id="modalita">Modalità di utilizzo</h2>
-      <ul>
-        <li><strong>Eco</strong>: 25% dei thread, priorità minima.</li>
-        <li><strong>Bilanciata</strong>: 50% dei thread, priorità bassa.</li>
-        <li><strong>Prestazioni</strong>: 100% dei thread.</li>
-        <li><strong>Personalizzata</strong>: percentuale a scelta.</li>
-      </ul>
-      <p>Le modalità impostano l&apos;opzione <code>cpu.max-threads-hint</code> e la priorità del processo di XMRig. Erebor non esegue overclock e non modifica BIOS, firmware o driver.</p>
-      <h2 id="stime">Stime e costi</h2>
+      <p>Performance, safety, electricity and startup are in Settings.</p>
+      <h2 id="coins">Which coin</h2>
       <p>
-        Ricompense stimate = hashrate × tempo × ricompensa del blocco ÷ difficoltà di rete. Da qui si sottraggono la
-        donazione XMRig e la fee della pool. Costo energia = potenza media (kW) × ore × prezzo al kWh. Quando la potenza non
-        è misurabile, Erebor usa la stima che inserisci tu e lo indica chiaramente.
+        In automatic mode Erebor mines what pays most on your hardware today, from public data (WhatToMine, Kryptex, CoinGecko)
+        and the hashrate measured on your computer, re-checking every 30 minutes. You can also pick a coin yourself. Coins that
+        only ASICs mine well are never picked automatically.
       </p>
-      <h2 id="sicurezza">Sicurezza</h2>
+      <h2 id="modes">Modes</h2>
       <ul>
-        <li>L&apos;API di XMRig ascolta solo su <code>127.0.0.1</code> con un token casuale per sessione.</li>
-        <li>XMRig viene avviato con argomenti fissi, senza shell.</li>
-        <li>Soglia di temperatura con arresto automatico, dove il sistema espone la temperatura.</li>
-        <li>Se Erebor si chiude in modo anomalo, al riavvio successivo termina l&apos;eventuale miner rimasto attivo.</li>
+        <li><strong>Eco</strong>: 25% of CPU threads, lowest priority.</li>
+        <li><strong>Balanced</strong>: 50% of CPU threads, low priority.</li>
+        <li><strong>Performance</strong>: 100% of CPU threads.</li>
+        <li><strong>Custom</strong>: a percentage of your choice.</li>
       </ul>
-      <h2 id="compilare">Compilare dai sorgenti</h2>
+      <p>Erebor never overclocks and never changes BIOS, firmware or drivers.</p>
+      <h2 id="estimates">Estimates and costs</h2>
+      <p>
+        Estimated earnings = hashrate × time × network reward per hash × price, minus pool and miner fees. Electricity cost =
+        average power (kW) × hours × price per kWh. When power can&apos;t be measured, Erebor uses the estimate you enter and
+        says so.
+      </p>
+      <h2 id="safety">Safety</h2>
+      <ul>
+        <li>Miners are official releases, checked against a SHA-256 pinned in the source code.</li>
+        <li>They start with fixed arguments, without a shell; their APIs listen only on <code>127.0.0.1</code>.</li>
+        <li>Temperature limit with automatic stop, where the system exposes the temperature.</li>
+        <li>If Erebor quits unexpectedly, it stops any leftover miner on the next start.</li>
+      </ul>
+      <h2 id="cli">Command line</h2>
+      <p>CLI, terminal dashboard and background agent for Linux, macOS and WSL2:</p>
       <pre>
-        <code>{`# Requisiti: Node.js 20+, pnpm 10, Rust stable, dipendenze di sistema Tauri 2
-pnpm install
-pnpm --filter @erebor/desktop tauri dev     # sviluppo
-pnpm --filter @erebor/desktop tauri build   # pacchetti`}</code>
+        <code>{`${installCommand}
+
+erebor            # live dashboard (first run: guided setup)
+erebor start      # start mining in the background
+erebor stop
+erebor service on # always mine, also after a reboot`}</code>
       </pre>
-      <p>Dettagli in <code>DEVELOPMENT.md</code> e <code>INSTALLATION.md</code> nel repository.</p>
+      <h2 id="build">Build from source</h2>
+      <pre>
+        <code>{`# Requirements: Node.js 20+, pnpm 10, Rust stable, Tauri 2 system dependencies
+pnpm install
+pnpm --filter @erebor/desktop tauri dev     # development
+pnpm --filter @erebor/desktop tauri build   # installers`}</code>
+      </pre>
+      <p>
+        Full guides in the <a href={site.repoUrl} rel="noopener">repository</a>: <code>INSTALLATION.md</code>,{" "}
+        <code>DEVELOPMENT.md</code> and <code>docs/</code>.
+      </p>
     </Doc>
   );
 }

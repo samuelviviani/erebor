@@ -231,7 +231,7 @@ fn run(cmd: &str, args: &[&str]) -> Option<String> {
         .then(|| String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
-pub fn parse_nvidia_smi(out: &str) -> Vec<GpuInfo> {
+fn parse_nvidia_smi(out: &str) -> Vec<GpuInfo> {
     out.lines()
         .filter_map(|l| {
             let f: Vec<_> = l.split(',').map(str::trim).collect();
@@ -256,7 +256,7 @@ fn num(s: &str) -> Option<f64> {
 
 /// `nvidia-smi --query-gpu=name,temperature.gpu,utilization.gpu,power.draw,fan.speed,
 /// memory.used,memory.total --format=csv,noheader,nounits`
-pub fn parse_nvidia_smi_live(out: &str) -> Vec<GpuLive> {
+fn parse_nvidia_smi_live(out: &str) -> Vec<GpuLive> {
     out.lines()
         .filter_map(|l| {
             let f: Vec<_> = l.split(',').map(str::trim).collect();
