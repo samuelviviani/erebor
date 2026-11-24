@@ -1,7 +1,6 @@
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef } from "react";
 import { Layout, Logo } from "./components/Layout";
-import { Button, inputClass } from "./components/ui";
-import { inApp, webToken } from "./lib/api";
+import { Button } from "./components/ui";
 import { translate, translateError, useT } from "./lib/i18n";
 import { useApp, useResolvedTheme } from "./lib/store";
 import Coins from "./pages/Coins";
@@ -22,7 +21,8 @@ const PAGES = {
 };
 
 export default function App() {
-  const { init, refreshStatus, config, page, status, loadError, toast } = useApp();
+  const { init, refreshStatus, config, page, status, loadError, toast } =
+    useApp();
   const lastAlert = useRef<number | null>(null);
   const theme = useResolvedTheme();
 
@@ -34,7 +34,7 @@ export default function App() {
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
-    document.documentElement.lang = config?.language ?? "it";
+    document.documentElement.lang = config?.language ?? "en";
   }, [theme, config?.language]);
 
   // Backend alerts → toasts (only new ones; the first status sets the baseline).
@@ -42,9 +42,11 @@ export default function App() {
     if (!status) return;
     const maxId = Math.max(0, ...status.alerts.map((a) => a.id));
     if (lastAlert.current != null) {
-      const lang = config?.language ?? "it";
+      const lang = config?.language ?? "en";
       for (const a of status.alerts.filter((a) => a.id > lastAlert.current!)) {
-        const text = translate(lang, `alert.${a.code}`) + (a.detail ? ` · ${a.detail}` : "");
+        const text =
+          translate(lang, `alert.${a.code}`) +
+          (a.detail ? ` · ${a.detail}` : "");
         toast(a.level, text);
       }
     }
@@ -70,42 +72,18 @@ export default function App() {
   );
 }
 
-/**
- * The engine does not answer. In the app: retry. In a browser on the node's page: ask
- * for the access token.
- */
+/** The engine does not answer: say why and offer a retry. */
 function Unreachable({ error }: { error: string }) {
   const t = useT();
   const init = useApp((s) => s.init);
-  const [token, setToken] = useState("");
-  const login = !inApp() && (error === "remote_unauthorized" || !webToken.get());
   return (
     <div className="flex h-full items-center justify-center p-8">
       <div className="w-full max-w-sm space-y-4 text-center" role="alert">
         <Logo className="mx-auto h-10 w-auto" />
-        {login ? (
-          <form
-            className="space-y-3"
-            onSubmit={(e) => {
-              e.preventDefault();
-              webToken.set(token);
-              init();
-            }}
-          >
-            <p className="text-sm text-muted">{t("web.login")}</p>
-            <input className={`${inputClass} font-mono text-xs`} value={token} onChange={(e) => setToken(e.target.value)} autoComplete="off" spellCheck={false} aria-label={t("remote.token")} />
-            <Button type="submit" variant="primary" disabled={token.trim().length < 32} className="w-full justify-center">
-              {t("web.connect")}
-            </Button>
-          </form>
-        ) : (
-          <>
-            <p className="text-sm text-danger">{translateError("it", error)}</p>
-            <div className="flex justify-center gap-2">
-              <Button onClick={() => init()}>{t("computer.retry")}</Button>
-            </div>
-          </>
-        )}
+        <p className="text-sm text-danger">{translateError("en", error)}</p>
+        <div className="flex justify-center gap-2">
+          <Button onClick={() => init()}>{t("computer.retry")}</Button>
+        </div>
       </div>
     </div>
   );

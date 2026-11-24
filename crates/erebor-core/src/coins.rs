@@ -38,6 +38,31 @@ pub struct Coin {
     pub wtm_tag: Option<&'static str>,
     /// unMineable stratum host for this algorithm, if unMineable supports the coin.
     pub unmineable_host: Option<&'static str>,
+    /// Price in BTC when `wtm_tag` is unset (network data then comes from Kryptex).
+    #[serde(skip)]
+    pub price: PriceSource,
+    /// Mined by ASICs (SHA-256d, Scrypt): a PC can mine it, but earns almost nothing.
+    pub asic: bool,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum PriceSource {
+    /// Exchange rate of this WhatToMine tag (Tari's RandomX side shares XTM's price).
+    Wtm(&'static str),
+    /// CoinGecko id.
+    Gecko(&'static str),
+}
+
+impl Coin {
+    /// Mined on its own Kryptex endpoint. Only Monero follows the pool chosen in settings.
+    pub fn own_endpoint(&self) -> bool {
+        self.id != "XMR"
+    }
+
+    /// Kryptex pool slug ("quai-kawpow" for QUAI), as in the endpoint host.
+    pub fn kryptex_slug(&self) -> &'static str {
+        self.host.split('.').next().unwrap_or(self.host)
+    }
 }
 
 /// unMineable plain-TCP stratum port (SSL: 4444/443), from unmineable.com/coins/BTC.
@@ -46,8 +71,8 @@ pub const UNMINEABLE_PORT: u16 = 3333;
 pub const UNMINEABLE_FEE_PERCENT: f64 = 1.0;
 
 /// Coins mined on Kryptex that the supported miners handle on NVIDIA/AMD GPUs or CPU.
-/// Sources: pool.kryptex.com account-mining table, unmineable.com/coins/BTC (hosts),
-/// SRBMiner-MULTI README (3.8.8).
+/// Sources: pool.kryptex.com coin pages (endpoints, algorithms), unmineable.com/coins/BTC
+/// (hosts), SRBMiner-MULTI README (3.8.8), lolMiner README and release notes (1.98a).
 pub const COINS: &[Coin] = &[
     gpu(
         "PRL",
@@ -103,6 +128,33 @@ pub const COINS: &[Coin] = &[
         1.5,
         Some("xelishash.unmineable.com"),
     ),
+    gpu(
+        "QTC",
+        "Qubitcoin",
+        "qhash",
+        "qtc.kryptex.network",
+        7049,
+        1.5,
+        None,
+    ),
+    gpu(
+        "QUAI",
+        "Quai",
+        "kawpow",
+        "quai-kawpow.kryptex.network",
+        7043,
+        0.85,
+        None,
+    ),
+    gpu(
+        "OCTA",
+        "OctaSpace",
+        "ethash",
+        "octa.kryptex.network",
+        7032,
+        0.65,
+        None,
+    ),
     Coin {
         id: "XMR",
         name: "Monero",
@@ -114,8 +166,248 @@ pub const COINS: &[Coin] = &[
         miner_fee_percent: 1.0,
         wtm_tag: None,
         unmineable_host: Some("rx.unmineable.com"),
+        price: PriceSource::Gecko("monero"),
+        asic: false,
     },
+    cpu(
+        "ZEPH",
+        "Zephyr",
+        "zeph.kryptex.network",
+        7030,
+        PriceSource::Gecko("zephyr-protocol"),
+    ),
+    cpu(
+        "XTM-RX",
+        "Tari (RandomX)",
+        "xtm-rx.kryptex.network",
+        7038,
+        PriceSource::Wtm("XTM"),
+    ),
+    // GPU coins mined with lolMiner (algorithm names as lolMiner expects them).
+    lol(
+        "ALPH",
+        "Alephium",
+        "ALEPH",
+        "alph.kryptex.network",
+        7010,
+        0.75,
+        None,
+        PriceSource::Gecko("alephium"),
+    ),
+    lol(
+        "CFX",
+        "Conflux",
+        "OCTOPUS",
+        "cfx.kryptex.network",
+        7027,
+        2.0,
+        Some("CFX"),
+        PriceSource::Wtm("CFX"),
+    ),
+    lol(
+        "NEXA",
+        "Nexa",
+        "NEXA",
+        "nexa.kryptex.network",
+        7026,
+        2.0,
+        Some("NEXA"),
+        PriceSource::Wtm("NEXA"),
+    ),
+    lol(
+        "KAS",
+        "Kaspa",
+        "KASPA",
+        "kas.kryptex.network",
+        7011,
+        0.75,
+        None,
+        PriceSource::Gecko("kaspa"),
+    ),
+    lol(
+        "XTM-SHA3X",
+        "Tari (SHA3x)",
+        "SHA3X",
+        "xtm-sha3x.kryptex.network",
+        7039,
+        1.0,
+        None,
+        PriceSource::Wtm("XTM"),
+    ),
+    lol(
+        "XTM-C29",
+        "Tari (C29)",
+        "CR29",
+        "xtm-c29.kryptex.network",
+        7040,
+        2.0,
+        None,
+        PriceSource::Wtm("XTM"),
+    ),
+    // SHA-256d / Scrypt coins on the CPU with cpuminer-opt (Windows builds upstream).
+    // WhatToMine's ASIC feed, keyed "TAG:Algorithm" (several coins share a ticker).
+    asic(
+        "BTC",
+        "Bitcoin",
+        "sha256d",
+        "btc.kryptex.network",
+        7014,
+        Some("BTC:SHA-256"),
+        PriceSource::Wtm("BTC:SHA-256"),
+    ),
+    asic(
+        "BCH",
+        "Bitcoin Cash",
+        "sha256d",
+        "bch.kryptex.network",
+        7015,
+        Some("BCH:SHA-256"),
+        PriceSource::Wtm("BCH:SHA-256"),
+    ),
+    asic(
+        "BSV",
+        "Bitcoin SV",
+        "sha256d",
+        "bsv.kryptex.network",
+        7047,
+        None,
+        PriceSource::Gecko("bitcoin-cash-sv"),
+    ),
+    asic(
+        "XEC",
+        "eCash",
+        "sha256d",
+        "xec.kryptex.network",
+        7036,
+        Some("XEC:SHA-256"),
+        PriceSource::Wtm("XEC:SHA-256"),
+    ),
+    asic(
+        "FB",
+        "Fractal Bitcoin",
+        "sha256d",
+        "fb.kryptex.network",
+        7013,
+        None,
+        PriceSource::Gecko("fractal-bitcoin"),
+    ),
+    asic(
+        "DGB",
+        "DigiByte (SHA-256)",
+        "sha256d",
+        "dgb.kryptex.network",
+        7037,
+        Some("DGB:SHA-256"),
+        PriceSource::Wtm("DGB:SHA-256"),
+    ),
+    asic(
+        "QUAI-SHA",
+        "Quai (SHA-256)",
+        "sha256d",
+        "quai-sha256.kryptex.network",
+        7044,
+        Some("QUAI:SHA-256"),
+        PriceSource::Wtm("QUAI:SHA-256"),
+    ),
+    asic(
+        "LTC",
+        "Litecoin",
+        "scrypt",
+        "ltc.kryptex.network",
+        7016,
+        Some("LTC:Scrypt"),
+        PriceSource::Wtm("LTC:Scrypt"),
+    ),
+    asic(
+        "QUAI-SCRYPT",
+        "Quai (Scrypt)",
+        "scrypt",
+        "quai-scrypt.kryptex.network",
+        7045,
+        Some("QUAI:Scrypt"),
+        PriceSource::Wtm("QUAI:Scrypt"),
+    ),
 ];
+
+/// An ASIC coin mined on the CPU with cpuminer-opt (no developer fee).
+#[allow(clippy::too_many_arguments)]
+const fn asic(
+    id: &'static str,
+    name: &'static str,
+    algo: &'static str,
+    host: &'static str,
+    port: u16,
+    wtm_tag: Option<&'static str>,
+    price: PriceSource,
+) -> Coin {
+    Coin {
+        id,
+        name,
+        algo,
+        device: Device::Cpu,
+        miner: MinerKind::Cpuminer,
+        host,
+        port,
+        miner_fee_percent: 0.0,
+        wtm_tag,
+        unmineable_host: None,
+        price,
+        asic: true,
+    }
+}
+
+/// A GPU coin mined with lolMiner. Without a WhatToMine tag, network data comes from
+/// Kryptex and the price from `price`.
+#[allow(clippy::too_many_arguments)]
+const fn lol(
+    id: &'static str,
+    name: &'static str,
+    algo: &'static str,
+    host: &'static str,
+    port: u16,
+    miner_fee_percent: f64,
+    wtm_tag: Option<&'static str>,
+    price: PriceSource,
+) -> Coin {
+    Coin {
+        id,
+        name,
+        algo,
+        device: Device::Gpu,
+        miner: MinerKind::Lolminer,
+        host,
+        port,
+        miner_fee_percent,
+        wtm_tag,
+        unmineable_host: None,
+        price,
+        asic: false,
+    }
+}
+
+/// A RandomX coin mined with XMRig on Kryptex (same algorithm, same speed as Monero).
+const fn cpu(
+    id: &'static str,
+    name: &'static str,
+    host: &'static str,
+    port: u16,
+    price: PriceSource,
+) -> Coin {
+    Coin {
+        id,
+        name,
+        algo: "rx/0",
+        device: Device::Cpu,
+        miner: MinerKind::Xmrig,
+        host,
+        port,
+        miner_fee_percent: 1.0,
+        wtm_tag: None,
+        unmineable_host: None,
+        price,
+        asic: false,
+    }
+}
 
 #[allow(clippy::too_many_arguments)]
 const fn gpu(
@@ -138,6 +430,8 @@ const fn gpu(
         miner_fee_percent,
         wtm_tag: Some(id),
         unmineable_host,
+        price: PriceSource::Wtm(id),
+        asic: false,
     }
 }
 
@@ -202,6 +496,9 @@ pub fn parse_wtm(v: &serde_json::Value) -> HashMap<String, (f64, f64)> {
             continue; // stale data: better no estimate than a wrong one
         }
         if let Some(cph) = per_hash(reward, nethash, bt) {
+            if let Some(algo) = c.get("algorithm").and_then(|a| a.as_str()) {
+                out.insert(format!("{tag}:{algo}"), (cph, price));
+            }
             out.insert(tag.to_string(), (cph, price));
         }
     }
@@ -245,12 +542,28 @@ fn get_json(a: &ureq::Agent, url: &str) -> Result<serde_json::Value, String> {
 /// (their profitability is "not available", never guessed).
 pub fn fetch_markets() -> Result<(Vec<CoinMarket>, Option<BtcPrice>), String> {
     let a = agent();
-    let wtm = get_json(&a, "https://whattomine.com/coins.json")
+    // ASIC feed first: the GPU feed wins on shared tickers (QUAI is KawPow there).
+    let mut wtm = get_json(&a, "https://whattomine.com/asic.json")
         .map(|v| parse_wtm(&v))
         .unwrap_or_default();
+    wtm.extend(
+        get_json(&a, "https://whattomine.com/coins.json")
+            .map(|v| parse_wtm(&v))
+            .unwrap_or_default(),
+    );
+    let gecko: Vec<&str> = COINS
+        .iter()
+        .filter_map(|c| match c.price {
+            PriceSource::Gecko(id) => Some(id),
+            PriceSource::Wtm(_) => None,
+        })
+        .collect();
     let cg = get_json(
         &a,
-        "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,monero&vs_currencies=eur,usd,btc",
+        &format!(
+            "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,{}&vs_currencies=eur,usd,btc",
+            gecko.join(",")
+        ),
     )
     .ok();
     let num = |coin: &str, cur: &str| -> Option<f64> { cg.as_ref()?.get(coin)?.get(cur)?.as_f64() };
@@ -264,7 +577,7 @@ pub fn fetch_markets() -> Result<(Vec<CoinMarket>, Option<BtcPrice>), String> {
             &a,
             &format!(
                 "https://pool.kryptex.com/{}/api/v1/pool/stats",
-                c.id.to_lowercase()
+                c.kryptex_slug()
             ),
         ) else {
             continue;
@@ -274,7 +587,10 @@ pub fn fetch_markets() -> Result<(Vec<CoinMarket>, Option<BtcPrice>), String> {
         };
         let data = match c.wtm_tag {
             Some(tag) => wtm.get(tag).copied(),
-            None => kryptex_cph.zip(num("monero", "btc")),
+            None => kryptex_cph.zip(match c.price {
+                PriceSource::Wtm(tag) => wtm.get(tag).map(|w| w.1),
+                PriceSource::Gecko(id) => num(id, "btc"),
+            }),
         };
         if let Some((coin_per_hash, price_btc)) = data {
             out.push(CoinMarket {
@@ -289,6 +605,55 @@ pub fn fetch_markets() -> Result<(Vec<CoinMarket>, Option<BtcPrice>), String> {
         return Err("market data unavailable".into());
     }
     Ok((out, btc))
+}
+
+/// Expected hashrate (H/s) per GPU model and coin id, from WhatToMine's GPU pages
+/// (`scripts/update-gpu-hashrates.mjs`). Bundled, and refreshed from the repository with
+/// the market data so a new table needs no release.
+pub type GpuTable = HashMap<String, HashMap<String, f64>>;
+const GPU_TABLE_URL: &str =
+    "https://raw.githubusercontent.com/samuelviviani/erebor/main/crates/erebor-core/gpu-hashrates.json";
+
+pub fn parse_gpu_table(v: &serde_json::Value) -> Option<GpuTable> {
+    serde_json::from_value(v.get("gpus")?.clone()).ok()
+}
+
+pub fn bundled_gpu_table() -> GpuTable {
+    serde_json::from_str(include_str!("../gpu-hashrates.json"))
+        .ok()
+        .and_then(|v| parse_gpu_table(&v))
+        .unwrap_or_default()
+}
+
+pub fn fetch_gpu_table() -> Option<GpuTable> {
+    parse_gpu_table(&get_json(&agent(), GPU_TABLE_URL).ok()?)
+}
+
+/// Model tokens of a GPU name, as in the table: "NVIDIA GeForce RTX 4070 Ti" → rtx 4070 ti.
+fn gpu_tokens(name: &str) -> Vec<String> {
+    name.to_ascii_lowercase()
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .filter(|t| !t.is_empty() && !["nvidia", "amd", "geforce", "radeon"].contains(t))
+        .filter(|t| !(t.ends_with("gb") && t[..t.len() - 2].parse::<u32>().is_ok()))
+        .map(String::from)
+        .collect()
+}
+
+/// Expected hashrate of this PC per coin id: the sum over its GPUs found in the table,
+/// each matched to the most specific model ("rtx 4070 ti" over "rtx 4070").
+pub fn estimate(gpu_names: &[&str], table: &GpuTable) -> HashMap<String, f64> {
+    let mut out = HashMap::new();
+    for name in gpu_names {
+        let have = gpu_tokens(name);
+        let best = table
+            .iter()
+            .filter(|(k, _)| !k.is_empty() && k.split(' ').all(|t| have.iter().any(|h| h == t)))
+            .max_by_key(|(k, _)| k.split(' ').count());
+        for (id, h) in best.map(|b| b.1).into_iter().flatten() {
+            *out.entry(id.clone()).or_insert(0.0) += h;
+        }
+    }
+    out
 }
 
 /// Pick the coin with the highest expected BTC/day among `candidates` with a measured
@@ -320,12 +685,31 @@ mod tests {
             assert!(crate::config::valid_host(c.host));
             assert_eq!(
                 c.device == Device::Gpu,
-                c.miner == MinerKind::Srbminer,
+                matches!(c.miner, MinerKind::Srbminer | MinerKind::Lolminer),
+                "{}",
+                c.id
+            );
+            assert_eq!(c.asic, c.miner == MinerKind::Cpuminer, "{}", c.id);
+            assert!(
+                COINS.iter().filter(|o| o.id == c.id).count() == 1,
                 "{}",
                 c.id
             );
         }
         assert_eq!(find("prl").unwrap().algo, "pearlhash");
+        assert_eq!(find("QUAI").unwrap().kryptex_slug(), "quai-kawpow");
+        assert!(!find("XMR").unwrap().own_endpoint() && find("ZEPH").unwrap().own_endpoint());
+    }
+
+    #[test]
+    fn every_coin_has_a_logo_in_the_app() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../apps/desktop/public/coins");
+        for c in COINS {
+            // "XTM-C29" uses Tari's logo, as CoinIcon does.
+            let base = c.id.split('-').next().unwrap();
+            assert!(dir.join(format!("{base}.png")).is_file(), "{} has no logo", c.id);
+        }
     }
 
     #[test]
@@ -348,6 +732,27 @@ mod tests {
         let (fee, cph) = parse_kryptex_stats(&v).unwrap();
         assert!((fee - 3.0).abs() < 1e-9);
         assert!((cph.unwrap() - 2.0 / 10_000.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn estimates_hashrate_from_gpu_model() {
+        let t = bundled_gpu_table();
+        assert!(t.len() > 50);
+        let e = estimate(&["NVIDIA GeForce RTX 4070 Ti"], &t);
+        assert_eq!(e.get("ERG"), t["rtx 4070 ti"].get("ERG"));
+        assert_ne!(t["rtx 4070 ti"].get("ERG"), t["rtx 4070"].get("ERG"));
+        // Two cards add up; unknown models and integrated GPUs add nothing.
+        let two = estimate(
+            &[
+                "AMD Radeon RX 580 Series",
+                "NVIDIA GeForce RTX 4070 Ti",
+                "Intel(R) UHD Graphics",
+                "AMD Radeon(TM) Graphics",
+            ],
+            &t,
+        );
+        assert_eq!(two["ERG"], t["rx 580"]["ERG"] + t["rtx 4070 ti"]["ERG"]);
+        assert!(estimate(&["Apple M2"], &t).is_empty());
     }
 
     #[test]

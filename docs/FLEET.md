@@ -15,7 +15,7 @@ Obiettivo futuro: vedere e comandare più dispositivi Erebor. In questa fase esi
 ## Trasporti
 
 - **Locale**: socket Unix con verifica dell'UID ([AGENT.md](AGENT.md)).
-- **Remoto (già esistente)**: API HTTP `POST /rpc/<comando>` con token casuale a 256 bit (`server.rs`), attiva solo se l'utente abilita l'accesso remoto; i comandi che scelgono file locali sono rifiutati (`local_only`). `snapshot` e `device_info` sono disponibili anche qui: è il punto d'aggancio per associare agent remoti.
+- **Remoto**: non c'è. L'accesso da altri dispositivi (e il binario `erebor-node`) è stato tolto: tornerà solo con un progetto dedicato.
 
 ## Vincoli di sicurezza (anche per le fasi successive)
 

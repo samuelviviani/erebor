@@ -11,11 +11,21 @@ export function useCoinOptions() {
   const config = useApp((s) => s.config);
   const [options, setOptions] = useState<CoinOption[]>([]);
   useEffect(() => {
-    const load = () => api.coinOptions().then(setOptions).catch(() => {});
+    const load = () =>
+      api
+        .coinOptions()
+        .then(setOptions)
+        .catch(() => {});
     load();
     const id = setInterval(load, 10_000);
     return () => clearInterval(id);
-  }, [config?.wallet, config?.srbminer.path, config?.miner.path]);
+  }, [
+    config?.wallet,
+    config?.srbminer.path,
+    config?.lolminer.path,
+    config?.cpuminer.path,
+    config?.miner.path,
+  ]);
   return options;
 }
 
@@ -26,8 +36,10 @@ export function useCoinOptions() {
 export function useCoinChange() {
   const t = useT();
   const { config, saveConfig, toast, setCoinBusy } = useApp();
-  const [pending, setPending] = useState<{ id: string; name: string } | null>(null);
-  const lang = config?.language ?? "it";
+  const [pending, setPending] = useState<{ id: string; name: string } | null>(
+    null,
+  );
+  const lang = config?.language ?? "en";
 
   const ask = (id: string, name: string) => {
     if (!config || id === config.coin) return;
@@ -59,8 +71,16 @@ export function useCoinChange() {
           <CoinIcon id={pending.id} size={40} />
         ) : undefined
       }
-      title={auto ? t("confirm.auto.title") : t("confirm.coin.title", { c: pending?.name ?? "" })}
-      text={auto ? t("confirm.auto.body") : t("confirm.coin.body", { c: pending?.name ?? "" })}
+      title={
+        auto
+          ? t("confirm.auto.title")
+          : t("confirm.coin.title", { c: pending?.name ?? "" })
+      }
+      text={
+        auto
+          ? t("confirm.auto.body")
+          : t("confirm.coin.body", { c: pending?.name ?? "" })
+      }
       confirmLabel={auto ? t("confirm.auto.ok") : t("confirm.coin.ok")}
       cancelLabel={t("confirm.cancel")}
       onConfirm={confirm}
@@ -76,11 +96,14 @@ export function useCoinChange() {
  */
 export function usePresetChange() {
   const { config, saveConfig, toast } = useApp();
-  const lang = config?.language ?? "it";
+  const lang = config?.language ?? "en";
   return async (preset: Preset) => {
     if (!config || preset === config.performance.preset) return;
     try {
-      await saveConfig({ ...config, performance: { ...config.performance, preset } });
+      await saveConfig({
+        ...config,
+        performance: { ...config.performance, preset },
+      });
     } catch (e) {
       toast("error", translateError(lang, errorText(e)));
     }

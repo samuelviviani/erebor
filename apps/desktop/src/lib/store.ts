@@ -152,7 +152,7 @@ export const useApp = create<AppStore>((set, get) => ({
 
 /** The theme actually shown: "system" follows the operating system, live. */
 export function useResolvedTheme(): "dark" | "light" {
-  const theme = useApp((s) => s.config?.theme ?? "dark");
+  const theme = useApp((s) => s.config?.theme ?? "light");
   const [query] = useState(() => (typeof window.matchMedia === "function" ? window.matchMedia("(prefers-color-scheme: light)") : null));
   const [light, setLight] = useState(!!query?.matches);
   useEffect(() => {

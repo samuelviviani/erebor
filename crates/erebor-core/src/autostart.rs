@@ -4,10 +4,8 @@
 //!   crashes (LaunchAgent with KeepAlive, systemd user unit, scheduled task at logon).
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 pub const APP_LABEL: &str = "org.erebor.desktop";
-pub const NODE_LABEL: &str = "org.erebor.node";
 pub const AGENT_LABEL: &str = "org.erebor.agent";
 
 #[derive(Clone, Copy, PartialEq)]
@@ -73,7 +71,7 @@ fn file(label: &str, kind: Kind) -> PathBuf {
 }
 
 fn run(cmd: &str, args: &[&str]) -> Result<(), String> {
-    let s = Command::new(cmd)
+    let s = crate::command(cmd)
         .args(args)
         .status()
         .map_err(|e| format!("{cmd}: {e}"))?;
@@ -181,7 +179,7 @@ pub fn uninstall(label: &str, kind: Kind) -> Result<(), String> {
 pub fn is_installed(label: &str, kind: Kind) -> bool {
     if cfg!(windows) {
         let q = match kind {
-            Kind::Login => Command::new("reg")
+            Kind::Login => crate::command("reg")
                 .args([
                     "query",
                     r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run",
@@ -189,7 +187,7 @@ pub fn is_installed(label: &str, kind: Kind) -> bool {
                     label,
                 ])
                 .output(),
-            Kind::Service => Command::new("schtasks")
+            Kind::Service => crate::command("schtasks")
                 .args(["/Query", "/TN", label])
                 .output(),
         };

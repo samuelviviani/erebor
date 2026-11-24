@@ -1,4 +1,4 @@
-//! Miner abstraction: XMRig (CPU, RandomX), SRBMiner-MULTI (GPU) and a demo miner that
+//! Miner abstraction: XMRig (CPU, RandomX), SRBMiner-MULTI and lolMiner (GPU) and a demo miner that
 //! produces clearly-labelled simulated data and never starts a process.
 
 use serde::{Deserialize, Serialize};
@@ -9,15 +9,24 @@ use serde::{Deserialize, Serialize};
 pub enum MinerKind {
     Xmrig,
     Srbminer,
+    Lolminer,
+    Cpuminer,
 }
 
 impl MinerKind {
-    pub const ALL: [MinerKind; 2] = [MinerKind::Xmrig, MinerKind::Srbminer];
+    pub const ALL: [MinerKind; 4] = [
+        MinerKind::Xmrig,
+        MinerKind::Srbminer,
+        MinerKind::Lolminer,
+        MinerKind::Cpuminer,
+    ];
 
     pub fn label(self) -> &'static str {
         match self {
             MinerKind::Xmrig => "XMRig",
             MinerKind::Srbminer => "SRBMiner-MULTI",
+            MinerKind::Lolminer => "lolMiner",
+            MinerKind::Cpuminer => "cpuminer-opt",
         }
     }
 
@@ -27,6 +36,9 @@ impl MinerKind {
             (MinerKind::Xmrig, true) => "xmrig.exe",
             (MinerKind::Srbminer, false) => "SRBMiner-MULTI",
             (MinerKind::Srbminer, true) => "SRBMiner-MULTI.exe",
+            (MinerKind::Lolminer, false) => "lolMiner",
+            (MinerKind::Lolminer, true) => "lolMiner.exe",
+            (MinerKind::Cpuminer, _) => crate::cpuminer::best_binary(),
         }
     }
 
@@ -35,6 +47,8 @@ impl MinerKind {
         match self {
             MinerKind::Xmrig => "xmrig",
             MinerKind::Srbminer => "srbminer",
+            MinerKind::Lolminer => "lolminer",
+            MinerKind::Cpuminer => "cpuminer",
         }
     }
 }

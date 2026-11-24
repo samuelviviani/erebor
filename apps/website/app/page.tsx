@@ -3,7 +3,7 @@ import { release, site } from "@/site";
 
 const steps = [
   { t: "Installa Erebor", d: "Scarica l'applicazione e verifica l'hash del file. Nessun account richiesto." },
-  { t: "Dove ricevi i guadagni", d: "Incolla il tuo ID Kryptex (ricevi in Bitcoin) o un indirizzo Monero. Erebor non chiede mai seed phrase o chiavi private." },
+  { t: "Dove ricevi i guadagni", d: "Incolla il tuo ID Kryptex: ricevi in Bitcoin sul tuo account Kryptex. Erebor non chiede mai seed phrase o chiavi private." },
   { t: "Il PC si prepara da solo", d: "Erebor scarica il miner ufficiale e ne verifica l'integrità, senza domande tecniche." },
   { t: "Avvia quando vuoi", d: "Il mining parte solo quando premi Avvia e si ferma quando vuoi tu." },
 ];
@@ -62,8 +62,8 @@ export default function Home() {
           <div className="rounded-xl border border-line bg-surface p-6">
             <h3 className="font-semibold">In breve</h3>
             <ul className="mt-3 space-y-2 text-sm text-muted">
-              <li>— Mining CPU di Monero (RandomX) con XMRig</li>
-              <li>— Ricompense pagate dalla pool direttamente al tuo wallet</li>
+              <li>— Mining con scheda video (SRBMiner) o processore (XMRig)</li>
+              <li>— Ricompense in BTC sul tuo account Kryptex</li>
               <li>— Dati e configurazione solo sul tuo computer</li>
               <li>— Commissione Erebor dichiarata: {site.devFeePercent}% del tempo di mining</li>
             </ul>

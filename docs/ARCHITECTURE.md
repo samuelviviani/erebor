@@ -3,21 +3,21 @@
 ## Processi e interfacce
 
 ```text
- erebor (CLI)   erebor monitor (TUI)        App desktop (Tauri/React)      telefono/altro PC
-      │                │                      │            │                    │
-      └──── socket Unix locale (UID verificato) ───────────┘        HTTP + token (opt-in)
-                       │                                                          │
-        ┌──────────────▼───────────────── un solo proprietario del motore ────────▼─┐
-        │ erebor-agent   oppure   app desktop (motore interno)   oppure   erebor-node │
-        │      └─ Arc<Mutex<Engine>>  (lock esclusivo su <cartella dati>/engine.lock) │
-        └──────────────────────────────┬──────────────────────────────────────────────┘
+ erebor (CLI)   erebor monitor (TUI)        App desktop (Tauri/React)
+      │                │                      │
+      └──── socket Unix locale (UID verificato) ┘
+                       │
+        ┌──────────────▼──── un solo proprietario del motore ─────────────┐
+        │ erebor-agent   oppure   app desktop (motore interno)            │
+        │      └─ Arc<Mutex<Engine>>  (lock su <cartella dati>/engine.lock) │
+        └──────────────────────────────┬──────────────────────────────────┘
                                        │ processi figli
                                  XMRig / SRBMiner  (o DemoMiner simulato)
 ```
 
 | Crate | Ruolo |
 |---|---|
-| `crates/erebor-core` | Motore condiviso: miner, configurazione, wallet, pool, hashrate, statistiche, hardware, dev fee, avvio/arresto, errori. Più `rpc` (dispatcher unico dei comandi), `ipc` (socket locale + controllo verificato), `fleet` (identità e snapshot versionati), `server` (HTTP remoto) |
+| `crates/erebor-core` | Motore condiviso: miner, configurazione, wallet, pool, hashrate, statistiche, hardware, dev fee, avvio/arresto, errori. Più `rpc` (dispatcher unico dei comandi), `ipc` (socket locale + controllo verificato), `fleet` (identità e snapshot versionati) |
 | `crates/erebor-agent` | Lib + binario `erebor-agent`: possiede il motore, serve il socket, gestisce segnali, arresto pulito |
 | `crates/erebor-cli` | Binario `erebor` (clap); include l'agent (`agent start --foreground`) e la TUI |
 | `crates/erebor-tui` | Dashboard ratatui/crossterm, `fmt` condiviso con la CLI |

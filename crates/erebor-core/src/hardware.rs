@@ -2,7 +2,7 @@
 //! Anything the OS does not expose is reported as `None`, never guessed.
 
 use serde::Serialize;
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use sysinfo::{Components, System};
 
 #[derive(Debug, Clone, Serialize)]
@@ -220,7 +220,7 @@ impl Rapl {
 }
 
 fn run(cmd: &str, args: &[&str]) -> Option<String> {
-    let out = Command::new(cmd)
+    let out = crate::command(cmd)
         .args(args)
         .stdin(Stdio::null())
         .stderr(Stdio::null())

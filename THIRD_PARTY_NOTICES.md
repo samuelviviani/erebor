@@ -17,9 +17,21 @@ Elenco delle dipendenze dirette e delle relative licenze (dichiarate dai pacchet
 - Commissione dello sviluppatore integrata, variabile per algoritmo (es. pearlhash 2%, etchash 0,65%, kawpow 0,85%): Erebor la include nelle stime e la indica nell'app.
 - L'API statistiche di SRBMiner (`--api-enable`) è in sola lettura; Erebor non abilita gli URL di riavvio/spegnimento remoto.
 
+## lolMiner (non incluso)
+
+- Progetto: https://github.com/Lolliedieb/lolMiner-releases — **software proprietario gratuito** (closed source).
+- Erebor **non ridistribuisce** lolMiner: scarica la release ufficiale da GitHub (SHA-256 pubblicato da GitHub, verificato e fissato in `lolminer-manifest.json`), estrae solo l'eseguibile e lo avvia **senza modificarlo**, come processo separato con argomenti fissi. Anche qui, prima di una release pubblica conviene chiedere conferma all'autore.
+- Commissione dello sviluppatore integrata per algoritmo (es. Alephium e Kaspa 0,75%, Conflux e Nexa 2%, Tari SHA3x 1%, C29 2%), inclusa nelle stime.
+- L'API statistiche è legata a `127.0.0.1` (`--apihost`), non a tutte le interfacce come da default.
+
+## cpuminer-opt (non incluso)
+
+- Progetto: https://github.com/JayDDee/cpuminer-opt — licenza **GPLv2**. Nessuna commissione.
+- Erebor scarica la release ufficiale per Windows (SHA-256 pubblicato da GitHub, fissato in `cpuminer-manifest.json`), ne estrae i file così come sono e avvia la build adatta al processore. Su Linux e macOS non ci sono build ufficiali.
+
 ## Loghi delle monete
 
-`apps/desktop/public/coins/*.png`: loghi di Monero, Pearl, Ethereum Classic, EthereumPoW, Ergo, Ravencoin, Xelis e Bitcoin, scaricati da CoinGecko (coin-images.coingecko.com) il 2026-11-16 e ridimensionati (Ergo e Pearl ritagliati in cerchio). Sono marchi dei rispettivi progetti, usati solo per identificare le monete; non implicano affiliazione o approvazione.
+`apps/desktop/public/coins/*.png`: loghi delle monete del catalogo (Monero, Pearl, Ethereum Classic, EthereumPoW, Ergo, Ravencoin, Xelis, Bitcoin il 2026-11-16; Qubitcoin, Quai, OctaSpace, Zephyr, Tari, Alephium, Conflux, Nexa, Kaspa, Bitcoin Cash, Bitcoin SV, eCash, Litecoin, DigiByte il 2026-11-24), scaricati da CoinGecko (coin-images.coingecko.com) e ridimensionati (Ergo e Pearl ritagliati in cerchio). Sono marchi dei rispettivi progetti, usati solo per identificare le monete; non implicano affiliazione o approvazione.
 
 ## Servizi di mercato
 

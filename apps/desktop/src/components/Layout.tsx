@@ -99,7 +99,7 @@ function Sidebar() {
       aria-label="Erebor"
       className={cx(
         "flex shrink-0 flex-col overflow-hidden border-r border-line bg-sidebar transition-[width] duration-200",
-        collapsed ? "w-[68px]" : "w-60",
+        collapsed ? "w-[68px]" : "w-52",
       )}
     >
       <div

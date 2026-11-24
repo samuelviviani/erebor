@@ -3,7 +3,7 @@
 //! `TICK` and a slower loop refreshes market data outside the lock.
 
 use crate::coins::{self, BtcPrice, Coin, CoinMarket, Device};
-use crate::config::{AppConfig, AUTO_COIN};
+use crate::config::{AppConfig, AUTO_COIN, PROJECT_WORKER};
 use crate::devfee::{self, DevFeeManager, DevFeeStatus, Ledger, Target};
 use crate::earnings::{self, Earnings, EnergySource, Params};
 use crate::hardware::{HardwareInfo, LiveHardware, Monitor};
@@ -29,9 +29,6 @@ const HOT_TICKS_TO_STOP: u32 = 3;
 const MAX_AUTO_RESTARTS: u32 = 3;
 const RETENTION_DAYS: i64 = 90;
 pub const BENCHMARK_SECS: u64 = 90;
-const PROJECT_WORKER: &str = "erebor";
-/// Automatic choice: time on an unmeasured coin before trying the next one.
-const EXPLORE_SECS: u64 = 180;
 /// Automatic choice: how often to re-check profitability, and the gain needed to switch.
 const REEVAL_SECS: u64 = 1800;
 const SWITCH_GAIN: f64 = 1.10;
@@ -193,6 +190,9 @@ pub fn default_factory() -> Factory {
             }
             let mc = cfg.miner_for(coin.miner);
             let p = mc.path.as_deref().ok_or("miner_not_configured")?;
+            if cfg!(windows) && !Path::new(p).exists() {
+                return Err("blocked_by_antivirus".into()); // quarantined after install
+            }
             let path = xmrig::validate_binary_path_prefix(p, coin.miner.dir_prefix())?;
             if let Some(expected) = &mc.sha256 {
                 if xmrig::sha256_file(&path)? != *expected {
@@ -202,7 +202,8 @@ pub fn default_factory() -> Factory {
             let run = data_dir.join("run");
             Ok(match coin.miner {
                 MinerKind::Xmrig => Box::new(xmrig::XmrigMiner::new(path, run, mc.version.clone())),
-                MinerKind::Srbminer => Box::new(crate::srbminer::SrbMiner::new(
+                kind => Box::new(crate::srbminer::ExternalMiner::new(
+                    kind,
                     path,
                     run,
                     mc.version.clone(),
@@ -268,10 +269,15 @@ pub struct Engine {
     /// Hashrate measured on this PC per coin id (H/s), persisted in the store.
     hashrates: HashMap<String, f64>,
     hashrates_saved: Option<Instant>,
+    /// Expected hashrate of this PC's GPUs per coin id, from the GPU table (H/s).
+    estimates: HashMap<String, f64>,
+    gpu_names: Vec<String>,
     /// All-time coins mined for the user, refreshed every 30 s (cheap status reads).
     mined: Vec<crate::store::CoinAmount>,
     mined_at: Option<Instant>,
     has_gpu: bool,
+    /// Miner updates already announced ("srbminer-3.9.0"), so the notice is not repeated.
+    update_notified: std::collections::HashSet<String>,
     /// A pinned GPU miner build exists for this OS/CPU.
     gpu_platform: bool,
     /// Exclusive lock on the data dir: one engine (app or node) per computer.
@@ -304,7 +310,7 @@ fn load_ledger(store: &Store) -> Ledger {
 impl Engine {
     pub fn new(data_dir: PathBuf, factory: Factory) -> Result<Self, String> {
         std::fs::create_dir_all(&data_dir).map_err(|e| e.to_string())?;
-        // Before touching the miner pid: another engine (node service or app) may own it.
+        // Before touching the miner pid: another engine (agent or app) may own it.
         let lock = std::fs::OpenOptions::new()
             .create(true)
             .truncate(false)
@@ -324,7 +330,11 @@ impl Engine {
         );
         let mut monitor = Monitor::new();
         let live = monitor.live();
-        let has_gpu = has_mining_gpu(&monitor.detect());
+        let hw = monitor.detect();
+        let has_gpu = has_mining_gpu(&hw);
+        let gpu_names: Vec<String> = hw.gpus.into_iter().map(|g| g.name).collect();
+        let names: Vec<&str> = gpu_names.iter().map(String::as_str).collect();
+        let estimates = coins::estimate(&names, &coins::bundled_gpu_table());
         let hashrates = load_hashrates(&store);
         Ok(Self {
             data_dir,
@@ -359,9 +369,12 @@ impl Engine {
             last_eval: None,
             hashrates,
             hashrates_saved: None,
+            estimates,
+            gpu_names,
             mined: Vec::new(),
             mined_at: None,
             has_gpu,
+            update_notified: Default::default(),
             gpu_platform: install::manifest_for(MinerKind::Srbminer)
                 .asset_for_platform()
                 .is_ok(),
@@ -394,7 +407,7 @@ impl Engine {
         if let Some(b) = self.hardware_blocker(coin) {
             return Some(b);
         }
-        if coin.device == Device::Gpu
+        if coin.own_endpoint()
             && !own
             && !matches!(payout, Some(AddressKind::Kryptex | AddressKind::Bitcoin))
         {
@@ -406,7 +419,12 @@ impl Engine {
     /// Why this PC cannot mine `coin`, whatever the payout.
     fn hardware_blocker(&self, coin: &Coin) -> Option<&'static str> {
         if coin.device != Device::Gpu {
-            None
+            // No official build here (cpuminer-opt outside Windows) and none picked by hand.
+            let no_build = install::manifest_for(coin.miner)
+                .asset_for_platform()
+                .is_err()
+                && self.config.miner_for(coin.miner).path.is_none();
+            (no_build && !self.config.demo_mode).then_some("platform_unsupported")
         } else if self.config.demo_mode {
             Some("not_in_demo")
         } else if !self.has_gpu {
@@ -427,21 +445,13 @@ impl Engine {
         let device = if gpu { Device::Gpu } else { Device::Cpu };
         let mut best: Option<(&Coin, &'static str, f64)> = None;
         for c in coins::COINS.iter().filter(|c| c.device == device) {
-            let h = self.hashrates.get(c.id);
+            let h = self.hashrate(c.id);
             let m = self.market.coins.iter().find(|m| m.id == c.id);
             let (Some(h), Some(m)) = (h, m) else { continue };
-            let mut ways = vec![("kryptex", m.clone())];
-            if c.unmineable_host.is_some() {
-                ways.push((
-                    "bitcoin",
-                    CoinMarket {
-                        pool_fee_percent: coins::UNMINEABLE_FEE_PERCENT,
-                        ..m.clone()
-                    },
-                ));
-            }
+            // Kryptex only for now: no advice to move to unMineable (BTC).
+            let ways = [("kryptex", m.clone())];
             for (way, m) in ways {
-                let v = coins::btc_per_day(*h, &m, c);
+                let v = coins::btc_per_day(h, &m, c);
                 if best.is_none_or(|b| v > b.2) {
                     best = Some((c, way, v));
                 }
@@ -454,36 +464,66 @@ impl Engine {
             payout: best.map_or("kryptex", |b| b.1),
             btc_per_day: best.map(|b| b.2),
             current_btc_per_day: self
-                .hashrates
-                .get(now.id)
+                .hashrate(now.id)
                 .zip(self.coin_market(now.id))
-                .map(|(h, m)| coins::btc_per_day(*h, &m, now)),
+                .map(|(h, m)| coins::btc_per_day(h, &m, now)),
         }
     }
 
     /// Coins the automatic choice may use. A usable GPU takes priority over the CPU.
     fn candidates(&self) -> Vec<&'static Coin> {
-        let gpu: Vec<_> = coins::COINS
-            .iter()
-            .filter(|c| c.device == Device::Gpu && self.coin_blocker(c).is_none())
-            .filter(|c| self.config.miner_for(c.miner).path.is_some())
-            .collect();
-        if gpu.is_empty() {
-            vec![xmr()]
-        } else {
-            gpu
+        let usable = |d: Device| -> Vec<&'static Coin> {
+            coins::COINS
+                .iter()
+                .filter(|c| c.device == d && self.coin_blocker(c).is_none())
+                .filter(|c| self.config.miner_for(c.miner).path.is_some())
+                .collect()
+        };
+        let gpu = usable(Device::Gpu);
+        if !gpu.is_empty() {
+            return gpu;
+        }
+        match usable(Device::Cpu) {
+            cpu if cpu.is_empty() => vec![xmr()],
+            cpu => cpu,
         }
     }
 
-    /// Unmeasured candidates first (to learn this PC's hashrate), then the most profitable.
+    /// Hashrate of `coin` on this PC: measured while mining it, else the GPU table's.
+    /// A speed measured on another coin with the same algorithm counts too (RandomX coins,
+    /// KawPow coins…): same work, same speed.
+    fn hashrate(&self, id: &str) -> Option<f64> {
+        let same_algo = || {
+            let c = coins::find(id)?;
+            coins::COINS
+                .iter()
+                .filter(|o| o.algo == c.algo && o.device == c.device)
+                .find_map(|o| self.hashrates.get(o.id))
+        };
+        self.hashrates
+            .get(id)
+            .or_else(same_algo)
+            .or(self.estimates.get(id))
+            .copied()
+    }
+
+    /// Most profitable candidate by today's market data and this PC's (expected)
+    /// hashrate; the first candidate when nothing can be compared.
     fn pick_auto(&self) -> &'static Coin {
         let c = self.candidates();
-        if let Some(u) = c.iter().find(|c| !self.hashrates.contains_key(c.id)) {
-            return u;
-        }
-        coins::best(&c, &self.hashrates, &self.markets())
+        let speeds = c
+            .iter()
+            .filter_map(|c| Some((c.id.to_string(), self.hashrate(c.id)?)))
+            .collect();
+        coins::best(&c, &speeds, &self.markets())
             .map(|(c, _)| c)
             .unwrap_or(c[0])
+    }
+
+    /// New GPU table downloaded from the repository.
+    pub fn set_gpu_table(&mut self, table: &coins::GpuTable) {
+        let names: Vec<&str> = self.gpu_names.iter().map(String::as_str).collect();
+        self.estimates = coins::estimate(&names, table);
     }
 
     fn wanted_coin(&self) -> &'static Coin {
@@ -537,7 +577,7 @@ impl Engine {
             .then(|| self.stats.as_ref().and_then(|s| s.hashrate_60s))
             .flatten()
             .filter(|h| *h > 0.0);
-        let hashrate = live.or_else(|| self.hashrates.get(coin.id).copied())?;
+        let hashrate = live.or_else(|| self.hashrate(coin.id))?;
         let market = self.coin_market(coin.id)?;
         let user_share = 1.0 - self.devfee.status().percent / 100.0;
         let btc_per_day = coins::btc_per_day(hashrate, &market, coin) * user_share;
@@ -561,7 +601,7 @@ impl Engine {
         coins::COINS
             .iter()
             .map(|c| {
-                let hashrate = self.hashrates.get(c.id).copied();
+                let hashrate = self.hashrate(c.id);
                 let btc_per_day = hashrate
                     .zip(self.coin_market(c.id))
                     .map(|(h, m)| coins::btc_per_day(h, &m, c));
@@ -605,43 +645,34 @@ impl Engine {
         }
     }
 
-    /// Automatic choice: try each unmeasured coin for EXPLORE_SECS, then move to the most
-    /// profitable one when it beats the current one by SWITCH_GAIN.
+    /// Automatic choice: every REEVAL_SECS, move to the most profitable coin when it beats
+    /// the current one by SWITCH_GAIN (prices and difficulty change during the day).
     fn auto_switch(&mut self) {
         if self.config.coin != AUTO_COIN
             || self.state != RunState::Running
             || self.devfee.active() != Target::User
+            || self.coin_since.is_none()
         {
             return;
         }
-        let Some(since) = self.coin_since else { return };
         let want = self.pick_auto();
-        if want.id == self.coin.id {
-            return;
-        }
-        let exploring = !self.hashrates.contains_key(want.id);
-        let go = if exploring {
-            self.hashrates.contains_key(self.coin.id)
-                && since.elapsed() >= Duration::from_secs(EXPLORE_SECS)
-        } else {
-            if self
+        if want.id == self.coin.id
+            || self
                 .last_eval
                 .is_some_and(|t| t.elapsed() < Duration::from_secs(REEVAL_SECS))
-            {
-                return;
-            }
-            self.last_eval = Some(Instant::now());
-            let value = |c: &Coin| {
-                self.hashrates
-                    .get(c.id)
-                    .zip(self.coin_market(c.id))
-                    .map(|(h, m)| coins::btc_per_day(*h, &m, c))
-            };
-            match (value(want), value(self.coin)) {
-                (Some(w), Some(cur)) => w > cur * SWITCH_GAIN,
-                (Some(_), None) => true,
-                _ => false,
-            }
+        {
+            return;
+        }
+        self.last_eval = Some(Instant::now());
+        let value = |c: &Coin| {
+            self.hashrate(c.id)
+                .zip(self.coin_market(c.id))
+                .map(|(h, m)| coins::btc_per_day(h, &m, c))
+        };
+        let go = match (value(want), value(self.coin)) {
+            (Some(w), Some(cur)) => w > cur * SWITCH_GAIN,
+            (Some(_), None) => true,
+            _ => false,
         };
         if go {
             self.alert(Level::Info, "coin_switched", Some(want.name.into()));
@@ -696,6 +727,9 @@ impl Engine {
     pub fn update_config(&mut self, mut new: AppConfig) -> Result<(), String> {
         new.miner = self.config.miner.clone();
         new.srbminer = self.config.srbminer.clone();
+        new.lolminer = self.config.lolminer.clone();
+        new.cpuminer = self.config.cpuminer.clone();
+        new.defender_allowed = self.config.defender_allowed;
         new.benchmark = self.config.benchmark.clone();
         new.version = crate::config::CONFIG_VERSION;
         new.wallet = new.wallet.trim().to_string();
@@ -750,7 +784,7 @@ impl Engine {
         let p = xmrig::validate_binary_path_prefix(path, kind.dir_prefix())?;
         let version = match kind {
             MinerKind::Xmrig => Some(xmrig::detect_version(&p)?),
-            MinerKind::Srbminer => None,
+            _ => None,
         };
         let sha = xmrig::sha256_file(&p)?;
         let current = self.config.miner_for(kind);
@@ -798,6 +832,9 @@ impl Engine {
             if self.config.wallet.is_empty() {
                 return Err("wallet_missing".into());
             }
+            if !wallet::is_kryptex_id(&self.config.wallet) {
+                return Err("kryptex_required".into());
+            }
             if let Some(b) = self.coin_blocker(coin) {
                 return Err(b.into());
             }
@@ -811,6 +848,14 @@ impl Engine {
         self.config.validate()
     }
 
+    /// Name of this PC on the pool: the user's choice, else the hostname.
+    fn worker(&self) -> String {
+        match self.config.pool.worker.trim() {
+            "" => crate::config::default_worker(),
+            w => w.to_string(),
+        }
+    }
+
     fn pool_target(&self, target: Target) -> PoolTarget {
         let c = &self.config;
         let coin = self.coin;
@@ -819,17 +864,11 @@ impl Engine {
         if let Some(addr) = self.coin_wallet(coin) {
             let (user, pass) = match target {
                 Target::User => {
-                    let w: String = c
-                        .pool
-                        .worker
+                    let w: String = self
+                        .worker()
                         .chars()
                         .filter(char::is_ascii_alphanumeric)
                         .collect();
-                    let w = if w.is_empty() {
-                        PROJECT_WORKER.to_string()
-                    } else {
-                        w
-                    };
                     (format!("{addr}/{w}"), "x".to_string())
                 }
                 Target::Project => login(
@@ -844,6 +883,7 @@ impl Engine {
                 pass,
             };
         }
+        let user_worker = self.worker();
         let (wallet, worker) = match target {
             Target::User => (
                 if c.demo_mode && c.wallet.is_empty() {
@@ -851,7 +891,7 @@ impl Engine {
                 } else {
                     c.wallet.as_str()
                 },
-                c.pool.worker.as_str(),
+                user_worker.as_str(),
             ),
             // Every user's project time shows up as one worker: no user rig names leak.
             // Users paid in BTC (unMineable) give project time to a BTC address on the
@@ -874,7 +914,7 @@ impl Engine {
                 coins::UNMINEABLE_PORT,
                 false,
             ),
-            _ if coin.device == Device::Gpu => (coin.host, coin.port, false),
+            _ if coin.own_endpoint() => (coin.host, coin.port, false),
             Some(AddressKind::Kryptex) if !pools::is_kryptex_host(&c.pool.host) => {
                 match pools::find("kryptex") {
                     Some(k) => (k.host, k.port, k.tls),
@@ -919,7 +959,7 @@ impl Engine {
             } else {
                 match self.payout() {
                     Some(AddressKind::Bitcoin) => devfee::build_btc_wallet().is_some(),
-                    _ if coin.device == Device::Gpu => {
+                    _ if coin.own_endpoint() => {
                         devfee::build_wallet().is_some_and(wallet::is_kryptex_id)
                     }
                     _ => devfee::build_wallet().is_some(),
@@ -1262,7 +1302,7 @@ impl Engine {
                 } else {
                     xmrig::XMRIG_DONATE_LEVEL as f64
                 }),
-            pool_fee_percent: if self.coin.device == Device::Gpu
+            pool_fee_percent: if self.coin.own_endpoint()
                 || self.payout() == Some(AddressKind::Bitcoin)
             {
                 self.coin_market(self.coin.id).map(|m| m.pool_fee_percent)
@@ -1465,6 +1505,16 @@ impl Engine {
         self.miner.as_ref().map(|m| m.logs()).unwrap_or_default()
     }
 
+    /// Exclude the miners folder from Windows Defender, after the user's consent in the UI.
+    /// Called without the engine lock held: it waits for the UAC prompt.
+    pub fn allow_in_defender(engine: &Arc<Mutex<Engine>>) -> Result<(), String> {
+        let dir = engine.lock().unwrap().data_dir.join("miners");
+        install::allow_in_defender(&dir)?;
+        let mut e = engine.lock().unwrap();
+        e.config.defender_allowed = true;
+        e.save_config()
+    }
+
     pub fn detect_hardware(&mut self) -> HardwareInfo {
         self.monitor.detect()
     }
@@ -1529,7 +1579,7 @@ fn kill_orphan(data_dir: &Path) {
     sys.refresh_processes();
     if let Some(p) = sys.process(sysinfo::Pid::from_u32(pid)) {
         let name = p.name().to_ascii_lowercase();
-        if name.contains("xmrig") || name.contains("srbminer") {
+        if MinerKind::ALL.iter().any(|k| name.contains(k.dir_prefix())) {
             p.kill();
         }
     }
@@ -1545,6 +1595,60 @@ fn set_job(job: &Arc<Mutex<Option<JobStatus>>>, s: JobStatus) {
 /// Download, verify and install the pinned XMRig release.
 pub fn spawn_install(engine: Arc<Mutex<Engine>>) -> Result<(), String> {
     spawn_install_kind(engine, MinerKind::Xmrig)
+}
+
+/// Miners Erebor installed that are older than the build pinned in this app version:
+/// update them in the background (or only announce it, when automatic updates are off).
+/// The new build goes to its own folder, so a running miner is untouched; it is used from
+/// the next start. Binaries the user picked by hand are never replaced.
+pub fn update_miners(engine: &Arc<Mutex<Engine>>) {
+    for kind in MinerKind::ALL {
+        let pinned = install::manifest_for(kind);
+        let dir = {
+            let mut e = engine.lock().unwrap();
+            let m = e.config.miner_for(kind);
+            let outdated = m.verified
+                && m.path.is_some()
+                && m.version.as_deref() != Some(pinned.version.as_str());
+            if !outdated || e.config.demo_mode || pinned.asset_for_platform().is_err() {
+                continue;
+            }
+            let key = format!("{}-{}", kind.dir_prefix(), pinned.version);
+            if !e.config.auto_update_miners {
+                if e.update_notified.insert(key) {
+                    let what = format!("{} {}", kind.label(), pinned.version);
+                    e.alert(Level::Info, "miner_update_available", Some(what));
+                }
+                continue;
+            }
+            e.data_dir.join("miners")
+        };
+        let res = install::install_pinned_kind(kind, &dir, &|_, _| {});
+        let mut e = engine.lock().unwrap();
+        match res {
+            Ok(inst) => {
+                *e.config.miner_for_mut(kind) = crate::config::MinerConfig {
+                    path: Some(inst.path.to_string_lossy().into_owned()),
+                    version: Some(inst.version.clone()),
+                    sha256: Some(inst.sha256),
+                    verified: true,
+                };
+                let saved = e.save_config();
+                let what = format!("{} {}", kind.label(), inst.version);
+                match saved {
+                    Ok(()) => e.alert(Level::Info, "miner_updated", Some(what)),
+                    Err(err) => e.alert(Level::Warning, "miner_update_failed", Some(err)),
+                }
+            }
+            Err(err) => {
+                // Retried at the next market refresh; said once per version.
+                let key = format!("failed-{}-{}", kind.dir_prefix(), pinned.version);
+                if e.update_notified.insert(key) {
+                    e.alert(Level::Warning, "miner_update_failed", Some(err));
+                }
+            }
+        }
+    }
 }
 
 /// Download, verify and install the pinned release of `kind`.
@@ -1703,7 +1807,15 @@ pub fn spawn_loops(engine: Arc<Mutex<Engine>>) {
             let n = pools::fetch_network_stats(base);
             let p = pools::fetch_price();
             let c = coins::fetch_markets();
-            engine.lock().unwrap().set_market(n, p, c);
+            let t = coins::fetch_gpu_table();
+            {
+                let mut e = engine.lock().unwrap();
+                e.set_market(n, p, c);
+                if let Some(t) = t {
+                    e.set_gpu_table(&t);
+                }
+            }
+            update_miners(&engine);
         }
         std::thread::sleep(Duration::from_secs(600));
     });
@@ -1786,6 +1898,7 @@ mod tests {
         }
     }
 
+    const KRX: &str = "krxABC123";
     const WALLET: &str = "48edfHu7V9Z84YzzMa6fUueoELZ9ZRXq9VetWzYGzKt52XU5xvqgzYnDK9URnRoJMk1j8nLwEVsaSWJ4fhdUyZijBGUicoD";
 
     fn engine(dir: &Path, demo: bool) -> (Engine, Arc<Shared>) {
@@ -1808,7 +1921,7 @@ mod tests {
         let mut c = e.config().clone();
         c.demo_mode = demo;
         c.onboarding_completed = true;
-        c.wallet = WALLET.into();
+        c.wallet = KRX.into();
         e.update_config(c).unwrap();
         e.config.miner.path = Some("/mock/xmrig".into());
         (e, s)
@@ -1823,8 +1936,13 @@ mod tests {
         e.update_config(c).unwrap();
         assert_eq!(e.start(false), Err("wallet_missing".into()));
         assert_eq!(s.starts.load(Ordering::SeqCst), 0);
+        // Kryptex only for now: a Monero address is not enough to start.
         let mut c = e.config().clone();
         c.wallet = WALLET.into();
+        e.update_config(c).unwrap();
+        assert_eq!(e.start(false), Err("kryptex_required".into()));
+        let mut c = e.config().clone();
+        c.wallet = KRX.into();
         e.update_config(c).unwrap();
         e.start(false).unwrap();
         assert_eq!(e.status().state, RunState::Running);
@@ -1849,7 +1967,18 @@ mod tests {
         assert_eq!(e.config().pool.id, "kryptex");
         let t = e.pool_target(Target::User);
         assert_eq!(t.url, "xmr.kryptex.network:7029");
-        assert_eq!(t.user, "krxABC123/erebor");
+        // No name chosen: this PC's hostname. The project's 2% is always "EREBOR".
+        let pc = crate::config::default_worker();
+        assert_eq!(t.user, format!("krxABC123/{pc}"));
+        let p = e.pool_target(Target::Project);
+        assert!(p.user.ends_with("/EREBOR") || p.pass == "EREBOR", "{p:?}");
+        let mut c = e.config().clone();
+        c.pool.worker = "Ufficio".into();
+        e.update_config(c).unwrap();
+        assert_eq!(e.pool_target(Target::User).user, "krxABC123/Ufficio");
+        let mut c = e.config().clone();
+        c.pool.worker = "erebor".into();
+        assert_eq!(e.update_config(c), Err("worker_reserved".into()));
     }
 
     #[test]
@@ -1985,7 +2114,7 @@ mod tests {
             let _ = engine(d.path(), false);
         }
         let e = Engine::new(d.path().to_path_buf(), default_factory()).unwrap();
-        assert_eq!(e.config().wallet, WALLET);
+        assert_eq!(e.config().wallet, KRX);
     }
 
     #[test]
@@ -2035,6 +2164,9 @@ mod tests {
         let (mut e, _) = engine(d.path(), false);
         e.has_gpu = true;
         e.gpu_platform = true;
+        let mut c = e.config().clone();
+        c.wallet = WALLET.into();
+        e.update_config(c).unwrap();
         let prl = coins::find("PRL").unwrap();
         assert_eq!(e.coin_blocker(prl), Some("kryptex_or_btc_required"));
         let mut c = e.config().clone();
@@ -2050,45 +2182,44 @@ mod tests {
     }
 
     #[test]
-    fn auto_explores_gpu_coins_then_keeps_the_most_profitable() {
+    fn auto_picks_the_most_profitable_coin_without_trying_each() {
         let d = tempfile::tempdir().unwrap();
         let (mut e, s) = engine(d.path(), false);
         e.has_gpu = true;
         e.gpu_platform = true;
         e.config.srbminer.path = Some("/mock/SRBMiner-MULTI".into());
+        e.hashrates.clear();
+        e.gpu_names = vec!["NVIDIA GeForce RTX 3060".into()];
+        e.set_gpu_table(&coins::bundled_gpu_table());
         let mut c = e.config().clone();
         c.wallet = "krxABC123".into();
         e.update_config(c).unwrap();
-        // GPU first: the first unmeasured GPU coin is tried.
+        // Same reward per hash everywhere: the coin with the highest expected BTC/day for
+        // an RTX 3060 wins straight away, from the table alone.
+        e.market.coins = coins::COINS.iter().map(|c| market(c.id, 1e-6)).collect();
+        let want = coins::best(&e.candidates(), &e.estimates, &e.markets())
+            .unwrap()
+            .0
+            .id;
         e.start(false).unwrap();
-        assert_eq!(e.coin.id, "PRL");
-        assert_eq!(e.pool_target(Target::User).url, "prl.kryptex.network:7048");
-        assert_eq!(e.launch_spec(Target::User).algo, "pearlhash");
-        // After warm-up the hashrate is learned; after EXPLORE_SECS the next coin is tried.
-        e.coin_since = Some(Instant::now() - Duration::from_secs(EXPLORE_SECS + 5));
+        assert_eq!(e.coin.id, want);
+        // Another coin becomes 10x better: Erebor moves at the next evaluation.
+        let other = if want == "ERG" { "RVN" } else { "ERG" };
+        let ratio = e.estimates[want] / e.estimates[other];
+        let m = e.market.coins.iter_mut().find(|m| m.id == other).unwrap();
+        m.coin_per_hash = 1e-5 * ratio;
         e.tick();
-        assert!(e.hashrates.contains_key("PRL"));
-        assert_eq!(e.coin.id, "ETC");
-        assert_eq!(s.coins.lock().unwrap().as_slice(), ["PRL", "ETC"]);
-        // Everything measured: PRL pays 3x more than the others, so Erebor goes back to it.
-        for c in coins::COINS.iter().filter(|c| c.device == Device::Gpu) {
-            e.hashrates.insert(c.id.into(), 1000.0);
-        }
-        e.market.coins = coins::COINS
-            .iter()
-            .map(|c| market(c.id, if c.id == "PRL" { 3e-6 } else { 1e-6 }))
-            .collect();
-        e.tick();
-        assert_eq!(e.coin.id, "PRL");
-        // Within REEVAL_SECS nothing changes, even if another coin becomes better.
+        assert_eq!(e.coin.id, other);
+        assert_eq!(s.coins.lock().unwrap().as_slice(), [want, other]);
+        // Within REEVAL_SECS nothing changes, even if the first coin becomes better again.
         e.market
             .coins
             .iter_mut()
-            .find(|m| m.id == "ETC")
+            .find(|m| m.id == want)
             .unwrap()
-            .coin_per_hash = 9e-6;
+            .coin_per_hash = 1.0;
         e.tick();
-        assert_eq!(e.coin.id, "PRL");
+        assert_eq!(e.coin.id, other);
     }
 
     #[test]
@@ -2109,17 +2240,50 @@ mod tests {
             .iter()
             .map(|c| market(c.id, if c.id == "PRL" { 3e-6 } else { 1e-6 }))
             .collect();
-        // Kryptex fee higher than unMineable's: BTC wallet on unMineable pays more.
+        // Kryptex only for now: never advises moving to unMineable, even when cheaper.
         e.market.coins[0].pool_fee_percent = 3.0;
         let a = e.advice();
         assert_eq!(a.coin.unwrap().id, "PRL");
-        assert_eq!(a.payout, "bitcoin");
-        assert!(a.btc_per_day.unwrap() > a.current_btc_per_day.unwrap() * 2.0);
+        assert_eq!(a.payout, "kryptex");
         // RVN is Kryptex-only.
         e.market.coins = vec![market("RVN", 9e-6)];
         assert_eq!(e.advice().payout, "kryptex");
         e.has_gpu = false;
         assert_eq!(e.advice().device, Device::Cpu);
+    }
+
+    #[test]
+    fn outdated_miners_are_announced_once_when_auto_update_is_off() {
+        let d = tempfile::tempdir().unwrap();
+        let (mut e, _) = engine(d.path(), false);
+        e.config.auto_update_miners = false;
+        e.config.miner = crate::config::MinerConfig {
+            path: Some("/old/xmrig".into()),
+            version: Some("0.0.1".into()),
+            sha256: None,
+            verified: true,
+        };
+        // Picked by hand (not verified): never touched, never announced.
+        e.config.srbminer = crate::config::MinerConfig {
+            path: Some("/mine/SRBMiner-MULTI".into()),
+            version: Some("0.0.1".into()),
+            sha256: None,
+            verified: false,
+        };
+        let e = Arc::new(Mutex::new(e));
+        update_miners(&e);
+        update_miners(&e);
+        let g = e.lock().unwrap();
+        let notes: Vec<_> = g
+            .alerts
+            .iter()
+            .filter(|a| a.code == "miner_update_available")
+            .collect();
+        if install::manifest().asset_for_platform().is_ok() {
+            assert_eq!(notes.len(), 1);
+            assert!(notes[0].detail.as_deref().unwrap().starts_with("XMRig "));
+        }
+        assert_eq!(g.config.miner.path.as_deref(), Some("/old/xmrig"));
     }
 
     #[test]
@@ -2134,7 +2298,9 @@ mod tests {
         c.coin = "RVN".into();
         e.update_config(c).unwrap();
         e.start(false).unwrap();
-        e.coin_since = Some(Instant::now() - Duration::from_secs(EXPLORE_SECS + 5));
+        // PRL pays far more, but the user picked RVN.
+        e.hashrates.insert("PRL".into(), 1000.0);
+        e.market.coins = vec![market("PRL", 1.0), market("RVN", 1e-9)];
         e.tick();
         assert_eq!(s.coins.lock().unwrap().as_slice(), ["RVN"]);
         assert_eq!(e.status().coin.id, "RVN");
@@ -2168,6 +2334,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "Monero/BTC payouts are off for now: Kryptex only"]
     fn bitcoin_payout_mines_on_unmineable() {
         const BTC: &str = "bc1qqqqsyqcyq5rqwzqfpg9scrgwpugpzysn4v0345";
         let d = tempfile::tempdir().unwrap();
@@ -2188,7 +2355,10 @@ mod tests {
         assert_eq!(s.coins.lock().unwrap().as_slice(), ["PRL"]);
         let t = e.pool_target(Target::User);
         assert_eq!(t.url, "pearlpow.unmineable.com:3333");
-        assert_eq!(t.user, format!("BTC:{BTC}.erebor"));
+        assert_eq!(
+            t.user,
+            format!("BTC:{BTC}.{}", crate::config::default_worker())
+        );
         assert_eq!(t.pass, "x");
         // unMineable's fee replaces Kryptex's in estimates.
         e.market.coins = vec![market("PRL", 1e-6)];
@@ -2204,6 +2374,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "Monero/BTC payouts are off for now: Kryptex only"]
     fn coin_wallet_overrides_the_main_payout_for_that_coin() {
         let prl_addr = format!("prl1p{}", "q".repeat(58));
         let d = tempfile::tempdir().unwrap();
@@ -2223,7 +2394,10 @@ mod tests {
         e.start(false).unwrap();
         let t = e.pool_target(Target::User);
         assert_eq!(t.url, "prl.kryptex.network:7048");
-        assert_eq!(t.user, format!("{prl_addr}/erebor"));
+        assert_eq!(
+            t.user,
+            format!("{prl_addr}/{}", crate::config::default_worker())
+        );
         // Bad addresses are refused.
         let mut c = e.config().clone();
         c.coin_wallets.insert("ETC".into(), "0xnope".into());

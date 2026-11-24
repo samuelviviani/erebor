@@ -28,7 +28,7 @@ pub struct Opts {
     pub non_interactive: bool,
     #[arg(long, value_enum)]
     pub mode: Option<Mode>,
-    /// Payout: Monero address, Kryptex ID (krx…) or Bitcoin address. Public only.
+    /// Payout: your Kryptex ID (krx…).
     #[arg(long, value_name = "ADDRESS")]
     pub wallet: Option<String>,
     #[arg(long, value_name = "POOL_ID")]
@@ -127,13 +127,13 @@ fn available(k: MinerKind) -> bool {
 }
 
 fn check_wallet(w: &str) -> Result<String, String> {
-    match wallet::validate_payout(w.trim()) {
+    match wallet::validate_user_payout(w.trim()) {
         Ok(i) => Ok(format!("{:?}", i.kind)),
         Err(wallet::WalletError::LooksLikeSecret) => Err(
             "this looks like a seed phrase or private key: never share it. Use your public address."
                 .into(),
         ),
-        Err(e) => Err(format!("not a valid payout address ({e:?})")),
+        Err(_) => Err("enter your Kryptex ID (krx…): for now Erebor pays through Kryptex only".into()),
     }
 }
 
@@ -181,11 +181,12 @@ fn from_flags(o: &Opts, c: &AppConfig) -> Result<Plan, Fail> {
     if !o.no_install_miner && !installed(c, MinerKind::Xmrig) && available(MinerKind::Xmrig) {
         p.install.push(MinerKind::Xmrig);
     }
-    if !o.no_install_miner
-        && !installed(c, MinerKind::Srbminer)
-        && Monitor::new().detect().gpu_mining_supported
-    {
-        p.install.push(MinerKind::Srbminer);
+    if !o.no_install_miner && Monitor::new().detect().gpu_mining_supported {
+        for k in [MinerKind::Srbminer, MinerKind::Lolminer] {
+            if !installed(c, k) && available(k) {
+                p.install.push(k);
+            }
+        }
     }
     Ok(p)
 }
@@ -288,11 +289,9 @@ fn ask(dir: &Path, o: &Opts, current: &AppConfig) -> Result<Option<Plan>, Fail> 
         return Ok(Some(p));
     }
 
-    println!("\n  Where should the pool pay you? Public address only, never a seed phrase:");
-    println!("   • Kryptex ID (krx…): paid in BTC to your kryptex.com account");
-    println!("   • Monero address (4… / 8…): paid in XMR by the pool");
-    println!("   • Bitcoin address (bc1… / 1… / 3…): paid in BTC via unMineable\n");
-    let mut input = Input::<String>::with_theme(&t).with_prompt("Payout address");
+    println!("\n  Earnings go to your kryptex.com account (paid in BTC).");
+    println!("  Enter your Kryptex ID (krx…), shown on kryptex.com after signing up.\n");
+    let mut input = Input::<String>::with_theme(&t).with_prompt("Kryptex ID");
     let prefill = o.wallet.clone().unwrap_or_else(|| base.wallet.clone());
     if !prefill.is_empty() {
         input = input.default(prefill);
@@ -347,10 +346,15 @@ fn ask(dir: &Path, o: &Opts, current: &AppConfig) -> Result<Option<Plan>, Fail> 
         );
         p.worker = Some(
             Input::<String>::with_theme(&t)
-                .with_prompt("Worker name (shown by the pool)")
-                .default(base.pool.worker.clone())
+                .with_prompt("Name of this PC (shown by the pool)")
+                .default(match base.pool.worker.as_str() {
+                    "" => config::default_worker(),
+                    w => w.to_string(),
+                })
                 .validate_with(|s: &String| {
-                    if config::valid_worker(s) {
+                    if s.eq_ignore_ascii_case(config::PROJECT_WORKER) {
+                        Err("EREBOR is reserved for Erebor's 2%")
+                    } else if config::valid_worker(s) {
                         Ok(())
                     } else {
                         Err("letters, digits, '_' and '-' only, max 32")
@@ -408,18 +412,29 @@ fn ask(dir: &Path, o: &Opts, current: &AppConfig) -> Result<Option<Plan>, Fail> 
         );
     }
     // A supported GPU earns far more than the CPU: Quick start installs its miner too.
-    if !installed(current, MinerKind::Srbminer) && Monitor::new().detect().gpu_mining_supported {
+    let gpu_miners: Vec<MinerKind> = [MinerKind::Srbminer, MinerKind::Lolminer]
+        .into_iter()
+        .filter(|k| !installed(current, *k) && available(*k))
+        .collect();
+    if !gpu_miners.is_empty() && Monitor::new().detect().gpu_mining_supported {
+        let names: Vec<&str> = gpu_miners.iter().map(|k| k.label()).collect();
         let yes = if mode == Mode::Custom {
-            confirm("Install SRBMiner-MULTI too, for GPU coins?", true)?
+            confirm(
+                &format!("Install {} too, for GPU coins?", names.join(" and ")),
+                true,
+            )?
         } else {
             println!(
                 "  {}",
-                ui::ok("GPU found: SRBMiner-MULTI will be installed for GPU coins.")
+                ui::ok(format!(
+                    "GPU found: {} will be installed for GPU coins.",
+                    names.join(" and ")
+                ))
             );
             true
         };
         if yes {
-            p.install.push(MinerKind::Srbminer);
+            p.install.extend(gpu_miners);
         }
     }
 
@@ -741,13 +756,16 @@ mod tests {
         assert_eq!(e(&o), "wallet_missing");
         o.wallet = Some("abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about".into());
         assert_eq!(e(&o), "invalid_address");
-        o.wallet = Some(format!(" {XMR} "));
+        // Kryptex only for now: a Monero address is refused.
+        o.wallet = Some(XMR.into());
+        assert_eq!(e(&o), "invalid_address");
+        o.wallet = Some(" krxABC123 ".into());
         o.pool = Some("nope".into());
         assert_eq!(e(&o), "unknown_pool");
-        o.pool = Some("supportxmr".into());
+        o.pool = Some("kryptex".into());
         o.no_background = true;
         let p = from_flags(&o, &c).unwrap();
-        assert_eq!(p.wallet.as_deref(), Some(XMR));
+        assert_eq!(p.wallet.as_deref(), Some("krxABC123"));
         assert!(!p.background && !p.start && p.health);
         // Starting mining keeps the agent, whatever --no-background says.
         o.start = true;

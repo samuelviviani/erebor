@@ -20,7 +20,7 @@ export default function Fees() {
             <tr className="border-t border-line">
               <td className="p-3 text-fg">Commissione Erebor</td>
               <td className="p-3">{site.devFeePercent}% del tempo di mining effettivo</td>
-              <td className="p-3">Progetto Erebor (worker &quot;erebor&quot;): account Kryptex, oppure indirizzo Bitcoin del progetto per chi riceve in BTC tramite unMineable</td>
+              <td className="p-3">Progetto Erebor, sull&apos;account Kryptex del progetto con il worker &quot;EREBOR&quot;</td>
             </tr>
             <tr className="border-t border-line">
               <td className="p-3 text-fg">Donazione XMRig</td>

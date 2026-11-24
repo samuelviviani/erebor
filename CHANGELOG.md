@@ -2,6 +2,19 @@
 
 Formato: [Keep a Changelog](https://keepachangelog.com/it/1.1.0/), versioni [SemVer](https://semver.org/lang/it/).
 
+## [0.1.3] - 2026-11-24
+
+### Added
+- Nuovi miner verificati con SHA-256: lolMiner (GPU: Alephium, Conflux, Nexa, Kaspa, Tari) e cpuminer-opt (CPU, solo Windows: SHA-256 e Scrypt). Tutte le monete del pool Kryptex minabili da un computer, con icone.
+- I miner si aggiornano da soli all'ultima versione verificata (disattivabile).
+
+### Changed
+- Inglese come lingua predefinita; README riscritto.
+- Pagamenti solo tramite account Kryptex (altre opzioni in arrivo).
+
+### Removed
+- Accesso remoto e `erebor-node`: Erebor lavora solo sul computer locale.
+
 ## [0.1.2] - 2026-11-23
 
 ### Added

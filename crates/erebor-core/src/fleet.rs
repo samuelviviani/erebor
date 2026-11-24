@@ -1,6 +1,5 @@
 //! Erebor Fleet foundations: a stable identity for this device and typed, versioned
-//! snapshots of its miner. Today they travel over the local socket (CLI, TUI) and the
-//! token-protected remote API; a future fleet view aggregates one report per device.
+//! snapshots of its miner, read over the local socket by the CLI and the TUI.
 //!
 //! Compatibility: `SCHEMA_VERSION` changes only when a field is removed or changes
 //! meaning. New optional fields can be added without a bump (readers ignore unknown

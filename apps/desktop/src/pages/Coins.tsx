@@ -1,4 +1,4 @@
-import { Check, Cpu, Gpu, Sparkles } from "lucide-react";
+import { Check, Cpu, Gpu, Server, Sparkles } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { CoinAdvice } from "../components/Advice";
 import { useCoinChange, useCoinOptions } from "../components/CoinChange";
@@ -32,24 +32,38 @@ export default function Coins() {
         : -1
       : (b.valuePerDay ?? -1) - (a.valuePerDay ?? -1);
 
-  const group = (device: "gpu" | "cpu") => {
-    const list = options.filter((o) => o.coin.device === device).sort(byValue);
+  // ASIC coins (BTC, LTC…) apart: mineable from the CPU, but they earn almost nothing.
+  const group = (device: "gpu" | "cpu" | "asic") => {
+    const list = options
+      .filter((o) =>
+        device === "asic"
+          ? o.coin.asic
+          : o.coin.device === device && !o.coin.asic,
+      )
+      .sort(byValue);
     if (!list.length) return null;
     return (
       <section>
         <h2 className="mb-2 flex items-center gap-2 px-1 text-sm font-medium text-muted">
           {device === "gpu" ? (
             <Gpu className="size-4" />
+          ) : device === "asic" ? (
+            <Server className="size-4" />
           ) : (
             <Cpu className="size-4" />
           )}
-          {t(device === "gpu" ? "coins.gpu" : "coins.cpu")}
+          {t(`coins.${device}`)}
           <Explain term="gpu" align="left" />
         </h2>
+        {device === "asic" && (
+          <p className="mb-2 px-1 text-xs leading-relaxed text-faint">
+            {t("coins.asic.note")}
+          </p>
+        )}
         <div
           className="divide-y divide-line overflow-hidden rounded-2xl border border-line bg-surface"
           role="radiogroup"
-          aria-label={t(device === "gpu" ? "coins.gpu" : "coins.cpu")}
+          aria-label={t(`coins.${device}`)}
         >
           {list.map((o) => (
             <Row
@@ -116,6 +130,7 @@ export default function Coins() {
           {selected !== "AUTO" && <CoinAdvice card={false} warnOnly />}
           {group("gpu")}
           {group("cpu")}
+          {group("asic")}
         </div>
       ) : (
         <div className="space-y-4">

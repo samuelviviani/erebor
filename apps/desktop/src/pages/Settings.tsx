@@ -1,22 +1,19 @@
 import {
   Banknote,
   CalendarClock,
-  Check,
   ChevronLeft,
   ChevronRight,
-  Copy,
   Download,
   FlaskConical,
-  Globe,
   Info,
   Languages,
   Monitor,
   Moon,
   LogIn,
   Play,
+  RefreshCw,
   Plug,
   RotateCcw,
-  Server,
   ShieldAlert,
   SlidersHorizontal,
   Sun,
@@ -30,28 +27,14 @@ import { useEffect, useState, type ReactNode } from "react";
 import { PageTitle } from "../components/Layout";
 import {
   Button,
-  Card,
-  CardTitle,
   ConfirmDialog,
   cx,
   Explain,
-  Field,
-  inputClass,
-  Notice,
-  Row,
+  Flag,
   Segmented,
-  Toggle,
   type HelpTerm,
 } from "../components/ui";
-import {
-  api,
-  errorText,
-  inApp,
-  isRemote,
-  local,
-  type AppConfig,
-  type RemoteInfo,
-} from "../lib/api";
+import { api, errorText, inApp, local, type AppConfig } from "../lib/api";
 import { minutesToTime, timeToMinutes } from "../lib/format";
 import { translateError, useT } from "../lib/i18n";
 import { useApp } from "../lib/store";
@@ -109,10 +92,22 @@ export default function Settings() {
                 onChange={(demoMode) => save({ ...c, demoMode })}
               />
             </Item>
+            <Item
+              icon={<RefreshCw />}
+              tone="blue"
+              label={t("settings.autoUpdateMiners")}
+              hint={t("settings.autoUpdateMiners.desc")}
+            >
+              <Sw
+                label={t("settings.autoUpdateMiners")}
+                checked={c.autoUpdateMiners}
+                onChange={(autoUpdateMiners) =>
+                  save({ ...c, autoUpdateMiners })
+                }
+              />
+            </Item>
           </Group>
           <Advanced />
-          <Remote c={c} save={save} />
-          <NodeService />
         </div>
       </div>
     );
@@ -129,6 +124,10 @@ export default function Settings() {
     <div className="mx-auto max-w-2xl">
       <PageTitle>{t("settings.title")}</PageTitle>
       <div className="space-y-8">
+        <Group title={t("settings.group.pc")}>
+          <WorkerName c={c} save={save} />
+        </Group>
+
         <Group title={t("settings.group.appearance")}>
           <Item icon={<Languages />} tone="blue" label={t("settings.language")}>
             <Segmented
@@ -136,8 +135,8 @@ export default function Settings() {
               value={c.language}
               onChange={(language) => save({ ...c, language })}
               options={[
-                { value: "it", label: "Italiano" },
-                { value: "en", label: "English" },
+                { value: "en", label: "English", icon: <Flag lang="en" /> },
+                { value: "it", label: "Italiano", icon: <Flag lang="it" /> },
               ]}
             />
           </Item>
@@ -405,6 +404,40 @@ export default function Settings() {
 
 type Props = { c: AppConfig; save: (next: AppConfig) => Promise<void> };
 
+/** Name of this PC on the pool (Kryptex shows it per worker): tells the account owner which
+ *  PCs mine, apart from Erebor's 2% ("EREBOR"). Empty = the computer's name. */
+function WorkerName({ c, save }: Props) {
+  const t = useT();
+  const { info } = useApp();
+  const fallback =
+    (info?.hostname ?? "").replace(/[^A-Za-z0-9]/g, "").slice(0, 32) || "PC";
+  return (
+    <Item
+      icon={<Monitor />}
+      tone="gray"
+      label={t("settings.worker")}
+      hint={t("settings.worker.desc")}
+    >
+      <input
+        key={c.pool.worker}
+        aria-label={t("settings.worker")}
+        className={cx(compact, "w-40")}
+        maxLength={32}
+        spellCheck={false}
+        defaultValue={c.pool.worker}
+        placeholder={fallback}
+        onChange={(e) =>
+          (e.target.value = e.target.value.replace(/[^A-Za-z0-9]/g, ""))
+        }
+        onBlur={(e) => {
+          if (e.target.value !== c.pool.worker)
+            save({ ...c, pool: { ...c.pool, worker: e.target.value } });
+        }}
+      />
+    </Item>
+  );
+}
+
 /** Small inputs for short values (time, price, watts): never a full-width box. */
 const compact =
   "h-9 rounded-lg border border-line bg-bg px-2.5 text-sm text-fg focus:border-accent focus:outline-none";
@@ -434,19 +467,19 @@ function Group({
   );
 }
 
-/** macOS/iOS-style settings tiles: one solid colour per meaning, white glyph, same in both themes. */
+/** One colour per meaning on the glyph itself, no tile around it; same in both themes. */
 const TONES = {
-  blue: "bg-[#0a84ff]",
-  indigo: "bg-[#5e5ce6]",
-  gray: "bg-[#8e8e93]",
-  green: "bg-[#30d158]",
-  orange: "bg-[#ff9f0a]",
-  red: "bg-[#ff453a]",
-  teal: "bg-[#40c8e0]",
-  yellow: "bg-[#ffcc00]",
-  pink: "bg-[#ff375f]",
-  violet: "bg-[#bf5af2]",
-  none: "bg-transparent",
+  blue: "text-[#0a84ff]",
+  indigo: "text-[#5e5ce6]",
+  gray: "text-[#8e8e93]",
+  green: "text-[#30d158]",
+  orange: "text-[#ff9f0a]",
+  red: "text-[#ff453a]",
+  teal: "text-[#40c8e0]",
+  yellow: "text-[#e6b800]",
+  pink: "text-[#ff375f]",
+  violet: "text-[#bf5af2]",
+  none: "text-faint",
 } as const;
 type Tone = keyof typeof TONES;
 
@@ -454,7 +487,7 @@ function RowIcon({ tone, children }: { tone: Tone; children: ReactNode }) {
   return (
     <span
       className={cx(
-        "flex size-7 shrink-0 items-center justify-center rounded-[8px] text-white shadow-[inset_0_0_0_0.5px_rgb(0_0_0/0.12)] [&>svg]:size-4 [&>svg]:stroke-[2.25]",
+        "flex size-7 shrink-0 items-center justify-center [&>svg]:size-5 [&>svg]:stroke-2",
         TONES[tone],
       )}
     >
@@ -596,87 +629,42 @@ function NumberField({
   );
 }
 
-/** Copyable value (URL, token, command). */
-function Copyable({ value, shown }: { value: string; shown?: string }) {
-  const t = useT();
-  const [copied, setCopied] = useState(false);
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(value);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch {
-      /* clipboard unavailable: the text stays selectable */
-    }
-  };
-  return (
-    <span className="flex min-w-0 items-center gap-1.5">
-      <code className="min-w-0 truncate rounded-lg bg-bg px-2 py-1 font-mono text-xs select-all">
-        {shown ?? value}
-      </code>
-      <button
-        type="button"
-        onClick={copy}
-        aria-label={t("wallet.copy")}
-        className="shrink-0 rounded-lg p-1 text-faint hover:bg-surface-2 hover:text-fg"
-      >
-        {copied ? (
-          <Check className="size-3.5 text-go" />
-        ) : (
-          <Copy className="size-3.5" />
-        )}
-      </button>
-    </span>
-  );
-}
-
-/** Info about this app (not the selected computer): remote access server, login item. */
-function useRemoteInfo(deps: unknown[]) {
-  const [info, setInfo] = useState<RemoteInfo | null>(null);
-  useEffect(() => {
-    if (inApp())
-      local
-        .remoteInfo()
-        .then(setInfo)
-        .catch(() => {});
-  }, deps);
-  return [info, setInfo] as const;
-}
-
 function StartupRows({ c, save }: Props) {
   const t = useT();
   const toast = useApp((s) => s.toast);
-  const remote = isRemote();
-  const [info, setInfo] = useRemoteInfo([]);
+  const [login, setLoginState] = useState<boolean | null>(null);
+  useEffect(() => {
+    if (inApp())
+      local
+        .loginItem()
+        .then(setLoginState)
+        .catch(() => {});
+  }, []);
   const setLogin = async (on: boolean) => {
     try {
       await local.setLoginItem(on);
-      setInfo(await local.remoteInfo());
+      setLoginState(await local.loginItem());
     } catch (e) {
       toast("error", errorText(e));
     }
   };
   return (
     <>
-      {!remote && info && (
+      {login != null && (
         <Item
           icon={<LogIn />}
           tone="gray"
           label={t("startup.login")}
           hint={t("startup.login.desc")}
         >
-          <Sw
-            label={t("startup.login")}
-            checked={info.loginItem}
-            onChange={setLogin}
-          />
+          <Sw label={t("startup.login")} checked={login} onChange={setLogin} />
         </Item>
       )}
       <Item
         icon={<Play />}
         tone="green"
         label={t("startup.mine")}
-        hint={t(remote ? "startup.mine.node" : "startup.mine.desc")}
+        hint={t("startup.mine.desc")}
       >
         <Sw
           label={t("startup.mine")}
@@ -685,106 +673,6 @@ function StartupRows({ c, save }: Props) {
         />
       </Item>
     </>
-  );
-}
-
-/** Running Erebor without the app (always-on PCs): command line only. */
-function NodeService() {
-  const t = useT();
-  const [info] = useRemoteInfo([]);
-  return (
-    <Card>
-      <CardTitle icon={<Server />}>{t("startup.service")}</CardTitle>
-      <p className="mb-3 text-[13px] leading-relaxed text-muted">
-        {t("startup.service.desc")}
-      </p>
-      {info?.nodeService && (
-        <Notice tone="ok">{t("startup.service.installed")}</Notice>
-      )}
-      <Row label={t("startup.service.install")}>
-        <Copyable value="erebor-node install-service" />
-      </Row>
-      <Row label={t("startup.service.remove")}>
-        <Copyable value="erebor-node uninstall-service" />
-      </Row>
-      <p className="mt-3 text-xs leading-relaxed text-faint">
-        {t("startup.service.note")}
-      </p>
-    </Card>
-  );
-}
-
-function Remote({ c, save }: Props) {
-  const t = useT();
-  const remote = isRemote();
-  const [info] = useRemoteInfo([c.remote.enabled, c.remote.port]);
-  const [port, setPort] = useState(String(c.remote.port));
-  const link =
-    info?.url && info.token ? `${info.url}/#token=${info.token}` : null;
-
-  return (
-    <Card>
-      <CardTitle icon={<Globe />}>{t("remote.access")}</CardTitle>
-      {remote ? (
-        <p className="text-[13px] leading-relaxed text-muted">
-          {t("remote.access.remote")}
-        </p>
-      ) : info?.viaNode ? (
-        <Notice tone="ok">{t("remote.viaNode")}</Notice>
-      ) : (
-        <>
-          <Toggle
-            checked={c.remote.enabled}
-            onChange={(enabled) =>
-              save({ ...c, remote: { ...c.remote, enabled } })
-            }
-            label={t("remote.enable")}
-            description={t("remote.enable.desc")}
-          />
-          <div className="mt-2 w-36">
-            <Field label={t("onb.pool.port")}>
-              <input
-                className={inputClass}
-                inputMode="numeric"
-                value={port}
-                onChange={(e) => setPort(e.target.value.replace(/\D/g, ""))}
-                onBlur={() =>
-                  Number(port) !== c.remote.port &&
-                  save({ ...c, remote: { ...c.remote, port: Number(port) } })
-                }
-              />
-            </Field>
-          </div>
-          {info?.error && c.remote.enabled && (
-            <div className="mt-3">
-              <Notice tone="err">{info.error}</Notice>
-            </div>
-          )}
-          {info?.running && info.url && info.token && link && (
-            <div className="mt-3">
-              <Row label={t("remote.address")}>
-                <Copyable value={info.url} />
-              </Row>
-              <Row label={t("remote.token")}>
-                <Copyable
-                  value={info.token}
-                  shown={`${info.token.slice(0, 6)}…${info.token.slice(-4)}`}
-                />
-              </Row>
-              <Row label={t("remote.phone")}>
-                <Copyable value={link} shown={`${info.url}/#token=…`} />
-              </Row>
-              <p className="mt-3 text-xs leading-relaxed text-faint">
-                {t("remote.phone.desc")}
-              </p>
-            </div>
-          )}
-          <p className="mt-3 text-xs leading-relaxed text-faint">
-            {t("remote.security")}
-          </p>
-        </>
-      )}
-    </Card>
   );
 }
 

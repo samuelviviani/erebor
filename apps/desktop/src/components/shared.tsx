@@ -1,11 +1,58 @@
 import { open } from "@tauri-apps/plugin-dialog";
-import { CheckCircle2, Download, FolderOpen, ShieldAlert, ShieldCheck, XCircle } from "lucide-react";
+import { openUrl } from "@tauri-apps/plugin-opener";
+import {
+  CheckCircle2,
+  Download,
+  ExternalLink,
+  FolderOpen,
+  ShieldAlert,
+  ShieldCheck,
+  XCircle,
+} from "lucide-react";
 import { useEffect, useState } from "react";
-import { api, errorText, isRemote, type AppConfig, type MinerKind, type PoolInfo, type WalletError } from "../lib/api";
+import {
+  api,
+  errorText,
+  inApp,
+  type AppConfig,
+  type MinerKind,
+  type PoolInfo,
+  type WalletError,
+} from "../lib/api";
 import { hashrate } from "../lib/format";
 import { translateError, useT } from "../lib/i18n";
 import { useApp } from "../lib/store";
-import { Badge, Button, Field, inputClass, Progress, Toggle } from "./ui";
+import {
+  Badge,
+  Button,
+  Field,
+  inputClass,
+  Notice,
+  Progress,
+  Toggle,
+} from "./ui";
+
+/** Kryptex sign-in: after login it shows the account's real BTC balance. */
+export const KRYPTEX_LOGIN = "https://www.kryptex.com/login";
+
+export function openExternal(url: string) {
+  if (inApp()) openUrl(url).catch(() => {});
+  else window.open(url, "_blank", "noopener");
+}
+
+/** Erebor's BTC figure is an estimate from the work done; the real one is on Kryptex. */
+export function RealBalanceLink() {
+  const t = useT();
+  return (
+    <button
+      type="button"
+      onClick={() => openExternal(KRYPTEX_LOGIN)}
+      className="inline-flex items-center gap-1 text-xs text-accent hover:underline"
+    >
+      {t("wallet.realBalance")} <ExternalLink className="size-3.5" />
+    </button>
+  );
+}
 
 /** Wallet address input validated by the Rust backend (debounced). */
 export function WalletInput({
@@ -37,7 +84,12 @@ export function WalletInput({
         .then((info) => {
           setState({
             ok: true,
-            msg: info.kind === "kryptex" ? t("wallet.ok.kryptex") : info.kind === "bitcoin" ? t("wallet.ok.bitcoin") : `${t("wallet.ok")} · ${info.kind}`,
+            msg:
+              info.kind === "kryptex"
+                ? t("wallet.ok.kryptex")
+                : info.kind === "bitcoin"
+                  ? t("wallet.ok.bitcoin")
+                  : `${t("wallet.ok")} · ${info.kind}`,
           });
           onValid?.(true);
         })
@@ -54,8 +106,15 @@ export function WalletInput({
       label={label ?? t("wallet.address")}
       hint={
         state ? (
-          <span className={state.ok ? "text-accent" : "text-danger"} role="status">
-            {state.ok ? <CheckCircle2 className="mr-1 inline size-3.5" /> : <XCircle className="mr-1 inline size-3.5" />}
+          <span
+            className={state.ok ? "text-accent" : "text-danger"}
+            role="status"
+          >
+            {state.ok ? (
+              <CheckCircle2 className="mr-1 inline size-3.5" />
+            ) : (
+              <XCircle className="mr-1 inline size-3.5" />
+            )}
             {state.msg}
           </span>
         ) : (
@@ -77,20 +136,33 @@ export function WalletInput({
   );
 }
 
-/** Pool selection: curated catalog or custom host/port/TLS, plus worker name. */
-export function PoolForm({ pool, onChange }: { pool: AppConfig["pool"]; onChange: (p: AppConfig["pool"]) => void }) {
+/** Pool selection: curated catalog or custom host/port/TLS (the PC name is in Settings). */
+export function PoolForm({
+  pool,
+  onChange,
+}: {
+  pool: AppConfig["pool"];
+  onChange: (p: AppConfig["pool"]) => void;
+}) {
   const t = useT();
   const [catalog, setCatalog] = useState<PoolInfo[]>([]);
   const [check, setCheck] = useState<{ ok: boolean; msg: string } | null>(null);
   const [checking, setChecking] = useState(false);
-  const lang = useApp((s) => s.config?.language ?? "it");
+  const lang = useApp((s) => s.config?.language ?? "en");
   useEffect(() => {
-    api.poolCatalog().then(setCatalog).catch(() => setCatalog([]));
+    api
+      .poolCatalog()
+      .then(setCatalog)
+      .catch(() => setCatalog([]));
   }, []);
   const custom = pool.id === "custom";
   const pick = (id: string) => {
     const p = catalog.find((c) => c.id === id);
-    onChange(p ? { ...pool, id: p.id, host: p.host, port: p.port, tls: p.tls } : { ...pool, id: "custom" });
+    onChange(
+      p
+        ? { ...pool, id: p.id, host: p.host, port: p.port, tls: p.tls }
+        : { ...pool, id: "custom" },
+    );
     setCheck(null);
   };
   const runCheck = async () => {
@@ -138,7 +210,9 @@ export function PoolForm({ pool, onChange }: { pool: AppConfig["pool"]; onChange
             <input
               className={inputClass}
               value={pool.host}
-              onChange={(e) => onChange({ ...pool, host: e.target.value.trim() })}
+              onChange={(e) =>
+                onChange({ ...pool, host: e.target.value.trim() })
+              }
               placeholder="pool.example.org"
               spellCheck={false}
             />
@@ -150,26 +224,39 @@ export function PoolForm({ pool, onChange }: { pool: AppConfig["pool"]; onChange
               min={1}
               max={65535}
               value={pool.port || ""}
-              onChange={(e) => onChange({ ...pool, port: Math.max(0, Math.min(65535, Number(e.target.value) || 0)) })}
+              onChange={(e) =>
+                onChange({
+                  ...pool,
+                  port: Math.max(
+                    0,
+                    Math.min(65535, Number(e.target.value) || 0),
+                  ),
+                })
+              }
             />
           </Field>
         </div>
       )}
-      {custom && <Toggle checked={pool.tls} onChange={(tls) => onChange({ ...pool, tls })} label={t("onb.pool.tls")} />}
-      <Field label={t("onb.pool.worker")} hint="a-z, 0-9, _ -">
-        <input
-          className={inputClass}
-          value={pool.worker}
-          maxLength={32}
-          onChange={(e) => onChange({ ...pool, worker: e.target.value.replace(/[^A-Za-z0-9_-]/g, "") })}
+      {custom && (
+        <Toggle
+          checked={pool.tls}
+          onChange={(tls) => onChange({ ...pool, tls })}
+          label={t("onb.pool.tls")}
         />
-      </Field>
+      )}
       <div className="flex flex-wrap items-center gap-3">
-        <Button onClick={runCheck} loading={checking} disabled={!pool.host || !pool.port}>
+        <Button
+          onClick={runCheck}
+          loading={checking}
+          disabled={!pool.host || !pool.port}
+        >
           {t("onb.pool.check")}
         </Button>
         {check && (
-          <span className={`text-xs ${check.ok ? "text-accent" : "text-danger"}`} role="status">
+          <span
+            className={`text-xs ${check.ok ? "text-accent" : "text-danger"}`}
+            role="status"
+          >
             {check.msg}
           </span>
         )}
@@ -181,21 +268,33 @@ export function PoolForm({ pool, onChange }: { pool: AppConfig["pool"]; onChange
 export function JobProgress() {
   const t = useT();
   const job = useApp((s) => s.status?.job);
-  const lang = useApp((s) => s.config?.language ?? "it");
+  const lang = useApp((s) => s.config?.language ?? "en");
   if (!job) return null;
   return (
-    <div className="space-y-2 rounded-lg border border-line bg-bg p-3" aria-live="polite">
+    <div
+      className="space-y-2 rounded-lg border border-line bg-bg p-3"
+      aria-live="polite"
+    >
       <div className="flex items-center justify-between gap-3 text-sm">
         <span>{job.done ? t("job.done") : t(`job.${job.kind}`)}</span>
         <span className="num text-xs text-muted">
           {job.kind === "benchmark" && job.value != null && hashrate(job.value)}
-          {job.kind === "install" && job.value != null && !job.done && `${(job.value / 1e6).toFixed(1)} MB`}
+          {job.kind === "install" &&
+            job.value != null &&
+            !job.done &&
+            `${(job.value / 1e6).toFixed(1)} MB`}
         </span>
       </div>
       <Progress value={job.progress} />
-      {job.error && <p className="text-xs text-danger">{translateError(lang, job.error)}</p>}
+      {job.error && (
+        <p className="text-xs text-danger">{translateError(lang, job.error)}</p>
+      )}
       {!job.done && (
-        <Button variant="ghost" onClick={() => api.cancelJob()} disabled={job.kind === "install"}>
+        <Button
+          variant="ghost"
+          onClick={() => api.cancelJob()}
+          disabled={job.kind === "install"}
+        >
           {t("job.cancel")}
         </Button>
       )}
@@ -203,17 +302,69 @@ export function JobProgress() {
   );
 }
 
+/** Windows only: Defender quarantines every miner as "CoinMiner". Explain why and, only
+ *  with the user's consent, exclude Erebor's miners folder (Windows asks for admin approval). */
+export function DefenderConsent({ onSkip }: { onSkip?: () => void }) {
+  const t = useT();
+  const { info, config, setConfig, toast } = useApp();
+  const [busy, setBusy] = useState(false);
+  if (
+    !info?.platform.startsWith("windows") ||
+    !config ||
+    config.defenderAllowed
+  )
+    return null;
+  const allow = async () => {
+    setBusy(true);
+    try {
+      setConfig(await api.allowInDefender());
+    } catch (e) {
+      toast("error", translateError(config.language, errorText(e)));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Notice tone="warn">
+      <p className="flex items-center gap-2 font-medium">
+        <ShieldAlert className="size-4 shrink-0 text-warn" />{" "}
+        {t("defender.title")}
+      </p>
+      <p className="mt-1 text-muted">{t("defender.body")}</p>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <Button variant="primary" onClick={allow} loading={busy}>
+          <ShieldCheck className="size-4" /> {t("defender.allow")}
+        </Button>
+        {onSkip && (
+          <Button variant="ghost" onClick={onSkip} disabled={busy}>
+            {t("defender.skip")}
+          </Button>
+        )}
+      </div>
+    </Notice>
+  );
+}
+
+const MINER_LABEL: Record<MinerKind, string> = {
+  xmrig: "XMRig",
+  srbminer: "SRBMiner-MULTI",
+  lolminer: "lolMiner",
+  cpuminer: "cpuminer-opt",
+};
+
 /** Install the pinned, hash-verified miner or select an existing binary. */
 export function MinerSetup({ kind = "xmrig" }: { kind?: MinerKind }) {
   const t = useT();
   const { info, config, setConfig, toast, status } = useApp();
-  const lang = config?.language ?? "it";
+  const lang = config?.language ?? "en";
   const busy = !!status?.job && !status.job.done;
   if (!info || !config) return null;
-  const m = kind === "xmrig" ? config.miner : config.srbminer;
-  const label = kind === "xmrig" ? "XMRig" : "SRBMiner-MULTI";
-  const pinned = kind === "xmrig" ? info.xmrigPinnedAvailable : info.srbminerPinnedAvailable;
-  const pinnedVersion = kind === "xmrig" ? info.xmrigPinnedVersion : info.srbminerPinnedVersion;
+  const m = kind === "xmrig" ? config.miner : config[kind];
+  const label = MINER_LABEL[kind];
+  const pinned = info[`${kind}PinnedAvailable`];
+  const pinnedVersion = info[`${kind}PinnedVersion`];
+  // Installed by Erebor but older than this app's verified build.
+  const outdated = !!m.path && m.verified && m.version !== pinnedVersion;
   const install = async () => {
     try {
       await api.installMiner(kind);
@@ -222,7 +373,11 @@ export function MinerSetup({ kind = "xmrig" }: { kind?: MinerKind }) {
     }
   };
   const select = async () => {
-    const path = await open({ multiple: false, directory: false, title: label });
+    const path = await open({
+      multiple: false,
+      directory: false,
+      title: label,
+    });
     if (typeof path !== "string") return;
     try {
       setConfig(await api.selectMiner(path, kind));
@@ -246,29 +401,36 @@ export function MinerSetup({ kind = "xmrig" }: { kind?: MinerKind }) {
               <ShieldAlert className="size-3.5" /> {t("mining.unverified")}
             </Badge>
           )}
-          <span className="w-full truncate font-mono text-xs text-faint" title={m.path}>
+          <span
+            className="w-full truncate font-mono text-xs text-faint"
+            title={m.path}
+          >
             {m.path}
           </span>
         </div>
       ) : (
         <p className="text-sm text-muted">{t("mining.notConfigured")}</p>
       )}
-      {!pinned && <p className="text-xs text-faint">{t("mining.install.unavailable", { m: label })}</p>}
+      {!pinned && (
+        <p className="text-xs text-faint">
+          {t("mining.install.unavailable", { m: label })}
+        </p>
+      )}
       <div className="flex flex-wrap gap-2">
         <Button
-          variant={m.path ? "secondary" : "primary"}
+          variant={m.path && !outdated ? "secondary" : "primary"}
           onClick={install}
           disabled={!pinned || busy}
           title={t("mining.install.tip", { v: pinnedVersion })}
         >
-          <Download className="size-4" /> {t("mining.install", { m: label })}
+          <Download className="size-4" />{" "}
+          {outdated
+            ? t("mining.update", { m: label, v: pinnedVersion })
+            : t("mining.install", { m: label })}
         </Button>
-        {/* Picking a file only makes sense on the computer you are sitting at. */}
-        {!isRemote() && (
-          <Button onClick={select} disabled={busy}>
-            <FolderOpen className="size-4" /> {t("mining.select", { m: label })}
-          </Button>
-        )}
+        <Button onClick={select} disabled={busy}>
+          <FolderOpen className="size-4" /> {t("mining.select", { m: label })}
+        </Button>
       </div>
       {status?.job?.kind === "install" && <JobProgress />}
     </div>

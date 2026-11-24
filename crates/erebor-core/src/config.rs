@@ -38,7 +38,7 @@ impl Default for PoolConfig {
             host: p.host.into(),
             port: p.port,
             tls: p.tls,
-            worker: "erebor".into(),
+            worker: String::new(),
         }
     }
 }
@@ -195,6 +195,10 @@ pub struct AppConfig {
     pub miner: MinerConfig,
     /// SRBMiner-MULTI (GPU).
     pub srbminer: MinerConfig,
+    /// lolMiner (GPU coins SRBMiner does not mine).
+    pub lolminer: MinerConfig,
+    /// cpuminer-opt (SHA-256d and Scrypt coins on the CPU).
+    pub cpuminer: MinerConfig,
     /// Optional own wallet per coin id ("PRL" → "prl1p…"). When set, that coin is mined
     /// on Kryptex straight to this address (paid in the coin itself), whatever the main
     /// payout is.
@@ -205,26 +209,13 @@ pub struct AppConfig {
     pub schedule: Schedule,
     pub benchmark: Option<BenchmarkResult>,
     pub check_updates: bool,
-    /// Start mining as soon as Erebor (app or node) starts.
+    /// Update the miners Erebor installed as soon as a newer verified build is pinned.
+    /// Off: a notification says an update is available, the user installs it.
+    pub auto_update_miners: bool,
+    /// Start mining as soon as Erebor (app or agent) starts.
     pub start_on_launch: bool,
-    /// Let other devices (laptop, phone) control this computer over the network.
-    pub remote: Remote,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(default, rename_all = "camelCase")]
-pub struct Remote {
-    pub enabled: bool,
-    pub port: u16,
-}
-
-impl Default for Remote {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            port: 7420,
-        }
-    }
+    /// Windows: the user agreed to exclude the miners folder from Defender.
+    pub defender_allowed: bool,
 }
 
 impl Default for AppConfig {
@@ -233,13 +224,15 @@ impl Default for AppConfig {
             version: CONFIG_VERSION,
             onboarding_completed: false,
             demo_mode: false,
-            language: "it".into(),
-            theme: "dark".into(),
+            language: "en".into(),
+            theme: "light".into(),
             coin: AUTO_COIN.into(),
             wallet: String::new(),
             pool: PoolConfig::default(),
             miner: MinerConfig::default(),
             srbminer: MinerConfig::default(),
+            lolminer: MinerConfig::default(),
+            cpuminer: MinerConfig::default(),
             coin_wallets: Default::default(),
             performance: Performance::default(),
             safety: Safety::default(),
@@ -248,7 +241,8 @@ impl Default for AppConfig {
             benchmark: None,
             check_updates: false,
             start_on_launch: false,
-            remote: Remote::default(),
+            defender_allowed: false,
+            auto_update_miners: true,
         }
     }
 }
@@ -260,6 +254,25 @@ pub fn valid_host(h: &str) -> bool {
         && !h.starts_with('.')
         && h.chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-')
+}
+
+/// Worker name of the project's 2% on the pool: reserved, so the owner of that account
+/// can tell it apart from the PCs that mine for themselves.
+pub const PROJECT_WORKER: &str = "EREBOR";
+
+/// Name of this PC on the pool when the user did not choose one: the hostname, letters and
+/// digits only (what Kryptex accepts).
+pub fn default_worker() -> String {
+    let w: String = crate::rpc::hostname()
+        .chars()
+        .filter(char::is_ascii_alphanumeric)
+        .take(32)
+        .collect();
+    if w.is_empty() || w.eq_ignore_ascii_case(PROJECT_WORKER) {
+        "PC".into()
+    } else {
+        w
+    }
 }
 
 pub fn valid_worker(w: &str) -> bool {
@@ -279,14 +292,14 @@ impl AppConfig {
                 return Err("kryptex_pool_required".into());
             }
         }
-        if self.remote.port < 1024 {
-            return Err("invalid_port".into());
-        }
         if !valid_host(&self.pool.host) {
             return Err("pool.host: invalid hostname".into());
         }
         if self.pool.port == 0 {
             return Err("pool.port: invalid".into());
+        }
+        if self.pool.worker.eq_ignore_ascii_case(PROJECT_WORKER) {
+            return Err("worker_reserved".into());
         }
         if !valid_worker(&self.pool.worker) {
             return Err("pool.worker: only letters, digits, '_' and '-' (max 32)".into());
@@ -348,6 +361,8 @@ impl AppConfig {
         match kind {
             crate::miner::MinerKind::Xmrig => &self.miner,
             crate::miner::MinerKind::Srbminer => &self.srbminer,
+            crate::miner::MinerKind::Lolminer => &self.lolminer,
+            crate::miner::MinerKind::Cpuminer => &self.cpuminer,
         }
     }
 
@@ -355,6 +370,8 @@ impl AppConfig {
         match kind {
             crate::miner::MinerKind::Xmrig => &mut self.miner,
             crate::miner::MinerKind::Srbminer => &mut self.srbminer,
+            crate::miner::MinerKind::Lolminer => &mut self.lolminer,
+            crate::miner::MinerKind::Cpuminer => &mut self.cpuminer,
         }
     }
 
@@ -366,6 +383,12 @@ impl AppConfig {
         // v1 always mined XMR without asking: move it to automatic choice.
         if c.version < 2 && c.coin == "XMR" {
             c.coin = AUTO_COIN.into();
+        }
+        // Kryptex only for now: per-coin wallets are no longer shown, so never used.
+        c.coin_wallets.clear();
+        // The old default name was the project's own: use this PC's name instead.
+        if c.pool.worker.eq_ignore_ascii_case(PROJECT_WORKER) {
+            c.pool.worker.clear();
         }
         c
     }

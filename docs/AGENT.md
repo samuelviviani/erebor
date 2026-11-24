@@ -14,7 +14,7 @@ erebor-agent [--data-dir DIR]    # binario dedicato, equivalente a "agent start 
 
 - **Mai mining automatico**: all'avvio l'agent non mina, salvo `startOnLaunch: true` impostato esplicitamente in configurazione; il mining reale richiede comunque consenso e configurazione valida (controllo nel motore).
 - **Segnali**: SIGINT/SIGTERM (e `erebor agent stop`) fermano il miner (`stop("agent_exit")`), chiudono la sessione nelle statistiche, rimuovono il socket ed escono con codice 0.
-- **Istanza unica**: il motore prende un lock esclusivo su `<cartella dati>/engine.lock`. Un secondo agent, l'app desktop o `erebor-node` sulla stessa cartella falliscono con `engine_busy` prima di toccare il miner. Niente miner duplicati.
+- **Istanza unica**: il motore prende un lock esclusivo su `<cartella dati>/engine.lock`. Un secondo agent o l'app desktop sulla stessa cartella falliscono con `engine_busy` prima di toccare il miner. Niente miner duplicati.
 - **Crash del miner**: rilevato a ogni tick (2 s); stato `error`. Il riavvio automatico avviene solo se `safety.autoRestart` è attivo (max 3 tentativi, 10/20/30 s). Se l'agent stesso viene ucciso con SIGKILL, il PID del miner resta in `miner.pid` e il miner orfano viene terminato al successivo avvio del motore.
 - **Configurazione**: salvata dal motore (`config.json`, scrittura atomica). La CLI modifica la configurazione solo tramite l'agent (`update_config`), con la stessa validazione della GUI.
 - **Dev fee**: gestita dal `DevFeeManager` nel motore, unico per Desktop, CLI e Agent.
@@ -28,13 +28,13 @@ erebor-agent [--data-dir DIR]    # binario dedicato, equivalente a "agent start 
 | Autenticazione | a ogni connessione il server verifica che l'UID del client (`SO_PEERCRED` su Linux, `getpeereid` su macOS) sia il proprio; il client verifica lo stesso del server (`agent_untrusted` altrimenti) |
 | Protocollo | v1: una riga JSON per richiesta e una per risposta. `{"v":1,"cmd":"get_status","args":{}}` → `{"ok":…}` oppure `{"err":"codice"}` |
 | Comandi | quelli di `erebor_core::rpc::call` (gli stessi della GUI) + `snapshot`, `device_info`, `set_device_name`, `agent_info` (risponde a ogni versione, per diagnosticare mismatch), `shutdown` (solo l'agent) |
-| Rete | nessuna porta TCP. L'API HTTP remota con token parte **solo** se l'utente ha attivato l'accesso remoto (`remote.enabled`) |
+| Rete | nessuna porta TCP: solo il socket locale |
 
 Windows: il trasporto named pipe non è ancora implementato (`ipc_unsupported_platform`); il protocollo è indipendente dal trasporto (`ipc::handle` riceve e restituisce righe), quindi l'adapter deve solo spostare byte. Su Windows resta l'app desktop.
 
 ## Chi serve il socket
 
-Il processo che possiede il motore: Agent (`owner: "agent"`), app desktop (`"desktop"`) o `erebor-node` (`"node"`). Quindi `erebor status` funziona anche con la sola app aperta. Se l'agent è attivo quando apri l'app desktop, l'app non crea un secondo motore: si collega all'agent tramite socket e mostra stato, hashrate, pool, ricompense, temperature e consumi dell'agent; uno stop dalla GUI si vede subito in CLI e TUI.
+Il processo che possiede il motore: Agent (`owner: "agent"`) o app desktop (`"desktop"`). Quindi `erebor status` funziona anche con la sola app aperta. Se l'agent è attivo quando apri l'app desktop, l'app non crea un secondo motore: si collega all'agent tramite socket e mostra stato, hashrate, pool, ricompense, temperature e consumi dell'agent; uno stop dalla GUI si vede subito in CLI e TUI.
 
 ## Aggiornamento automatico
 

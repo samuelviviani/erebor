@@ -1,12 +1,13 @@
-//! SRBMiner-MULTI adapter (GPU mining). The binary is closed-source freeware with its
-//! own developer fee per algorithm; Erebor downloads the official release and runs it
-//! unmodified, as a separate process, with fixed arguments and no shell.
+//! External miner adapter: SRBMiner-MULTI, lolMiner and cpuminer-opt (see `lolminer`,
+//! `cpuminer`). Both are closed-source
+//! freeware with their own developer fee per algorithm; Erebor downloads the official
+//! release and runs it unmodified, as a separate process, with fixed arguments and no shell.
 //!
-//! The statistics API (`--api-enable`, read-only) is polled on a random local port.
-//! SRBMiner has no hot pool switch and no pause: switching target restarts the miner.
+//! The statistics API (read-only) is polled on a random loopback port. Neither miner has
+//! a hot pool switch or a pause: switching target restarts the miner.
 
 use crate::miner::{LaunchSpec, MinerAdapter, MinerInfo, MinerKind, MinerStats, PoolTarget};
-use crate::xmrig::{command, free_loopback_port, spawn_log_reader, LogBuffer};
+use crate::xmrig::{command, free_loopback_port, spawn_error, spawn_log_reader, LogBuffer};
 use serde_json::Value;
 use std::collections::VecDeque;
 use std::path::PathBuf;
@@ -98,7 +99,8 @@ pub fn parse_stats(v: &Value) -> MinerStats {
     }
 }
 
-pub struct SrbMiner {
+pub struct ExternalMiner {
+    kind: MinerKind,
     binary: PathBuf,
     work_dir: PathBuf,
     version: Option<String>,
@@ -108,9 +110,15 @@ pub struct SrbMiner {
     http: ureq::Agent,
 }
 
-impl SrbMiner {
-    pub fn new(binary: PathBuf, work_dir: PathBuf, version: Option<String>) -> Self {
+impl ExternalMiner {
+    pub fn new(
+        kind: MinerKind,
+        binary: PathBuf,
+        work_dir: PathBuf,
+        version: Option<String>,
+    ) -> Self {
         Self {
+            kind,
             binary,
             work_dir,
             version,
@@ -124,15 +132,15 @@ impl SrbMiner {
     }
 }
 
-impl MinerAdapter for SrbMiner {
+impl MinerAdapter for ExternalMiner {
     fn info(&self) -> MinerInfo {
         MinerInfo {
-            id: "srbminer",
-            name: MinerKind::Srbminer.label(),
+            id: self.kind.dir_prefix(),
+            name: self.kind.label(),
             version: self.version.clone(),
             algorithms: crate::coins::COINS
                 .iter()
-                .filter(|c| c.miner == MinerKind::Srbminer)
+                .filter(|c| c.miner == self.kind)
                 .map(|c| c.algo)
                 .collect(),
             supports_pause: false,
@@ -151,11 +159,16 @@ impl MinerAdapter for SrbMiner {
         self.api_port = free_loopback_port()?;
         // Run from the miner's own folder: SRBMiner stores GPU autotune results there.
         let cwd = self.binary.parent().unwrap_or(&self.work_dir).to_path_buf();
+        let args = match self.kind {
+            MinerKind::Lolminer => crate::lolminer::args(spec, self.api_port),
+            MinerKind::Cpuminer => crate::cpuminer::args(spec, self.api_port),
+            _ => args(spec, self.api_port),
+        };
         let mut child = command(&self.binary)
-            .args(args(spec, self.api_port))
+            .args(args)
             .current_dir(cwd)
             .spawn()
-            .map_err(|e| format!("spawn failed: {e}"))?;
+            .map_err(spawn_error)?;
         if let Some(o) = child.stdout.take() {
             spawn_log_reader(o, self.logs.clone(), None);
         }
@@ -182,6 +195,9 @@ impl MinerAdapter for SrbMiner {
     }
 
     fn stats(&mut self) -> Result<MinerStats, String> {
+        if self.kind == MinerKind::Cpuminer {
+            return crate::cpuminer::query(self.api_port);
+        }
         let v: Value = self
             .http
             .get(&format!("http://127.0.0.1:{}/", self.api_port))
@@ -189,13 +205,19 @@ impl MinerAdapter for SrbMiner {
             .map_err(|e| e.to_string())?
             .into_json()
             .map_err(|e| e.to_string())?;
-        Ok(parse_stats(&v))
+        Ok(match self.kind {
+            MinerKind::Lolminer => crate::lolminer::parse_stats(&v),
+            _ => parse_stats(&v),
+        })
     }
 
     fn take_exit(&mut self) -> Option<String> {
         let status = self.child.as_mut()?.try_wait().ok()??;
         self.child = None;
-        Some(format!("SRBMiner-MULTI exited unexpectedly ({status})"))
+        Some(format!(
+            "{} exited unexpectedly ({status})",
+            self.kind.label()
+        ))
     }
 
     fn logs(&self) -> Vec<String> {
@@ -207,7 +229,7 @@ impl MinerAdapter for SrbMiner {
     }
 }
 
-impl Drop for SrbMiner {
+impl Drop for ExternalMiner {
     fn drop(&mut self) {
         self.stop();
     }

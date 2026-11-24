@@ -1,0 +1,14 @@
+{
+  "version": "1.98a",
+  "source": "https://github.com/Lolliedieb/lolMiner-releases/releases/tag/1.98a",
+  "assets": {
+    "linux-x86_64": {
+      "url": "https://github.com/Lolliedieb/lolMiner-releases/releases/download/1.98a/lolMiner_v1.98a_Lin64.tar.gz",
+      "sha256": "0b8078299654a12846e4967f1db3506409cfb8b1031687a910965d1a99c6f270"
+    },
+    "windows-x86_64": {
+      "url": "https://github.com/Lolliedieb/lolMiner-releases/releases/download/1.98a/lolMiner_v1.98a_Win64.zip",
+      "sha256": "f2bbda2d2255155d50935967b8c55105b9aeefbd27cda3e8d01beaf535a16762"
+    }
+  }
+}

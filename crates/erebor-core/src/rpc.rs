@@ -1,5 +1,5 @@
 //! Every command the GUI can send, by name, with JSON arguments. One dispatcher for
-//! both transports: Tauri IPC (local app) and HTTP (remote node, see `server`).
+//! both transports: Tauri IPC (desktop app) and the local socket (`erebor` CLI, see `ipc`).
 
 use crate::config::{self, AppConfig};
 use crate::engine::{self, Engine};
@@ -42,6 +42,10 @@ struct AppInfo {
     xmrig_donate_percent: f64,
     srbminer_pinned_version: String,
     srbminer_pinned_available: bool,
+    lolminer_pinned_version: String,
+    lolminer_pinned_available: bool,
+    cpuminer_pinned_version: String,
+    cpuminer_pinned_available: bool,
     repo_url: Option<&'static str>,
     hostname: String,
 }
@@ -53,6 +57,8 @@ pub fn hostname() -> String {
 fn app_info() -> AppInfo {
     let m = install::manifest();
     let srb = install::manifest_for(MinerKind::Srbminer);
+    let lol = install::manifest_for(MinerKind::Lolminer);
+    let cpm = install::manifest_for(MinerKind::Cpuminer);
     AppInfo {
         version: env!("CARGO_PKG_VERSION"),
         platform: install::platform_key(),
@@ -64,26 +70,41 @@ fn app_info() -> AppInfo {
         xmrig_donate_percent: xmrig::XMRIG_DONATE_LEVEL as f64,
         srbminer_pinned_available: srb.asset_for_platform().is_ok(),
         srbminer_pinned_version: srb.version,
+        lolminer_pinned_available: lol.asset_for_platform().is_ok(),
+        lolminer_pinned_version: lol.version,
+        cpuminer_pinned_available: cpm.asset_for_platform().is_ok(),
+        cpuminer_pinned_version: cpm.version,
         repo_url: option_env!("EREBOR_REPO_URL"),
         hostname: hostname(),
     }
 }
 
 /// Run `cmd`. Blocking (some commands reach the network): call it off the UI thread.
-/// `remote`: the caller is another device; commands that pick local files are refused.
-pub fn call(e: &Shared, cmd: &str, args: &Value, remote: bool) -> R {
+pub fn call(e: &Shared, cmd: &str, args: &Value) -> R {
     match cmd {
         "app_info" => ok(app_info()),
         "get_config" => ok(lock(e).config()),
         "update_config" => {
             let c: AppConfig = arg(args, "config")?;
-            let mut g = lock(e);
-            g.update_config(c).map_err(err)?;
-            ok(g.config())
+            let missing = {
+                let mut g = lock(e);
+                g.update_config(c).map_err(err)?;
+                // A coin picked by hand whose miner is not installed yet: install the
+                // verified build right away (best effort: the UI shows the job).
+                crate::coins::find(&g.config().coin)
+                    .map(|c| c.miner)
+                    .filter(|k| !g.config().demo_mode && g.config().miner_for(*k).path.is_none())
+            };
+            if let Some(kind) = missing {
+                let _ = engine::spawn_install_kind(e.clone(), kind);
+            }
+            ok(lock(e).config())
         }
         "validate_wallet" => {
             let a: String = arg(args, "address")?;
-            wallet::validate_payout(&a).map(|v| json!(v)).map_err(err)
+            wallet::validate_user_payout(&a)
+                .map(|v| json!(v))
+                .map_err(err)
         }
         "validate_coin_wallet" => {
             let (c, a): (String, String) = (arg(args, "coin")?, arg(args, "address")?);
@@ -123,15 +144,16 @@ pub fn call(e: &Shared, cmd: &str, args: &Value, remote: bool) -> R {
                 .map_err(err)
         }
         "select_miner" => {
-            if remote {
-                return Err(err("local_only"));
-            }
             let path: String = arg(args, "path")?;
             let kind: Option<MinerKind> = arg(args, "kind")?;
             let mut g = lock(e);
             g.select_miner_kind(kind.unwrap_or(MinerKind::Xmrig), &path)
                 .map_err(err)?;
             ok(g.config())
+        }
+        "allow_in_defender" => {
+            Engine::allow_in_defender(e).map_err(err)?;
+            ok(lock(e).config())
         }
         "coin_options" => ok(lock(e).coin_options()),
         "run_benchmark" => engine::spawn_benchmark(e.clone())
@@ -186,23 +208,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn dispatches_and_refuses_local_only_commands_remotely() {
+    fn dispatches_commands() {
         let dir = tempfile::tempdir().unwrap();
         let e: Shared = Arc::new(Mutex::new(
             Engine::new(dir.path().into(), engine::default_factory()).unwrap(),
         ));
-        let c = call(&e, "get_config", &Value::Null, true).unwrap();
+        let c = call(&e, "get_config", &Value::Null).unwrap();
         assert_eq!(c["coin"], "AUTO");
         assert_eq!(
-            call(&e, "select_miner", &json!({"path": "/bin/sh"}), true),
-            Err(json!("local_only"))
-        );
-        assert_eq!(
-            call(&e, "nope", &Value::Null, false),
+            call(&e, "nope", &Value::Null),
             Err(json!("unknown_command"))
         );
         assert_eq!(
-            call(&e, "get_stats", &json!({}), false),
+            call(&e, "get_stats", &json!({})),
             Err(json!("bad_argument:rangeSecs"))
         );
         // One engine per data dir.

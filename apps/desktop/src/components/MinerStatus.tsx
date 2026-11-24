@@ -30,7 +30,7 @@ export function useMinerPhase(): { state: keyof typeof DOT; text: string; busy: 
   }
   if (state === "paused") return { state, busy: false, text: t("state.paused") };
   if (state === "error") return { state, busy: false, text: status?.error ?? t("state.error") };
-  if (status?.startBlocker) return { state, busy: false, text: translateError(config?.language ?? "it", status.startBlocker) };
+  if (status?.startBlocker) return { state, busy: false, text: translateError(config?.language ?? "en", status.startBlocker) };
   return { state, busy: false, text: t("phase.ready") };
 }
 
@@ -60,7 +60,7 @@ export function StatusBar({ action = true }: { action?: boolean }) {
     try {
       await (active ? api.stopMining() : api.startMining());
     } catch (e) {
-      toast("error", translateError(config?.language ?? "it", errorText(e)));
+      toast("error", translateError(config?.language ?? "en", errorText(e)));
     } finally {
       await refreshStatus();
       setBusy(false);

@@ -3,6 +3,7 @@
 pub mod autostart;
 pub mod coins;
 pub mod config;
+pub mod cpuminer;
 pub mod devfee;
 pub mod earnings;
 pub mod engine;
@@ -10,15 +11,28 @@ pub mod fleet;
 pub mod hardware;
 pub mod install;
 pub mod ipc;
+pub mod lolminer;
 pub mod miner;
 pub mod pools;
 pub mod rpc;
-pub mod server;
 pub mod srbminer;
 pub mod store;
 pub mod update;
 pub mod wallet;
 pub mod xmrig;
+
+/// `Command` for a helper program that never opens a console window on Windows: the GUI
+/// polls tools like nvidia-smi every few seconds, and each one would flash a terminal.
+pub fn command(program: impl AsRef<std::ffi::OsStr>) -> std::process::Command {
+    #[allow(unused_mut)]
+    let mut cmd = std::process::Command::new(program);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    }
+    cmd
+}
 
 pub fn now_unix() -> i64 {
     std::time::SystemTime::now()

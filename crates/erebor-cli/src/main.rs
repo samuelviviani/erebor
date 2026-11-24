@@ -15,7 +15,7 @@ use erebor_core::config::{AppConfig, PoolConfig, AUTO_COIN};
 use erebor_core::hardware::Monitor;
 use erebor_core::ipc::{self, Action};
 use erebor_core::miner::MinerKind;
-use erebor_core::{autostart, coins, install, pools, wallet};
+use erebor_core::{autostart, install, pools, wallet};
 use erebor_tui::fmt::{self, explain};
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -190,6 +190,8 @@ enum MinerCmd {
 enum Kind {
     Xmrig,
     Srbminer,
+    Lolminer,
+    Cpuminer,
 }
 
 #[derive(Subcommand, Debug)]
@@ -784,15 +786,10 @@ fn wallet_cmd(dir: &Path, cmd: WalletCmd, json: bool) -> Result<(), Fail> {
             let address = address.trim().to_string();
             let mut c = load_config_live(dir)?;
             match coin {
-                Some(id) => {
-                    let id = id.to_ascii_uppercase();
-                    coins::find(&id).ok_or_else(|| Fail::from("unknown_coin".to_string()))?;
-                    wallet::validate_coin_address(&id, &address)
-                        .map_err(|e| Fail::from(format!("invalid_address: {e:?}")))?;
-                    c.coin_wallets.insert(id, address);
-                }
+                // Kryptex only for now: per-coin wallets come back with the other payouts.
+                Some(_) => return Err("kryptex_only".to_string().into()),
                 None => {
-                    wallet::validate_payout(&address)
+                    wallet::validate_user_payout(&address)
                         .map_err(|e| Fail::from(format!("invalid_address: {e:?}")))?;
                     c.wallet = address;
                 }
@@ -1353,6 +1350,8 @@ fn miner_install(dir: &Path, kind: Kind, json: bool) -> Result<(), Fail> {
     let mk = match kind {
         Kind::Xmrig => MinerKind::Xmrig,
         Kind::Srbminer => MinerKind::Srbminer,
+        Kind::Lolminer => MinerKind::Lolminer,
+        Kind::Cpuminer => MinerKind::Cpuminer,
     };
     install_wait(dir, mk, !json)?;
     let c = load_config(dir)?;

@@ -117,7 +117,7 @@ pub fn handle(host: &Host, line: &str) -> Reply {
             }
             None => Reply::Err("not_agent".into()),
         },
-        cmd => rpc::call(&host.engine, cmd, &req.args, false).into(),
+        cmd => rpc::call(&host.engine, cmd, &req.args).into(),
     }
 }
 

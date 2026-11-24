@@ -50,6 +50,8 @@ pub enum WalletError {
     WrongNetwork {
         network: Network,
     },
+    /// For now Erebor pays out through a Kryptex account only.
+    KryptexOnly,
 }
 
 fn decode_block(block: &[u8], out_size: usize) -> Option<Vec<u8>> {
@@ -150,6 +152,19 @@ pub fn is_kryptex_id(input: &str) -> bool {
         && s.len() <= 32
         && s[..3].eq_ignore_ascii_case("krx")
         && s.bytes().all(|b| b.is_ascii_alphanumeric())
+}
+
+/// What a user may enter as payout today: a Kryptex ID only. Monero and Bitcoin payouts
+/// (`validate_payout`) stay in the engine and come back once they are designed properly.
+pub fn validate_user_payout(input: &str) -> Result<AddressInfo, WalletError> {
+    if input.trim().is_empty() {
+        return Err(WalletError::Empty);
+    }
+    match validate_payout(input) {
+        Ok(i) if i.kind == AddressKind::Kryptex => Ok(i),
+        Err(WalletError::LooksLikeSecret) => Err(WalletError::LooksLikeSecret),
+        _ => Err(WalletError::KryptexOnly),
+    }
 }
 
 /// Validate what the user mines to: a Kryptex ID, a Bitcoin or a Monero mainnet address.

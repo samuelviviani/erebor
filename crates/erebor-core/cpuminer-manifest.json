@@ -1,0 +1,10 @@
+{
+  "version": "v26.1",
+  "source": "https://github.com/JayDDee/cpuminer-opt/releases/tag/v26.1",
+  "assets": {
+    "windows-x86_64": {
+      "url": "https://github.com/JayDDee/cpuminer-opt/releases/download/v26.1/cpuminer-opt-26.1-windows.zip",
+      "sha256": "caf59deb12831e40475c5245a76bf42f9ba2ff620065be5386b80ec55c998e9c"
+    }
+  }
+}

@@ -17,6 +17,7 @@ import { useCoinOptions } from "../components/CoinChange";
 import { CoinIcon } from "../components/CoinIcon";
 import { EditDialog } from "../components/CoinWallets";
 import { PageTitle } from "../components/Layout";
+import { KRYPTEX_LOGIN } from "../components/shared";
 import {
   PayoutChoice,
   payoutMode,
@@ -44,7 +45,7 @@ const ICON: Record<PayoutMode, ReactNode> = {
 
 /** Where to see the balance for each payout type (opened in the browser). */
 function balanceUrl(mode: PayoutMode, wallet: string): string | null {
-  if (mode === "kryptex") return "https://www.kryptex.com/";
+  if (mode === "kryptex") return KRYPTEX_LOGIN;
   if (mode === "bitcoin")
     return `https://unmineable.com/coins/BTC/address/${encodeURIComponent(wallet)}`;
   return null;
@@ -53,6 +54,9 @@ function balanceUrl(mode: PayoutMode, wallet: string): string | null {
 function short(a: string) {
   return a.length > 22 ? `${a.slice(0, 10)}…${a.slice(-8)}` : a;
 }
+
+/** Per-coin wallets: back with the Monero/BTC payouts (Kryptex only for now). */
+const OWN_WALLETS = false;
 
 export default function WalletPage() {
   const t = useT();
@@ -264,80 +268,87 @@ export default function WalletPage() {
         </div>
       </section>
 
-      {/* Exceptions only: coins sent to an own wallet. Scales to any number of coins. */}
-      <section className="mt-10">
-        <div className="mb-3 flex flex-wrap items-end justify-between gap-3 px-1">
-          <div className="min-w-0">
-            <h2 className="flex items-center gap-1.5 text-sm font-medium">
-              {t("wallet.own.title")}
-              <Explain term="wallet" align="left" />
-            </h2>
-            <p className="mt-0.5 text-xs text-faint">
-              {t("wallet.own.hint", { p: payoutName })}
+      {/* Exceptions only: coins sent to an own wallet. Off while Erebor is Kryptex only. */}
+      {OWN_WALLETS && (
+        <section className="mt-10">
+          <div className="mb-3 flex flex-wrap items-end justify-between gap-3 px-1">
+            <div className="min-w-0">
+              <h2 className="flex items-center gap-1.5 text-sm font-medium">
+                {t("wallet.own.title")}
+                <Explain term="wallet" align="left" />
+              </h2>
+              <p className="mt-0.5 text-xs text-faint">
+                {t("wallet.own.hint", { p: payoutName })}
+              </p>
+            </div>
+            <Button
+              variant="ghost"
+              className="border border-line"
+              onClick={() => setPicking(true)}
+              disabled={ownList.length === options.length}
+            >
+              <Plus className="size-4" /> {t("wallet.own.add")}
+            </Button>
+          </div>
+          {unreachable.length > 0 && (
+            <div className="mb-3">
+              <Notice tone="warn">
+                {t(
+                  unreachable.length === 1
+                    ? "wallet.unreachable.one"
+                    : "wallet.unreachable",
+                  {
+                    n: unreachable.length,
+                    p: payoutName,
+                    list:
+                      unreachable
+                        .slice(0, 3)
+                        .map((o) => o.coin.name)
+                        .join(", ") +
+                      (unreachable.length > 3
+                        ? ` +${unreachable.length - 3}`
+                        : ""),
+                  },
+                )}
+              </Notice>
+            </div>
+          )}
+          {ownList.length === 0 ? (
+            <p className="rounded-2xl border border-dashed border-line px-4 py-5 text-center text-sm text-faint">
+              {t("wallet.own.none", { p: payoutName })}
             </p>
-          </div>
-          <Button
-            variant="ghost"
-            className="border border-line"
-            onClick={() => setPicking(true)}
-            disabled={ownList.length === options.length}
-          >
-            <Plus className="size-4" /> {t("wallet.own.add")}
-          </Button>
-        </div>
-        {unreachable.length > 0 && (
-          <div className="mb-3">
-            <Notice tone="warn">
-              {t(
-                unreachable.length === 1
-                  ? "wallet.unreachable.one"
-                  : "wallet.unreachable",
-                {
-                  n: unreachable.length,
-                  p: payoutName,
-                  list:
-                    unreachable
-                      .slice(0, 3)
-                      .map((o) => o.coin.name)
-                      .join(", ") +
-                    (unreachable.length > 3
-                      ? ` +${unreachable.length - 3}`
-                      : ""),
-                },
-              )}
-            </Notice>
-          </div>
-        )}
-        {ownList.length === 0 ? (
-          <p className="rounded-2xl border border-dashed border-line px-4 py-5 text-center text-sm text-faint">
-            {t("wallet.own.none", { p: payoutName })}
-          </p>
-        ) : (
-          <div className="divide-y divide-line overflow-hidden rounded-2xl border border-line bg-surface">
-            {ownList.map(({ coin }) => (
-              <div key={coin.id} className="flex items-center gap-3 px-4 py-3">
-                <CoinIcon id={coin.id} size={28} />
-                <span className="w-36 shrink-0 truncate text-sm font-medium">
-                  {coin.name}
-                </span>
-                <span
-                  className="min-w-0 flex-1 truncate font-mono text-xs text-muted"
-                  title={wallets[coin.id]}
+          ) : (
+            <div className="divide-y divide-line overflow-hidden rounded-2xl border border-line bg-surface">
+              {ownList.map(({ coin }) => (
+                <div
+                  key={coin.id}
+                  className="flex items-center gap-3 px-4 py-3"
                 >
-                  {short(wallets[coin.id])}
-                </span>
-                <Button
-                  variant="ghost"
-                  onClick={() => setCoinEdit({ id: coin.id, name: coin.name })}
-                  aria-label={`${t("coinWallet.edit")} ${coin.name}`}
-                >
-                  <Pencil className="size-3.5" /> {t("coinWallet.edit")}
-                </Button>
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
+                  <CoinIcon id={coin.id} size={28} />
+                  <span className="w-36 shrink-0 truncate text-sm font-medium">
+                    {coin.name}
+                  </span>
+                  <span
+                    className="min-w-0 flex-1 truncate font-mono text-xs text-muted"
+                    title={wallets[coin.id]}
+                  >
+                    {short(wallets[coin.id])}
+                  </span>
+                  <Button
+                    variant="ghost"
+                    onClick={() =>
+                      setCoinEdit({ id: coin.id, name: coin.name })
+                    }
+                    aria-label={`${t("coinWallet.edit")} ${coin.name}`}
+                  >
+                    <Pencil className="size-3.5" /> {t("coinWallet.edit")}
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
 
       {/* Balance and payouts: only where the pool publishes them */}
       {poolApi && (

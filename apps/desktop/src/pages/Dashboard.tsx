@@ -1,13 +1,14 @@
-import { Pause, Play, Square } from "lucide-react";
+import { Power } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { usePresetChange } from "../components/CoinChange";
 import { CoinAdvice } from "../components/Advice";
+import { RealBalanceLink } from "../components/shared";
 import { ComputerMonitor } from "../components/ComputerMonitor";
 import { ModeSelector } from "../components/ModeSelector";
 import { payoutMode } from "../components/PayoutChoice";
-import { Explain, Slider, type HelpTerm } from "../components/ui";
+import { cx, Explain, Slider, type HelpTerm } from "../components/ui";
 import { api, errorText } from "../lib/api";
-import { btcFull, coinAmount, money } from "../lib/format";
+import { btcFull, coinAmount, hashrate, money } from "../lib/format";
 import { translateError, useT } from "../lib/i18n";
 import { useApp } from "../lib/store";
 
@@ -16,13 +17,90 @@ const MONTH_DAYS = 30;
  * Home: what people want to know (how much they earn per month and per day) and what
  * they change often (start/stop, coin, performance mode). Details stay plain text.
  */
+/**
+ * Start/stop as a power dial: a round key with a power glyph and the action beside it.
+ * Idle: a quiet ring that lights up on hover. Mining: the ring turns (motion-safe) and the
+ * line under the action shows the live speed; hovering the dial turns it to "stop".
+ */
+function PowerDial({
+  state,
+  busy,
+  disabled,
+  hashrate: h,
+  onClick,
+}: {
+  state: string;
+  busy: boolean;
+  disabled: boolean;
+  hashrate: number | null;
+  onClick: () => void;
+}) {
+  const t = useT();
+  const running = state === "running";
+  const paused = state === "paused";
+  const action = running
+    ? t("dash.stop.long")
+    : paused
+      ? t("dash.resume")
+      : t("dash.start.long");
+  const sub = running
+    ? h
+      ? `${t("dash.running")} · ${hashrate(h)}`
+      : t("dash.running")
+    : paused
+      ? t("dash.paused")
+      : t("dash.idle");
+  return (
+    <button
+      type="button"
+      aria-label={action}
+      onClick={onClick}
+      disabled={busy || disabled}
+      className="group flex items-center gap-4 rounded-full pr-2 text-left disabled:cursor-not-allowed disabled:opacity-50"
+    >
+      <span className="relative flex size-16 shrink-0 items-center justify-center rounded-full transition-transform duration-150 group-active:scale-95">
+        {/* The ring: a turning arc while mining, a still outline otherwise. */}
+        <span
+          aria-hidden
+          className={cx(
+            "absolute inset-0 rounded-full",
+            running
+              ? "bg-[conic-gradient(from_0deg,transparent_0deg,var(--go)_280deg,transparent_360deg)] motion-safe:animate-[spin_2.4s_linear_infinite] group-hover:bg-[conic-gradient(var(--stop),var(--stop))]"
+              : busy
+                ? "bg-[conic-gradient(from_0deg,transparent_0deg,var(--fg)_200deg,transparent_360deg)] opacity-40 motion-safe:animate-spin"
+                : paused
+                  ? "bg-warn/70"
+                  : "bg-line group-hover:bg-go group-disabled:bg-line",
+          )}
+        />
+        <span
+          className={cx(
+            "absolute inset-[3px] flex items-center justify-center rounded-full bg-surface transition-colors",
+            running
+              ? "text-go shadow-[0_0_28px_-6px_var(--go)] group-hover:text-stop group-hover:shadow-[0_0_28px_-6px_var(--stop)]"
+              : paused
+                ? "text-warn"
+                : "text-muted group-hover:text-go group-disabled:text-faint",
+          )}
+        >
+          <Power className="size-6" strokeWidth={2.25} />
+        </span>
+      </span>
+      <span className="min-w-0">
+        <span className="block text-[15px] font-semibold">{action}</span>
+        <span className="num mt-0.5 block text-xs text-faint">{sub}</span>
+      </span>
+    </button>
+  );
+}
+
 export default function Dashboard() {
   const t = useT();
   const { status, config, toast, refreshStatus, saveConfig, setPage } =
     useApp();
   const [busy, setBusy] = useState(false);
   const setPreset = usePresetChange();
-  const lang = config?.language ?? "it";
+  const lang = config?.language ?? "en";
   const locale = lang === "it" ? "it-IT" : "en-US";
   const currency = config?.energy.currency ?? "EUR";
   const state = status?.state ?? "stopped";
@@ -71,56 +149,37 @@ export default function Dashboard() {
               : t(`home.sub.${state === "error" ? "stopped" : state}`)}
           </p>
 
-          {/* One obvious action: start; while mining, stop and pause side by side. */}
-          <div className="mt-6 flex flex-wrap items-center gap-3">
-            {!active ? (
+          {/* One control: a power dial. Idle it waits; while mining its ring turns
+              like an engine. No pause: stopping is just as quick (a run paused from
+              the terminal shows "Resume", with stop beside it). */}
+          <div className="mt-6 flex flex-wrap items-center gap-x-5 gap-y-3">
+            <PowerDial
+              state={state}
+              busy={busy}
+              disabled={!status || (!active && !!status?.startBlocker)}
+              hashrate={status?.stats?.hashrate10s ?? null}
+              onClick={() =>
+                act(
+                  state === "paused"
+                    ? api.resumeMining
+                    : active
+                      ? api.stopMining
+                      : api.startMining,
+                )
+              }
+            />
+            {state === "paused" && (
               <button
                 type="button"
-                disabled={busy || !status || !!status?.startBlocker}
-                onClick={() => act(api.startMining)}
-                className="inline-flex h-12 items-center gap-2.5 rounded-full bg-go/12 px-6 text-[15px] font-semibold text-go transition-colors hover:bg-go/20 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
+                disabled={busy}
+                onClick={() => act(api.stopMining)}
+                className="text-sm text-stop hover:underline disabled:opacity-50"
               >
-                <Play className="size-[18px] fill-current" />
-                {t("dash.start.long")}
+                {t("dash.stop")}
               </button>
-            ) : (
-              <>
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => act(api.stopMining)}
-                  className="inline-flex h-12 items-center gap-2.5 rounded-full bg-stop/10 px-6 text-[15px] font-semibold text-stop transition-colors hover:bg-stop/15 active:scale-[0.98] disabled:opacity-50"
-                >
-                  <Square className="size-4 fill-current" />
-                  {t("dash.stop")}
-                </button>
-                {status?.miner?.supportsPause !== false && (
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() =>
-                      act(
-                        state === "paused" ? api.resumeMining : api.pauseMining,
-                      )
-                    }
-                    className={
-                      state === "paused"
-                        ? "inline-flex h-12 items-center gap-2.5 rounded-full bg-go/12 px-6 text-[15px] font-semibold text-go transition-colors hover:bg-go/20 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
-                        : "inline-flex h-12 items-center gap-2.5 rounded-full bg-surface-2 px-6 text-[15px] font-semibold text-fg transition-colors hover:bg-line active:scale-[0.98] disabled:opacity-50"
-                    }
-                  >
-                    {state === "paused" ? (
-                      <Play className="size-4 fill-current" />
-                    ) : (
-                      <Pause className="size-4 fill-current" />
-                    )}
-                    {state === "paused" ? t("dash.resume") : t("dash.pause")}
-                  </button>
-                )}
-              </>
             )}
             {!active && status?.startBlocker && (
-              <p className="text-xs text-faint" role="status">
+              <p className="max-w-xs text-xs text-faint" role="status">
                 {translateError(lang, status.startBlocker)}
               </p>
             )}
@@ -156,6 +215,7 @@ export default function Dashboard() {
                     ? `≈ ${fmt(status.minedBtc * btcPrice)}`
                     : undefined
                 }
+                extra={payout === "kryptex" && <RealBalanceLink />}
               >
                 {btcFull(status?.minedBtc ?? 0, locale)}
               </Figure>
@@ -240,7 +300,6 @@ export default function Dashboard() {
         <p className="mb-4 text-xs text-faint">{t("hw.live.sub")}</p>
         <ComputerMonitor />
       </section>
-
     </div>
   );
 }
@@ -249,11 +308,13 @@ function Figure({
   label,
   help,
   sub,
+  extra,
   children,
 }: {
   label: string;
   help: HelpTerm;
   sub?: string;
+  extra?: ReactNode;
   children: ReactNode;
 }) {
   return (
@@ -266,6 +327,7 @@ function Figure({
         {children}
       </dd>
       {sub && <dd className="num mt-1.5 text-sm text-faint">{sub}</dd>}
+      {extra && <dd className="mt-1">{extra}</dd>}
     </div>
   );
 }

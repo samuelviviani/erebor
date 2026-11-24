@@ -202,6 +202,8 @@ pub fn run(dir: &Path, cfg: &AppConfig, offline: bool) -> Vec<Check> {
         let id = match kind {
             MinerKind::Xmrig => "miner.xmrig",
             MinerKind::Srbminer => "miner.srbminer",
+            MinerKind::Lolminer => "miner.lolminer",
+            MinerKind::Cpuminer => "miner.cpuminer",
         };
         let platform_ok = install::manifest_for(kind).asset_for_platform().is_ok();
         let mc = cfg.miner_for(kind);

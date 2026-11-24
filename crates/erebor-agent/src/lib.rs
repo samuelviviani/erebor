@@ -1,7 +1,6 @@
 //! Erebor agent: the one process that owns the mining engine (and so the miner child
 //! processes) for a data folder. The CLI, the TUI and the desktop app talk to it over
-//! the local socket (`erebor_core::ipc`); remote devices over the token-protected HTTP
-//! API, only when the user enabled remote access.
+//! the local socket (`erebor_core::ipc`).
 //!
 //! Never starts mining by itself, except with `startOnLaunch` set explicitly in the
 //! configuration (and, for real mining, after the fees were accepted), or to resume
@@ -13,7 +12,7 @@
 //! one, so service managers keep tracking the same process.
 
 use erebor_core::engine::{self, Engine};
-use erebor_core::{ipc, server};
+use erebor_core::ipc;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -108,35 +107,18 @@ pub fn run_until(data_dir: PathBuf, tx: Sender<()>, rx: Receiver<()>) -> Result<
     // before it can touch the miner: one engine, one miner, per computer.
     let engine = Engine::new(data_dir.clone(), engine::default_factory()).map_err(|e| {
         if e == "engine_busy" {
-            "engine_busy: another Erebor (agent, desktop app or node) already owns this data folder"
+            "engine_busy: another Erebor (agent or desktop app) already owns this data folder"
                 .to_string()
         } else {
             e
         }
     })?;
-    let remote = engine.config().remote.clone();
     // After a restart on a new version: pick up where mining was.
     let resume = std::fs::remove_file(data_dir.join(RESUME_FILE)).is_ok();
     let start = engine.config().start_on_launch || resume;
     let engine = Arc::new(Mutex::new(engine));
     engine::spawn_loops(engine.clone());
     let _ipc = ipc::serve(ipc::Host::new(engine.clone(), "agent", Some(tx)))?;
-    let _http = if remote.enabled {
-        let started = server::token(&data_dir)
-            .and_then(|t| server::start(engine.clone(), remote.port, t, Arc::new(|_: &str| None)));
-        match started {
-            Ok(s) => {
-                println!("remote access on port {} (enabled in settings)", s.port);
-                Some(s)
-            }
-            Err(e) => {
-                eprintln!("remote access not started: {e}");
-                None
-            }
-        }
-    } else {
-        None
-    };
     println!(
         "erebor-agent {} ready · pid {} · socket {}",
         env!("CARGO_PKG_VERSION"),

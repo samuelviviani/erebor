@@ -1,6 +1,6 @@
 # Erebor CLI (`erebor`)
 
-Interfaccia da terminale di Erebor. Legge e comanda lo **stesso motore** dell'app desktop: ogni comando che riguarda il mining passa dal processo che possiede il motore (Agent, app desktop o `erebor-node`) tramite il socket locale. CLI, TUI e GUI vedono quindi sempre lo stesso stato.
+Interfaccia da terminale di Erebor. Legge e comanda lo **stesso motore** dell'app desktop: ogni comando che riguarda il mining passa dal processo che possiede il motore (Agent o app desktop) tramite il socket locale. CLI, TUI e GUI vedono quindi sempre lo stesso stato.
 
 ## In breve
 

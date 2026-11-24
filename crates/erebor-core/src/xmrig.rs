@@ -60,7 +60,7 @@ pub fn parse_version(output: &str) -> Option<String> {
 }
 
 pub fn detect_version(path: &Path) -> Result<String, String> {
-    let out = Command::new(path)
+    let out = crate::command(path)
         .arg("--version")
         .stdin(Stdio::null())
         .output()
@@ -219,17 +219,20 @@ pub fn spawn_log_reader<R: std::io::Read + Send + 'static>(
     });
 }
 
+/// Windows refuses to run a file its antivirus flagged (ERROR_VIRUS_INFECTED/_DELETED).
+pub fn spawn_error(e: std::io::Error) -> String {
+    if matches!(e.raw_os_error(), Some(225 | 226)) && cfg!(windows) {
+        "blocked_by_antivirus".into()
+    } else {
+        format!("spawn failed: {e}")
+    }
+}
+
 pub fn command(binary: &Path) -> Command {
-    let mut cmd = Command::new(binary);
+    let mut cmd = crate::command(binary);
     cmd.stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    #[cfg(windows)]
-    {
-        // Avoid an extra console window; Erebor shows mining status in its own UI.
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x0800_0000);
-    }
     cmd
 }
 
@@ -314,7 +317,7 @@ impl MinerAdapter for XmrigMiner {
             .arg(format!("--config={}", path.display()))
             .current_dir(&self.work_dir)
             .spawn()
-            .map_err(|e| format!("spawn failed: {e}"))?;
+            .map_err(spawn_error)?;
         if let Some(o) = child.stdout.take() {
             spawn_log_reader(o, self.logs.clone(), None);
         }
@@ -411,7 +414,7 @@ pub fn run_benchmark(
             format!("--cpu-max-threads-hint={}", threads_percent.clamp(1, 100)),
         ])
         .spawn()
-        .map_err(|e| format!("spawn failed: {e}"))?;
+        .map_err(spawn_error)?;
     if let Some(o) = child.stdout.take() {
         spawn_log_reader(o, logs.clone(), Some(on_line));
     }

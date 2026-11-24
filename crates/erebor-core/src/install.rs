@@ -7,6 +7,10 @@
 //! - `srbminer-manifest.json`: upstream publishes MD5 only; the archive was downloaded from
 //!   the official release, its MD5 checked against the published one, and its SHA-256
 //!   pinned (`scripts/update-srbminer-manifest.mjs`).
+//! - `lolminer-manifest.json`: SHA-256 published by GitHub for each release asset, checked
+//!   on download (`scripts/update-github-manifest.mjs`).
+//! - `cpuminer-manifest.json`: same, for cpuminer-opt (Windows builds only upstream). Its
+//!   archive holds one build per CPU feature level plus DLLs: all of it is extracted.
 
 use crate::miner::MinerKind;
 
@@ -20,6 +24,8 @@ fn official_prefix(kind: MinerKind) -> &'static str {
     match kind {
         MinerKind::Xmrig => "https://github.com/xmrig/xmrig/releases/download/",
         MinerKind::Srbminer => "https://github.com/doktor83/SRBMiner-Multi/releases/download/",
+        MinerKind::Lolminer => "https://github.com/Lolliedieb/lolMiner-releases/releases/download/",
+        MinerKind::Cpuminer => "https://github.com/JayDDee/cpuminer-opt/releases/download/",
     }
 }
 const MAX_ARCHIVE_BYTES: u64 = 64 * 1024 * 1024;
@@ -51,6 +57,8 @@ pub fn manifest_for(kind: MinerKind) -> Manifest {
     let raw = match kind {
         MinerKind::Xmrig => include_str!("../xmrig-manifest.json"),
         MinerKind::Srbminer => include_str!("../srbminer-manifest.json"),
+        MinerKind::Lolminer => include_str!("../lolminer-manifest.json"),
+        MinerKind::Cpuminer => include_str!("../cpuminer-manifest.json"),
     };
     let mut m: Manifest = serde_json::from_str(raw).expect("valid embedded manifest");
     m.kind = kind;
@@ -179,6 +187,24 @@ pub fn extract_binary_named(
     Ok(dest)
 }
 
+/// Extract every regular file of a .zip into `dest_dir`, flat (names only, never paths:
+/// nothing can land outside the folder).
+fn extract_zip_files(archive: &[u8], dest_dir: &Path) -> Result<(), String> {
+    std::fs::create_dir_all(dest_dir).map_err(|e| e.to_string())?;
+    let mut z = zip::ZipArchive::new(std::io::Cursor::new(archive)).map_err(|e| e.to_string())?;
+    for i in 0..z.len() {
+        let mut f = z.by_index(i).map_err(|e| e.to_string())?;
+        let entry = f.name().map_err(|e| e.to_string())?.into_owned();
+        let Some(name) = Path::new(&entry).file_name().filter(|_| f.is_file()) else {
+            continue;
+        };
+        let mut bytes = Vec::new();
+        f.read_to_end(&mut bytes).map_err(|e| e.to_string())?;
+        std::fs::write(dest_dir.join(name), bytes).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
 pub struct Installed {
     pub path: PathBuf,
     pub version: String,
@@ -203,17 +229,57 @@ pub fn install_pinned_kind(
     let asset = m.asset_for_platform()?;
     let data = download(&asset.url, progress)?;
     verify_sha256(&data, &asset.sha256)?;
-    let path = extract_binary_named(
-        &data,
-        &asset.url,
-        &miners_dir.join(format!("{}-{}", kind.dir_prefix(), m.version)),
-        kind.binary_name(),
-    )?;
-    let sha256 = crate::xmrig::sha256_file(&path)?;
+    let dir = miners_dir.join(format!("{}-{}", kind.dir_prefix(), m.version));
+    let path = if kind == MinerKind::Cpuminer {
+        extract_zip_files(&data, &dir)?;
+        dir.join(kind.binary_name())
+    } else {
+        extract_binary_named(&data, &asset.url, &dir, kind.binary_name())?
+    };
+    // Defender quarantines a miner as soon as it is written or read.
+    let sha256 = crate::xmrig::sha256_file(&path).map_err(|e| {
+        if cfg!(windows) {
+            "blocked_by_antivirus".to_string()
+        } else {
+            e
+        }
+    })?;
     Ok(Installed {
         path,
         version: m.version,
         sha256,
+    })
+}
+
+/// Windows Defender reports every crypto miner (XMRig, SRBMiner) as "CoinMiner" and
+/// quarantines it. Only after the user's explicit consent in the app: exclude Erebor's
+/// miners folder from scanning. Windows asks for administrator approval (UAC).
+pub fn allow_in_defender(miners_dir: &Path) -> Result<(), String> {
+    use base64::Engine as _;
+    if !cfg!(windows) {
+        return Err("windows_only".into());
+    }
+    std::fs::create_dir_all(miners_dir).map_err(|e| e.to_string())?;
+    let dir = miners_dir.to_string_lossy().replace('\'', "''");
+    let inner = format!("Add-MpPreference -ExclusionPath '{dir}'");
+    let utf16: Vec<u8> = inner.encode_utf16().flat_map(u16::to_le_bytes).collect();
+    let enc = base64::engine::general_purpose::STANDARD.encode(utf16);
+    let outer = format!(
+        "$p = Start-Process powershell -Verb RunAs -Wait -PassThru -WindowStyle Hidden \
+         -ArgumentList '-NoProfile','-EncodedCommand','{enc}'; exit $p.ExitCode"
+    );
+    let out = crate::command("powershell")
+        .args(["-NoProfile", "-NonInteractive", "-Command", &outer])
+        .output()
+        .map_err(|e| e.to_string())?;
+    if out.status.success() {
+        return Ok(());
+    }
+    let err = String::from_utf8_lossy(&out.stderr);
+    Err(if err.contains("cancel") {
+        "cancelled".into()
+    } else {
+        format!("defender_failed: {}", err.trim())
     })
 }
 

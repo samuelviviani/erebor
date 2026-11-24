@@ -9,7 +9,7 @@ export default function Docs() {
       <h2 id="primo-avvio">Primo avvio</h2>
       <p>Erebor guida la configurazione in tre passaggi:</p>
       <ul>
-        <li><strong>Dove ricevi i guadagni</strong>, tre scelte: <em>Account Kryptex</em> (ID <code>krx…</code>, BTC sull&apos;account Kryptex, tutte le monete); <em>Il mio wallet Bitcoin</em> (indirizzo <code>bc1…</code>/<code>1…</code>/<code>3…</code> verificato con checksum, BTC direttamente sul wallet tramite unMineable sopra 0,00075 BTC, Ravencoin escluso); <em>Avanzato: indirizzo Monero</em> (solo processore).</li>
+        <li><strong>Dove ricevi i guadagni</strong>: il tuo <em>ID Kryptex</em> (<code>krx…</code>). I guadagni arrivano in BTC sul tuo account Kryptex, per tutte le monete. Altri wallet arriveranno in seguito.</li>
         <li><strong>Preparazione del PC</strong>: rilevamento dell&apos;hardware e installazione automatica di XMRig verificato. Nelle opzioni avanzate puoi selezionare un binario esistente.</li>
         <li><strong>Pronto</strong>: il mining parte quando premi Inizia.</li>
       </ul>
