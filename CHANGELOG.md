@@ -2,6 +2,11 @@
 
 Formato: [Keep a Changelog](https://keepachangelog.com/it/1.1.0/), versioni [SemVer](https://semver.org/lang/it/).
 
+## [0.1.5] - 2026-11-24
+
+### Fixed
+- Commissione Erebor: il tempo minato con una versione senza commissione attiva non viene più addebitato dopo l'aggiornamento (prima causava un lungo blocco di mining per il progetto appena aggiornati).
+
 ## [0.1.4] - 2026-11-24
 
 ### Fixed

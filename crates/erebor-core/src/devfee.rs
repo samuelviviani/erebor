@@ -97,8 +97,10 @@ impl DevFeeManager {
 
     /// Account `effective_secs` of real mining for the active target and return the
     /// target that should be active from now on. Pass 0 while paused/idle/warming up.
+    /// Time mined while the fee is off (e.g. a build without project wallet) is not
+    /// counted: enabling the fee later must not charge it retroactively.
     pub fn tick(&mut self, effective_secs: f64) -> Target {
-        if effective_secs > 0.0 && effective_secs.is_finite() {
+        if self.enabled && effective_secs > 0.0 && effective_secs.is_finite() {
             match self.active {
                 Target::User => self.ledger.user_secs += effective_secs,
                 Target::Project => self.ledger.project_secs += effective_secs,
@@ -192,6 +194,15 @@ mod tests {
         let switches = run(&mut m, 36_000, 1.0); // 10 hours
                                                  // ~6 project blocks -> ~12 switches, never constant flapping.
         assert!(switches <= 14, "{switches}");
+    }
+
+    #[test]
+    fn time_with_fee_off_is_not_charged_later() {
+        let mut m = DevFeeManager::new(DEFAULT_FEE_PERCENT, false, Ledger::default());
+        run(&mut m, 70_000, 1.0); // ~19 hours mined by a build without the fee
+        m.set_enabled(true);
+        assert_eq!(m.tick(1.0), Target::User);
+        assert_eq!(m.ledger().user_secs, 1.0);
     }
 
     #[test]
