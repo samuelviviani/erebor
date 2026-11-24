@@ -1,9 +1,9 @@
-//! `erebor onboard`: guided first-run setup, modelled on OpenClaw's onboarding wizard
-//! (setup mode → payout → miner → background agent → health check → summary).
+//! `erebor onboard`: guided setup. Every option is shown, each with a sensible default
+//! (Enter keeps it): whoever installs the terminal version knows what they are doing.
 //!
-//! Every answer is collected first; nothing is changed until the last question, so
-//! leaving half-way (Ctrl-C) changes nothing. Changes go through
-//! the engine (`update_config`), with the same validation as the desktop app.
+//! Every answer is collected first and reviewed; nothing changes until the user confirms,
+//! so leaving half-way (Ctrl-C) changes nothing. Changes go through the engine
+//! (`update_config`), with the same validation as the desktop app.
 
 use crate::ui::{self, paint};
 use crate::{doctor, Fail};
@@ -11,7 +11,8 @@ use anstream::println;
 use clap::{Args, ValueEnum};
 use dialoguer::theme::ColorfulTheme;
 use dialoguer::{Confirm, Input, Select};
-use erebor_core::config::{self, AppConfig, PoolConfig, Preset};
+use erebor_core::coins::{self, Device};
+use erebor_core::config::{self, AppConfig, Energy, Performance, PoolConfig, Preset, Safety};
 use erebor_core::hardware::Monitor;
 use erebor_core::ipc::{self, Action};
 use erebor_core::miner::MinerKind;
@@ -23,16 +24,22 @@ use std::time::{Duration, Instant};
 
 #[derive(Args, Debug, Default, Clone)]
 pub struct Opts {
-    /// No prompts (scripts, provisioning).
+    /// No prompts (scripts, provisioning). Fine-tune afterwards with `erebor config set`.
     #[arg(long)]
     pub non_interactive: bool,
     #[arg(long, value_enum)]
     pub mode: Option<Mode>,
     /// Payout: your Kryptex ID (krx…).
-    #[arg(long, value_name = "ADDRESS")]
+    #[arg(long, value_name = "KRYPTEX_ID")]
     pub wallet: Option<String>,
     #[arg(long, value_name = "POOL_ID")]
     pub pool: Option<String>,
+    /// Coin id (see `erebor coins`) or `auto`.
+    #[arg(long, value_name = "COIN")]
+    pub coin: Option<String>,
+    /// Worker name shown by the pool (default: this computer's hostname).
+    #[arg(long, value_name = "NAME")]
+    pub worker: Option<String>,
     #[arg(long, value_enum)]
     pub performance: Option<Perf>,
     /// Do not download the miner now.
@@ -58,8 +65,10 @@ pub struct Opts {
 
 #[derive(ValueEnum, Debug, Clone, Copy, PartialEq)]
 pub enum Mode {
-    Quickstart,
-    Custom,
+    /// Real mining.
+    #[value(alias = "quickstart", alias = "custom")]
+    Mining,
+    /// Simulated miner: nothing is mined, nothing goes on the network.
     Demo,
 }
 
@@ -88,11 +97,12 @@ struct Plan {
     reset: bool,
     wallet: Option<String>,
     pool: Option<String>,
-    preset: Option<Preset>,
+    /// "AUTO" or a coin id; set after the miners are installed.
+    coin: Option<String>,
     worker: Option<String>,
-    device_name: Option<String>,
-    max_temp_c: Option<f32>,
-    auto_restart: Option<bool>,
+    performance: Option<Performance>,
+    energy: Option<Energy>,
+    safety: Option<Safety>,
     install: Vec<MinerKind>,
     background: bool,
     service: bool,
@@ -137,6 +147,38 @@ fn check_wallet(w: &str) -> Result<String, String> {
     }
 }
 
+fn check_worker(w: &str) -> Result<(), &'static str> {
+    if w.eq_ignore_ascii_case(config::PROJECT_WORKER) {
+        Err("EREBOR is reserved for Erebor's 2%")
+    } else if config::valid_worker(w) {
+        Ok(())
+    } else {
+        Err("letters, digits, '_' and '-' only, max 32")
+    }
+}
+
+/// "AUTO" or a known coin id, upper case.
+fn check_coin(id: &str) -> Result<String, Fail> {
+    let id = id.trim().to_uppercase();
+    if id == config::AUTO_COIN || coins::find(&id).is_some() {
+        Ok(id)
+    } else {
+        Err("unknown_coin".to_string().into())
+    }
+}
+
+/// Coins this computer can mine: CPU coins with a build for this platform, GPU coins
+/// with a supported GPU.
+fn mineable(c: &AppConfig, gpu: bool) -> Vec<&'static coins::Coin> {
+    coins::COINS
+        .iter()
+        .filter(|k| match k.device {
+            Device::Gpu => gpu,
+            Device::Cpu => available(k.miner) || installed(c, k.miner),
+        })
+        .collect()
+}
+
 pub fn run(dir: &Path, o: Opts, json: bool) -> Result<(), Fail> {
     let current = crate::load_config(dir)?;
     let plan = if o.non_interactive || !interactive() {
@@ -145,7 +187,7 @@ pub fn run(dir: &Path, o: Opts, json: bool) -> Result<(), Fail> {
         }
         from_flags(&o, &current)?
     } else {
-        match ask(dir, &o, &current)? {
+        match ask(&o, &current)? {
             Some(p) => p,
             None => return summary(dir, None, json),
         }
@@ -154,7 +196,7 @@ pub fn run(dir: &Path, o: Opts, json: bool) -> Result<(), Fail> {
 }
 
 fn from_flags(o: &Opts, c: &AppConfig) -> Result<Plan, Fail> {
-    let mode = o.mode.unwrap_or(Mode::Quickstart);
+    let mode = o.mode.unwrap_or(Mode::Mining);
     let mut p = Plan {
         mode: Some(mode),
         reset: o.reset,
@@ -175,15 +217,28 @@ fn from_flags(o: &Opts, c: &AppConfig) -> Result<Plan, Fail> {
     if let Some(id) = &o.pool {
         pools::find(id).ok_or_else(|| Fail::from("unknown_pool".to_string()))?;
     }
+    if let Some(w) = &o.worker {
+        check_worker(w).map_err(|_| Fail::from("invalid_worker".to_string()))?;
+    }
     p.wallet = Some(w.trim().into());
     p.pool = o.pool.clone();
-    p.preset = o.performance.map(Into::into);
-    if !o.no_install_miner && !installed(c, MinerKind::Xmrig) && available(MinerKind::Xmrig) {
-        p.install.push(MinerKind::Xmrig);
-    }
-    if !o.no_install_miner && Monitor::new().detect().gpu_mining_supported {
-        for k in [MinerKind::Srbminer, MinerKind::Lolminer] {
-            if !installed(c, k) && available(k) {
+    p.worker = o.worker.clone();
+    p.coin = o.coin.as_deref().map(check_coin).transpose()?;
+    p.performance = o.performance.map(|l| Performance {
+        preset: l.into(),
+        ..c.performance.clone()
+    });
+    if !o.no_install_miner {
+        let gpu = Monitor::new().detect().gpu_mining_supported;
+        let mut want = vec![MinerKind::Xmrig];
+        if gpu {
+            want.extend([MinerKind::Srbminer, MinerKind::Lolminer]);
+        }
+        if let Some(k) = p.coin.as_deref().and_then(coins::find) {
+            want.push(k.miner);
+        }
+        for k in want {
+            if !installed(c, k) && available(k) && !p.install.contains(&k) {
                 p.install.push(k);
             }
         }
@@ -195,14 +250,37 @@ fn cancelled(_: dialoguer::Error) -> Fail {
     Fail::from("onboarding_cancelled".to_string())
 }
 
+/// Prompts indented like the rest of the setup.
+fn theme() -> ColorfulTheme {
+    use dialoguer::console::style;
+    ColorfulTheme {
+        prompt_prefix: style("  ?".to_string()).for_stderr().yellow(),
+        success_prefix: style("  ✓".to_string()).for_stderr().green(),
+        error_prefix: style("  ✗".to_string()).for_stderr().red(),
+        active_item_prefix: style("    ›".to_string()).for_stderr().yellow(),
+        inactive_item_prefix: style("     ".to_string()).for_stderr(),
+        ..ColorfulTheme::default()
+    }
+}
+
+/// A section title with a blank line around it, then its notes.
+fn section(title: &str, notes: &[&str]) {
+    println!("\n\n  {}", paint(title, ui::BRAND));
+    for n in notes {
+        println!("  {}", paint(n, ui::DIM));
+    }
+    println!();
+}
+
 /// The interactive questions. `None`: keep the current setup.
-fn ask(dir: &Path, o: &Opts, current: &AppConfig) -> Result<Option<Plan>, Fail> {
-    let t = ColorfulTheme::default();
-    let select = |prompt: &str, items: &[&str], default: usize| {
+fn ask(o: &Opts, current: &AppConfig) -> Result<Option<Plan>, Fail> {
+    let t = theme();
+    let select = |prompt: &str, items: &[String], default: usize| {
         Select::with_theme(&t)
             .with_prompt(prompt)
             .items(items)
             .default(default)
+            .max_length(12)
             .interact()
             .map_err(cancelled)
     };
@@ -213,19 +291,16 @@ fn ask(dir: &Path, o: &Opts, current: &AppConfig) -> Result<Option<Plan>, Fail> 
             .interact()
             .map_err(cancelled)
     };
+    let items = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
 
     println!(
-        "\n  {}  {}\n",
+        "\n  {}  {}",
         paint("▲ EREBOR", ui::BRAND),
-        paint("·  mining, under your control", ui::DIM)
+        paint(format!("setup · v{}", env!("CARGO_PKG_VERSION")), ui::DIM)
     );
-    println!(
-        "{}\n",
-        paint(
-            "  This setup takes about a minute. Nothing changes until the last step,\n  and nothing is mined unless you ask for it.",
-            ui::DIM
-        )
-    );
+    println!();
+    println!("  Enter keeps the value in brackets. Ctrl-C leaves without changing anything.");
+    println!("  You review everything at the end; nothing is mined until you start it.");
 
     let configured = current.onboarding_completed || current.demo_mode;
     let mut reset = o.reset;
@@ -239,13 +314,17 @@ fn ask(dir: &Path, o: &Opts, current: &AppConfig) -> Result<Option<Plan>, Fail> 
                 current.pool.id
             )
         };
+        section(
+            "Current setup",
+            &[&format!("Erebor is already set up: {what}.")],
+        );
         match select(
-            &format!("Erebor is already set up ({what})"),
-            &[
-                "Keep the current setup",
-                "Modify it",
+            "What do you want to do",
+            &items(&[
+                "Keep it",
+                "Change it",
                 "Start over from defaults (statistics are kept)",
-            ],
+            ]),
             0,
         )? {
             0 => return Ok(None),
@@ -261,19 +340,20 @@ fn ask(dir: &Path, o: &Opts, current: &AppConfig) -> Result<Option<Plan>, Fail> 
 
     let mode = match o.mode {
         Some(m) => m,
-        None => match select(
-            "How do you want to set up Erebor?",
-            &[
-                "Quick start (recommended): your wallet, the official miner, safe defaults",
-                "Custom: also choose pool, performance, safety and startup",
-                "Demo: try everything with a simulated miner (nothing is mined)",
-            ],
-            0,
-        )? {
-            0 => Mode::Quickstart,
-            1 => Mode::Custom,
-            _ => Mode::Demo,
-        },
+        None => {
+            section("1 · Mode", &[]);
+            match select(
+                "Mode",
+                &items(&[
+                    "Real mining",
+                    "Demo: simulated miner, nothing is mined, no network",
+                ]),
+                0,
+            )? {
+                0 => Mode::Mining,
+                _ => Mode::Demo,
+            }
+        }
     };
     let mut p = Plan {
         mode: Some(mode),
@@ -283,14 +363,21 @@ fn ask(dir: &Path, o: &Opts, current: &AppConfig) -> Result<Option<Plan>, Fail> 
     };
 
     if mode == Mode::Demo {
+        section("2 · Demo", &[]);
         p.background = true;
-        p.start = confirm("Start the simulated miner now?", true)?;
-        p.monitor = confirm("Open the live dashboard at the end?", true)?;
-        return Ok(Some(p));
+        p.start = confirm("Start the simulated miner now", true)?;
+        p.monitor = confirm("Open the dashboard at the end", true)?;
+        return review(p, &base).map(Some);
     }
 
-    println!("\n  Earnings go to your kryptex.com account (paid in BTC).");
-    println!("  Enter your Kryptex ID (krx…), shown on kryptex.com after signing up.\n");
+    // Payout.
+    section(
+        "2 · Payout",
+        &[
+            "Earnings go to your Kryptex account and are paid in BTC.",
+            "Your Kryptex ID (krx…) is on kryptex.com once you sign up.",
+        ],
+    );
     let mut input = Input::<String>::with_theme(&t).with_prompt("Kryptex ID");
     let prefill = o.wallet.clone().unwrap_or_else(|| base.wallet.clone());
     if !prefill.is_empty() {
@@ -300,159 +387,278 @@ fn ask(dir: &Path, o: &Opts, current: &AppConfig) -> Result<Option<Plan>, Fail> 
         .validate_with(|s: &String| check_wallet(s).map(|_| ()))
         .interact_text()
         .map_err(cancelled)?;
-    let kind = wallet::payout_kind(w.trim());
-    println!(
-        "  {}",
-        ui::ok(format!("{} payout", check_wallet(&w).unwrap_or_default()))
-    );
     p.wallet = Some(w.trim().into());
 
-    if mode == Mode::Custom {
-        match kind {
-            Some(wallet::AddressKind::Kryptex) => {
-                println!("  Kryptex IDs mine on the Kryptex pool: pool set automatically.")
+    // What and how to mine.
+    let gpu = Monitor::new().detect().gpu_mining_supported;
+    section(
+        "3 · Mining",
+        &[
+            "Auto picks the most profitable coin for this machine and switches by itself.",
+            if gpu {
+                "A supported GPU was found: GPU coins are listed too."
+            } else {
+                "No supported GPU found: CPU coins only."
+            },
+        ],
+    );
+    let list = mineable(&base, gpu);
+    let mut coin_items = vec!["Auto (most profitable)".to_string()];
+    coin_items.extend(list.iter().map(|c| {
+        format!(
+            "{:<7} {:<16} {:<13} {}{}",
+            c.id,
+            c.name,
+            c.algo,
+            if c.device == Device::Gpu {
+                "GPU"
+            } else {
+                "CPU"
+            },
+            if c.asic {
+                "  (ASIC coin: earns little)"
+            } else {
+                ""
             }
-            Some(wallet::AddressKind::Bitcoin) => {
-                println!("  Bitcoin payouts mine on unMineable: no pool to choose.")
-            }
-            _ => {
-                let items: Vec<String> = pools::CATALOG
-                    .iter()
-                    .map(|p| format!("{} ({}:{}, fee {}%)", p.name, p.host, p.port, p.fee_percent))
-                    .collect();
-                let refs: Vec<&str> = items.iter().map(String::as_str).collect();
-                let cur = pools::CATALOG
-                    .iter()
-                    .position(|x| x.id == base.pool.id)
-                    .unwrap_or(0);
-                p.pool = Some(pools::CATALOG[select("Pool", &refs, cur)?].id.into());
-            }
-        }
-        let cur = match base.performance.preset {
-            Preset::Eco => 0,
-            Preset::Performance => 2,
-            _ => 1,
-        };
-        p.preset = Some(
-            [Preset::Eco, Preset::Balanced, Preset::Performance][select(
-                "Performance",
-                &[
-                    "Eco: 25% of CPU threads, lowest priority (PC stays fully usable)",
-                    "Balanced: 50% of threads (recommended)",
-                    "Performance: all threads (dedicated machine)",
-                ],
-                cur,
-            )?],
-        );
-        p.worker = Some(
-            Input::<String>::with_theme(&t)
-                .with_prompt("Name of this PC (shown by the pool)")
-                .default(match base.pool.worker.as_str() {
-                    "" => config::default_worker(),
-                    w => w.to_string(),
-                })
-                .validate_with(|s: &String| {
-                    if s.eq_ignore_ascii_case(config::PROJECT_WORKER) {
-                        Err("EREBOR is reserved for Erebor's 2%")
-                    } else if config::valid_worker(s) {
-                        Ok(())
-                    } else {
-                        Err("letters, digits, '_' and '-' only, max 32")
-                    }
-                })
-                .interact_text()
-                .map_err(cancelled)?,
-        );
-        let device = erebor_core::fleet::device(dir)
-            .map(|d| d.name)
-            .unwrap_or_default();
-        p.device_name = Some(
-            Input::<String>::with_theme(&t)
-                .with_prompt("Name of this computer (for Erebor Fleet)")
-                .default(device)
-                .interact_text()
-                .map_err(cancelled)?,
-        );
-        p.max_temp_c = Some(
-            Input::<f32>::with_theme(&t)
-                .with_prompt("Stop mining above this CPU temperature (°C)")
-                .default(base.safety.max_temp_c)
-                .validate_with(|v: &f32| {
-                    if (40.0..=100.0).contains(v) {
-                        Ok(())
-                    } else {
-                        Err("between 40 and 100")
-                    }
-                })
-                .interact_text()
-                .map_err(cancelled)?,
-        );
-        p.auto_restart = Some(confirm(
-            "Restart the miner automatically if it crashes (max 3 times)?",
-            base.safety.auto_restart,
-        )?);
-    }
+        )
+    }));
+    let cur = list
+        .iter()
+        .position(|c| c.id == base.coin)
+        .map_or(0, |i| i + 1);
+    let picked = select("Coin", &coin_items, cur)?;
+    p.coin = Some(match picked {
+        0 => config::AUTO_COIN.to_string(),
+        i => list[i - 1].id.to_string(),
+    });
 
-    if installed(current, MinerKind::Xmrig) {
-        println!("  {}", ui::ok("XMRig already installed"));
-    } else if available(MinerKind::Xmrig) {
-        let v = install::manifest_for(MinerKind::Xmrig).version;
-        if confirm(
-            &format!("Install XMRig {v} now (official release, SHA-256 verified, ~5 MB)?"),
-            true,
-        )? {
-            p.install.push(MinerKind::Xmrig);
-        } else {
-            println!("  Later: erebor miner install xmrig (needed for real mining)");
-        }
-    } else {
-        println!(
-            "  ! No pinned XMRig build for {}: select a binary in the desktop app.",
-            install::platform_key()
-        );
+    let cur = match base.performance.preset {
+        Preset::Eco => 0,
+        Preset::Balanced => 1,
+        Preset::Performance => 2,
+        Preset::Custom => 3,
+    };
+    let preset = [
+        Preset::Eco,
+        Preset::Balanced,
+        Preset::Performance,
+        Preset::Custom,
+    ][select(
+        "CPU threads",
+        &items(&[
+            "eco       25%, lowest priority",
+            "balanced  50%",
+            "max       100% (dedicated machine)",
+            "custom    choose the percentage",
+        ]),
+        cur,
+    )?];
+    let mut perf = Performance {
+        preset,
+        ..base.performance.clone()
+    };
+    if preset == Preset::Custom {
+        perf.custom_threads_percent = Input::<u8>::with_theme(&t)
+            .with_prompt("CPU threads (%)")
+            .default(base.performance.custom_threads_percent)
+            .validate_with(|v: &u8| {
+                if (1..=100).contains(v) {
+                    Ok(())
+                } else {
+                    Err("between 1 and 100")
+                }
+            })
+            .interact_text()
+            .map_err(cancelled)?;
     }
-    // A supported GPU earns far more than the CPU: Quick start installs its miner too.
-    let gpu_miners: Vec<MinerKind> = [MinerKind::Srbminer, MinerKind::Lolminer]
-        .into_iter()
-        .filter(|k| !installed(current, *k) && available(*k))
-        .collect();
-    if !gpu_miners.is_empty() && Monitor::new().detect().gpu_mining_supported {
-        let names: Vec<&str> = gpu_miners.iter().map(|k| k.label()).collect();
-        let yes = if mode == Mode::Custom {
-            confirm(
-                &format!("Install {} too, for GPU coins?", names.join(" and ")),
-                true,
-            )?
-        } else {
+    p.performance = Some(perf);
+    p.worker = Some(
+        Input::<String>::with_theme(&t)
+            .with_prompt("Worker name (shown by the pool)")
+            .default(match base.pool.worker.as_str() {
+                "" => config::default_worker(),
+                w => w.to_string(),
+            })
+            .validate_with(|s: &String| check_worker(s))
+            .interact_text()
+            .map_err(cancelled)?,
+    );
+
+    // Electricity.
+    section(
+        "4 · Electricity",
+        &["With a price per kWh Erebor shows net earnings and can stop when mining loses money."],
+    );
+    let mut energy = base.energy.clone();
+    let cur = usize::from(energy.currency == "USD");
+    energy.currency = ["EUR", "USD"][select("Currency", &items(&["EUR", "USD"]), cur)?].into();
+    let price = Input::<String>::with_theme(&t)
+        .with_prompt("Price per kWh (empty: skip)")
+        .allow_empty(true)
+        .with_initial_text(
+            energy
+                .price_per_kwh
+                .map(|v| v.to_string())
+                .unwrap_or_default(),
+        )
+        .validate_with(|s: &String| {
+            let s = s.trim().replace(',', ".");
+            if s.is_empty() || s.parse::<f64>().is_ok_and(|v| (0.0..=100.0).contains(&v)) {
+                Ok(())
+            } else {
+                Err("a number like 0.25, or empty")
+            }
+        })
+        .interact_text()
+        .map_err(cancelled)?;
+    energy.price_per_kwh = price.trim().replace(',', ".").parse().ok();
+    energy.stop_if_unprofitable = energy.price_per_kwh.is_some()
+        && confirm(
+            "Stop mining when it costs more than it earns",
+            energy.stop_if_unprofitable,
+        )?;
+    p.energy = Some(energy);
+
+    // Safety.
+    section("5 · Safety", &[]);
+    let mut safety = base.safety.clone();
+    safety.max_temp_c = Input::<f32>::with_theme(&t)
+        .with_prompt("Stop above this temperature (°C)")
+        .default(safety.max_temp_c)
+        .validate_with(|v: &f32| {
+            if (40.0..=100.0).contains(v) {
+                Ok(())
+            } else {
+                Err("between 40 and 100")
+            }
+        })
+        .interact_text()
+        .map_err(cancelled)?;
+    safety.auto_restart = confirm(
+        "Restart the miner if it crashes (max 3 times)",
+        safety.auto_restart,
+    )?;
+    p.safety = Some(safety);
+
+    // Miners.
+    section(
+        "6 · Miners",
+        &["Official releases pinned by Erebor, SHA-256 verified, updated automatically."],
+    );
+    let mut want = vec![MinerKind::Xmrig];
+    if gpu {
+        want.extend([MinerKind::Srbminer, MinerKind::Lolminer]);
+    }
+    if let Some(c) = p.coin.as_deref().and_then(coins::find) {
+        if !want.contains(&c.miner) {
+            want.push(c.miner);
+        }
+    }
+    for k in want {
+        let v = install::manifest_for(k).version;
+        if installed(current, k) {
+            println!("  {}", ui::ok(format!("{} already installed", k.label())));
+        } else if !available(k) {
             println!(
                 "  {}",
-                ui::ok(format!(
-                    "GPU found: {} will be installed for GPU coins.",
-                    names.join(" and ")
+                ui::warn(format!(
+                    "{}: no official build for {}",
+                    k.label(),
+                    install::platform_key()
                 ))
             );
-            true
-        };
-        if yes {
-            p.install.extend(gpu_miners);
+        } else if confirm(&format!("Install {} {v}", k.label()), true)? {
+            p.install.push(k);
         }
     }
 
-    println!("  The agent runs mining in the background. It never mines on its own.");
-    p.background = confirm("Keep the agent running after the setup?", true)?;
+    // Running.
+    section(
+        "7 · Running",
+        &["Mining runs in a background agent: closing the terminal does not stop it."],
+    );
+    p.background = confirm("Keep Erebor running in the background", true)?;
     if p.background {
-        p.service = confirm(
-            "Mine always, also after the computer restarts? (erebor service off to undo)",
-            false,
-        )?;
+        p.service = confirm("Start with the computer and mine always", false)?;
     }
-    p.start = confirm("Start mining at the end of the setup?", false)?;
-    if p.start && !p.background {
-        println!("  Mining runs inside the agent: it will stay running while you mine.");
+    p.start = confirm("Start mining now", false)?;
+    if p.start {
         p.background = true;
     }
-    p.monitor = p.start && confirm("Open the live dashboard at the end?", true)?;
-    Ok(Some(p))
+    p.monitor = p.start && confirm("Open the dashboard at the end", true)?;
+    review(p, &base).map(Some)
+}
+
+/// Show what will change and ask to apply it.
+fn review(p: Plan, base: &AppConfig) -> Result<Plan, Fail> {
+    section("Review", &[]);
+    let row = |l: &str, v: String| println!("  {} {v}", ui::label(l, 16));
+    let yn = |b: bool| if b { "yes" } else { "no" }.to_string();
+    if p.mode == Some(Mode::Demo) {
+        row("Mode", "demo (simulated, nothing is mined)".into());
+    } else {
+        row("Mode", "real mining".into());
+        row("Kryptex ID", p.wallet.clone().unwrap_or_default());
+        row(
+            "Coin",
+            match p.coin.as_deref() {
+                Some(config::AUTO_COIN) | None => "auto".into(),
+                Some(c) => c.into(),
+            },
+        );
+        if let Some(perf) = &p.performance {
+            row("CPU threads", erebor_tui::fmt::performance(perf));
+        }
+        row("Worker", p.worker.clone().unwrap_or_default());
+        if let Some(e) = &p.energy {
+            row(
+                "Electricity",
+                match e.price_per_kwh {
+                    Some(v) => format!(
+                        "{v} {}/kWh · stop when unprofitable: {}",
+                        e.currency,
+                        yn(e.stop_if_unprofitable)
+                    ),
+                    None => "not set".into(),
+                },
+            );
+        }
+        let s = p.safety.as_ref().unwrap_or(&base.safety);
+        row(
+            "Safety",
+            format!(
+                "stop above {:.0} °C · auto-restart: {}",
+                s.max_temp_c,
+                yn(s.auto_restart)
+            ),
+        );
+        row(
+            "Install",
+            if p.install.is_empty() {
+                "nothing".into()
+            } else {
+                p.install
+                    .iter()
+                    .map(|k| k.label())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            },
+        );
+    }
+    row("Background", yn(p.background));
+    row("With computer", yn(p.service));
+    row("Start now", yn(p.start));
+    println!();
+    let ok = Confirm::with_theme(&theme())
+        .with_prompt("Apply")
+        .default(true)
+        .interact()
+        .map_err(cancelled)?;
+    if ok {
+        Ok(p)
+    } else {
+        Err("onboarding_cancelled".to_string().into())
+    }
 }
 
 fn short(w: &str) -> String {
@@ -467,13 +673,13 @@ fn short(w: &str) -> String {
 
 fn step(json: bool, msg: &str) {
     if !json {
-        println!("{} {msg}", paint("◇", ui::BRAND));
+        println!("  {} {msg}", paint("◇", ui::BRAND));
     }
 }
 
 fn apply(dir: &Path, p: &Plan, json: bool) -> Result<(), Fail> {
     if !json {
-        println!();
+        section("Applying", &[]);
     }
     let was_running = ipc::call(dir, "agent_info", &Value::Null).is_ok();
     if !was_running {
@@ -510,27 +716,29 @@ fn apply(dir: &Path, p: &Plan, json: bool) -> Result<(), Fail> {
         if let Some(w) = &p.worker {
             c.pool.worker = w.clone();
         }
-        if let Some(pr) = p.preset {
-            c.performance.preset = pr;
+        if let Some(x) = &p.performance {
+            c.performance = x.clone();
         }
-        if let Some(t) = p.max_temp_c {
-            c.safety.max_temp_c = t;
+        if let Some(x) = &p.energy {
+            c.energy = x.clone();
         }
-        if let Some(r) = p.auto_restart {
-            c.safety.auto_restart = r;
+        if let Some(x) = &p.safety {
+            c.safety = x.clone();
         }
     }
     if p.service {
         c.start_on_launch = true;
     }
     crate::save_config(dir, &c)?;
-    if let Some(n) = &p.device_name {
-        crate::call(dir, "set_device_name", json!({ "name": n }))?;
-    }
 
     for k in &p.install {
-        step(json, &format!("Installing {}", k.label()));
         crate::install_wait(dir, *k, !json)?;
+    }
+    // The coin last: picking one whose miner is missing would start its own install.
+    if let (Some(coin), false) = (&p.coin, c.demo_mode) {
+        let mut c = crate::load_config_live(dir)?;
+        c.coin = coin.clone();
+        crate::save_config(dir, &c)?;
     }
 
     let mut problems = vec![];
@@ -646,91 +854,92 @@ fn summary(dir: &Path, done: Option<(&Plan, Vec<&str>)>, json: bool) -> Result<(
         }));
         return Ok(());
     }
-    let row = |l: &str, v: String| println!("  {} {v}", ui::label(l, 15));
-    println!();
-    println!(
-        "{}",
-        match &done {
-            Some((_, p)) if !p.is_empty() => paint(
-                "▲ Setup saved, with problems to fix (see above)",
-                ui::WARN.bold()
-            ),
-            Some(_) => paint("◆ Setup complete", ui::OK.bold()),
-            None => paint("◆ Current setup kept", ui::OK.bold()),
-        }
-    );
-    row(
-        "Mode",
-        if c.demo_mode {
-            "demo (simulated miner, nothing is mined)".into()
-        } else {
-            "real mining".into()
-        },
-    );
-    if !c.demo_mode {
+    let row = |l: &str, v: String| println!("  {} {v}", ui::label(l, 16));
+    let title = match &done {
+        Some((_, p)) if !p.is_empty() => paint(
+            "Setup saved, with problems to fix (see above)",
+            ui::WARN.bold(),
+        ),
+        Some(_) => paint("Setup complete", ui::OK.bold()),
+        None => paint("Current setup kept", ui::OK.bold()),
+    };
+    println!("\n\n  {title}\n");
+    if c.demo_mode {
+        row("Mode", "demo (simulated miner, nothing is mined)".into());
+    } else {
+        row("Kryptex ID", short(&c.wallet));
         row(
-            "Payout",
-            format!(
-                "{} ({})",
-                short(&c.wallet),
-                wallet::payout_kind(&c.wallet)
-                    .map(|k| format!("{k:?}"))
-                    .unwrap_or_else(|| "not set".into())
-            ),
-        );
-        row("Pool", c.pool.id.clone());
-        row(
-            "Miner",
-            match &xmrig.path {
-                Some(_) => format!("XMRig {}", xmrig.version.clone().unwrap_or_default()),
-                None => "not installed → erebor miner install".into(),
+            "Coin",
+            if c.coin == config::AUTO_COIN {
+                "auto".into()
+            } else {
+                c.coin.clone()
             },
         );
-        let srb = c.miner_for(MinerKind::Srbminer);
-        if srb.path.is_some() {
-            row(
-                "GPU miner",
-                format!("SRBMiner-MULTI {}", srb.version.clone().unwrap_or_default()),
-            );
-        }
+        row(
+            "Pool",
+            format!(
+                "{} · worker {}",
+                c.pool.id,
+                match c.pool.worker.as_str() {
+                    "" => config::default_worker(),
+                    w => w.to_string(),
+                }
+            ),
+        );
+        let miners: Vec<String> = [
+            MinerKind::Xmrig,
+            MinerKind::Srbminer,
+            MinerKind::Lolminer,
+            MinerKind::Cpuminer,
+        ]
+        .into_iter()
+        .filter_map(|k| {
+            let m = c.miner_for(k);
+            m.path
+                .as_ref()
+                .map(|_| format!("{} {}", k.label(), m.version.clone().unwrap_or_default()))
+        })
+        .collect();
+        row(
+            "Miners",
+            if miners.is_empty() {
+                "none → erebor miner install".into()
+            } else {
+                miners.join(", ")
+            },
+        );
     }
     row(
         "Agent",
         if snap.is_some() {
             "running in the background".into()
         } else {
-            "stopped → erebor agent start".into()
+            "stopped".into()
         },
     );
     row(
-        "At startup",
-        if service {
-            paint("starts with the computer", ui::OK)
-        } else {
-            "manual (erebor service on to mine always)".into()
-        },
+        "With computer",
+        if service { "yes".into() } else { "no".into() },
     );
     row(
         "Mining",
         snap.map_or("-".into(), |s| erebor_tui::fmt::state(&s.state).into()),
     );
-    println!("\n{}", paint("Next steps:", ui::BRAND));
+    println!("\n\n  {}\n", paint("Next", ui::BRAND));
     for (cmd, what) in [
-        ("erebor", "live dashboard (Q leaves mining running)"),
-        ("erebor start", "start mining · erebor stop to stop"),
-        ("erebor power max", "use the whole CPU"),
-        ("erebor service on", "mine always, also after a restart"),
+        ("erebor", "dashboard (Q leaves mining running)"),
+        ("erebor start / stop", "control mining"),
         (
-            "erebor doctor",
-            "diagnostics · erebor onboard to change this setup",
+            "erebor config",
+            "every setting · erebor config set <key> <value>",
         ),
+        ("erebor coins", "coins and estimated earnings"),
+        ("erebor --help", "all commands"),
     ] {
-        println!("  {}  {what}", paint(format!("{cmd:<19}"), ui::CMD));
+        println!("  {}  {what}", paint(format!("{cmd:<20}"), ui::CMD));
     }
-    println!(
-        "{}",
-        paint("  The Erebor desktop app uses this same setup.", ui::DIM)
-    );
+    println!();
     Ok(())
 }
 

@@ -1,16 +1,17 @@
 //! Erebor terminal dashboard. Reads and controls the engine through the local socket
 //! (`erebor_core::ipc`): the same state the desktop app and the CLI see.
 //!
-//! Keys: S start · P pause/resume · X stop · R restart · ↑↓/PgUp/PgDn logs · ? help ·
+//! Keys: S start · P pause/resume · X stop · R restart · ↑↓/PgUp/PgDn log · ? help ·
 //! Q/Esc quit. Quitting never stops mining; stopping is always an explicit X.
 
+use erebor_core::config::AppConfig;
 use erebor_core::fleet::Snapshot;
 use erebor_core::ipc::{self, Action};
 use ratatui::crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Clear, Paragraph, Wrap};
+use ratatui::widgets::{Block, Cell, Clear, Paragraph, Row, Table, Wrap};
 use ratatui::Frame;
 use serde_json::Value;
 use std::path::PathBuf;
@@ -22,9 +23,8 @@ const FG: Color = Color::Gray;
 const DIM: Color = Color::DarkGray;
 const ACCENT: Color = Color::Rgb(230, 169, 60); // Erebor gold
 const OK: Color = Color::Green;
-/// Shown at launch and, when the terminal is tall enough, on top of the dashboard.
+/// The logo, shown only at launch.
 const SPLASH: Duration = Duration::from_millis(1200);
-const LOGO_MIN_HEIGHT: u16 = 32;
 
 /// The Erebor mark: a mountain with a mine entrance and circuit traces.
 const MOUNTAIN: [&str; 7] = [
@@ -95,6 +95,18 @@ pub mod fmt {
         earnings_over(s, 1.0).map_or(NA.into(), |v| format!("{v} / day (estimate)"))
     }
 
+    /// "balanced · 50% of threads".
+    pub fn performance(p: &erebor_core::config::Performance) -> String {
+        use erebor_core::config::Preset;
+        let name = match p.preset {
+            Preset::Eco => "eco",
+            Preset::Balanced => "balanced",
+            Preset::Performance => "max",
+            Preset::Custom => "custom",
+        };
+        format!("{name} · {}% of threads", p.limits().0)
+    }
+
     pub fn state(state: &str) -> &'static str {
         match state {
             "running" => "Running",
@@ -113,7 +125,7 @@ pub mod fmt {
             ),
             "wallet_missing" => (
                 "no payout wallet configured",
-                Some("erebor wallet set <ADDRESS>   (or try first: erebor demo on)"),
+                Some("erebor wallet set <KRYPTEX_ID>   (or try it first: erebor demo on)"),
             ),
             "miner_not_configured" => (
                 "the miner is not installed",
@@ -172,7 +184,20 @@ pub mod fmt {
                 Some("check erebor status and the agent log"),
             ),
             "unknown_pool" => ("no pool with that id", Some("see: erebor pools list")),
-            "unknown_coin" => ("no coin with that id", None),
+            "unknown_coin" => ("no coin with that id", Some("see: erebor coins")),
+            "not_in_demo" => ("not available in demo mode", None),
+            "no_gpu" => ("needs a supported GPU", None),
+            "platform_unsupported" => ("no miner build for this system", None),
+            "kryptex_or_btc_required" => ("needs a Kryptex ID payout", None),
+            "not_on_unmineable" => ("not minable with this payout", None),
+            "invalid_worker" => (
+                "worker name: letters, digits, '_' and '-' only, max 32 (EREBOR is reserved)",
+                None,
+            ),
+            _ if code.starts_with("unknown_key") => (
+                "no setting with that key",
+                Some("see every key: erebor config"),
+            ),
             "update_bad_signature" => (
                 "the downloaded update is not signed by the Erebor project: not installed",
                 Some("nothing was changed; try again later or report it"),
@@ -202,6 +227,7 @@ pub mod fmt {
 pub struct App {
     dir: PathBuf,
     snap: Option<Snapshot>,
+    cfg: Option<AppConfig>,
     /// Why the agent could not be read (error code).
     unreachable: Option<String>,
     logs: Vec<String>,
@@ -221,6 +247,7 @@ impl App {
         Self {
             dir,
             snap: None,
+            cfg: None,
             unreachable: None,
             logs: vec![],
             scroll: 0,
@@ -240,6 +267,9 @@ impl App {
                         .filter_map(|v| v.as_str().map(str::to_string))
                         .collect();
                 }
+                self.cfg = ipc::call(&self.dir, "get_config", &Value::Null)
+                    .ok()
+                    .and_then(|v| serde_json::from_value(v).ok());
             }
             Err(e) => {
                 self.snap = None;
@@ -348,29 +378,6 @@ fn mountain_line(row: &str) -> Vec<Span<'static>> {
         .collect()
 }
 
-/// Mountain beside the wordmark (7 rows, 79 columns).
-fn logo_wide() -> Vec<Line<'static>> {
-    let word = Style::new()
-        .fg(Color::Rgb(226, 232, 240))
-        .add_modifier(Modifier::BOLD);
-    MOUNTAIN
-        .iter()
-        .enumerate()
-        .map(|(i, m)| {
-            let mut l = mountain_line(&format!("{m:<31}"));
-            match i {
-                0..=4 => l.push(Span::styled(WORDMARK[i], word)),
-                6 => l.push(Span::styled(
-                    format!("{TAGLINE}  v{}", env!("CARGO_PKG_VERSION")),
-                    Style::new().fg(DIM),
-                )),
-                _ => {}
-            }
-            Line::from(l)
-        })
-        .collect()
-}
-
 /// Launch screen: mountain above the wordmark, centered.
 fn draw_splash(f: &mut Frame) {
     let area = f.area();
@@ -395,24 +402,29 @@ fn draw_splash(f: &mut Frame) {
     f.render_widget(Paragraph::new(lines), mid);
 }
 
-fn block(title: &str) -> Block<'static> {
-    Block::bordered()
-        .border_type(ratatui::widgets::BorderType::Rounded)
-        .border_style(Style::new().fg(DIM))
-        .title(Span::styled(
-            format!(" {title} "),
-            Style::new().fg(FG).add_modifier(Modifier::BOLD),
-        ))
+fn dim(s: impl Into<String>) -> Span<'static> {
+    Span::styled(s.into(), Style::new().fg(DIM))
 }
 
-fn row(label: &str, value: Vec<Span<'static>>) -> Line<'static> {
-    let mut v = vec![Span::styled(format!(" {label:<10}"), Style::new().fg(DIM))];
+fn plain(s: impl Into<String>, color: Color) -> Span<'static> {
+    Span::styled(s.into(), Style::new().fg(color))
+}
+
+/// A section rule: `── Title ─────`.
+fn rule(title: &str, width: u16) -> Line<'static> {
+    let head = if title.is_empty() {
+        String::new()
+    } else {
+        format!("── {title} ")
+    };
+    let rest = (width as usize).saturating_sub(head.chars().count());
+    Line::styled(format!("{head}{}", "─".repeat(rest)), Style::new().fg(DIM))
+}
+
+fn kv(label: &str, value: Vec<Span<'static>>) -> Line<'static> {
+    let mut v = vec![dim(format!(" {label:<10}"))];
     v.extend(value);
     Line::from(v)
-}
-
-fn text(s: impl Into<String>, color: Color) -> Vec<Span<'static>> {
-    vec![Span::styled(s.into(), Style::new().fg(color))]
 }
 
 fn state_color(state: &str) -> Color {
@@ -424,34 +436,20 @@ fn state_color(state: &str) -> Color {
     }
 }
 
-/// A 10-cell bar for a temperature (0–100 °C), green → yellow → red.
-fn temp_bar(t: Option<f32>) -> Vec<Span<'static>> {
-    let Some(t) = t else {
-        return text(fmt::NA, DIM);
-    };
+fn temp_span(t: Option<f32>, limit: f32) -> Span<'static> {
     let color = match t {
-        t if t >= 80.0 => Color::Red,
-        t if t >= 70.0 => Color::Yellow,
-        _ => OK,
+        None => DIM,
+        Some(t) if t >= limit - 5.0 => Color::Red,
+        Some(t) if t >= limit - 15.0 => Color::Yellow,
+        Some(_) => OK,
     };
-    let full = ((t / 10.0).round() as usize).min(10);
-    vec![
-        Span::styled("█".repeat(full), Style::new().fg(color)),
-        Span::styled("░".repeat(10 - full), Style::new().fg(DIM)),
-        Span::styled(format!(" {}", fmt::temp(Some(t))), Style::new().fg(color)),
-    ]
+    plain(fmt::temp(t), color)
 }
 
 pub fn draw(f: &mut Frame, app: &App) {
     let area = f.area();
     f.render_widget(Block::new().style(Style::new().bg(BG).fg(FG)), area);
-    let logo_h = if area.height >= LOGO_MIN_HEIGHT && area.width >= 80 {
-        8
-    } else {
-        0
-    };
-    let [logo, header, body, notice, keys] = Layout::vertical([
-        Constraint::Length(logo_h),
+    let [header, body, notice, keys] = Layout::vertical([
         Constraint::Length(1),
         Constraint::Min(0),
         Constraint::Length(1),
@@ -459,31 +457,30 @@ pub fn draw(f: &mut Frame, app: &App) {
     ])
     .areas(area);
 
-    if logo_h > 0 {
-        f.render_widget(Paragraph::new(logo_wide()), logo);
-    }
-    draw_header(f, header, app, logo_h == 0);
+    draw_header(f, header, app);
     match &app.snap {
         Some(s) => draw_body(f, body, s, app),
         None => {
             let code = app.unreachable.as_deref().unwrap_or("connecting");
             let (m, h) = fmt::explain(code);
             let lines = vec![
+                rule("", area.width),
                 Line::raw(""),
-                Line::styled(format!("  {m}."), Style::new().fg(Color::Red)),
+                Line::styled(format!(" {m}."), Style::new().fg(Color::Red)),
                 Line::raw(""),
                 Line::styled(
-                    format!("  {}", h.unwrap_or("check: erebor doctor")),
+                    format!(" {}", h.unwrap_or("check: erebor doctor")),
                     Style::new().fg(FG),
                 ),
-                Line::styled("  Retrying every second…", Style::new().fg(DIM)),
+                Line::styled(" Retrying every second…", Style::new().fg(DIM)),
             ];
-            f.render_widget(Paragraph::new(lines).block(block("Erebor")), body);
+            f.render_widget(Paragraph::new(lines), body);
         }
     }
 
-    // Notice line: the last action's result, else what blocks mining, else a tip.
+    // Notice line: the last action's result, else what is wrong, else nothing.
     let s = app.snap.as_ref();
+    let hint = |h: Option<&str>| h.map(|h| format!(" → {h}")).unwrap_or_default();
     let line = if let Some((m, err)) = &app.msg {
         Line::styled(
             format!(" {} {m}", if *err { "✗" } else { "✓" }),
@@ -491,9 +488,11 @@ pub fn draw(f: &mut Frame, app: &App) {
         )
     } else if let Some(e) = s.and_then(|s| s.error.as_deref()) {
         let (m, h) = fmt::explain(e);
+        Line::styled(format!(" ✗ {m}{}", hint(h)), Style::new().fg(Color::Red))
+    } else if let Some(r) = s.and_then(|s| s.restart_in_secs) {
         Line::styled(
-            format!(" ✗ {m}{}", h.map(|h| format!(" → {h}")).unwrap_or_default()),
-            Style::new().fg(Color::Red),
+            format!(" ! Miner crashed: restarting in {r} s"),
+            Style::new().fg(Color::Yellow),
         )
     } else if let Some(b) = s
         .filter(|s| !s.is_active())
@@ -501,16 +500,13 @@ pub fn draw(f: &mut Frame, app: &App) {
     {
         let (m, h) = fmt::explain(b);
         Line::styled(
-            format!(
-                " ! Cannot start: {m}{}",
-                h.map(|h| format!(" → {h}")).unwrap_or_default()
-            ),
+            format!(" ! Cannot start: {m}{}", hint(h)),
             Style::new().fg(Color::Yellow),
         )
-    } else if s.is_some_and(|s| s.is_active()) {
+    } else if let Some(j) = s.and_then(|s| s.job.as_ref()).filter(|j| !j.done) {
         Line::styled(
-            " Q closes the dashboard; mining keeps running in the background.",
-            Style::new().fg(DIM),
+            format!(" … {} {:.0}%", j.kind, j.progress * 100.0),
+            Style::new().fg(FG),
         )
     } else {
         Line::default()
@@ -523,106 +519,141 @@ pub fn draw(f: &mut Frame, app: &App) {
     }
 }
 
-fn draw_header(f: &mut Frame, area: Rect, app: &App, name: bool) {
-    let mut left = vec![];
-    if name {
-        left = vec![
-            Span::styled(
-                " ▲ EREBOR",
-                Style::new().fg(ACCENT).add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(
-                format!("  v{}", env!("CARGO_PKG_VERSION")),
-                Style::new().fg(DIM),
-            ),
-        ];
-    }
-    let mut right = vec![];
+fn draw_header(f: &mut Frame, area: Rect, app: &App) {
+    let mut left = vec![Span::raw(" ")];
     match &app.snap {
         Some(s) => {
-            if s.demo {
-                left.push(Span::styled(
-                    "  DEMO · simulated, nothing is mined",
-                    Style::new().fg(Color::Yellow),
-                ));
-            }
-            right.push(Span::styled(
+            left.push(Span::styled(
                 format!("● {}", fmt::state(&s.state)),
                 Style::new()
                     .fg(state_color(&s.state))
                     .add_modifier(Modifier::BOLD),
             ));
             if s.is_active() {
-                right.push(Span::styled(
-                    format!(" · {}", fmt::duration(s.uptime_secs)),
-                    Style::new().fg(FG),
-                ));
+                left.push(plain(format!("  {}", fmt::duration(s.uptime_secs)), FG));
+            }
+            left.push(plain(format!("   {} ({})", s.coin_name, s.coin), FG));
+            left.push(dim(format!(
+                " · {}{}",
+                s.algo,
+                if s.auto_coin { " · auto" } else { "" }
+            )));
+            if s.demo {
+                left.push(plain("   DEMO (simulated)", Color::Yellow));
             }
         }
-        None => right.push(Span::styled(
+        None => left.push(Span::styled(
             "● Offline",
             Style::new().fg(Color::Red).add_modifier(Modifier::BOLD),
         )),
     }
-    right.push(Span::raw(" "));
-    f.render_widget(Paragraph::new(Line::from(left)), area);
-    f.render_widget(Paragraph::new(Line::from(right).right_aligned()), area);
+    let left = Line::from(left);
+    let version = format!("erebor {} ", env!("CARGO_PKG_VERSION"));
+    if left.width() + version.len() + 2 <= area.width as usize {
+        f.render_widget(
+            Paragraph::new(Line::from(dim(version)).right_aligned()),
+            area,
+        );
+    }
+    f.render_widget(Paragraph::new(left), area);
 }
 
 fn draw_keys(f: &mut Frame, area: Rect, app: &App) {
     let state = app.snap.as_ref().map_or("offline", |s| s.state.as_str());
+    let pause = app
+        .snap
+        .as_ref()
+        .and_then(|s| s.miner.as_ref())
+        .is_some_and(|m| m.supports_pause);
     let mut keys: Vec<(&str, &str)> = match state {
-        "running" => vec![("P", "Pause"), ("X", "Stop"), ("R", "Restart")],
-        "paused" => vec![("P", "Resume"), ("X", "Stop")],
+        "running" if pause => vec![("P", "pause"), ("X", "stop"), ("R", "restart")],
+        "running" => vec![("X", "stop"), ("R", "restart")],
+        "paused" => vec![("P", "resume"), ("X", "stop")],
         "offline" => vec![],
-        _ => vec![("S", "Start")],
+        _ => vec![("S", "start")],
     };
-    keys.extend([("↑↓", "Logs"), ("?", "Help"), ("Q", "Quit")]);
-    let mut spans = vec![Span::raw(" ")];
+    keys.extend([("↑↓", "log"), ("?", "help"), ("Q", "quit")]);
+    let mut spans = vec![];
     for (k, l) in keys {
         spans.push(Span::styled(
-            format!(" {k} "),
-            Style::new().fg(BG).bg(ACCENT).add_modifier(Modifier::BOLD),
+            format!(" {k}"),
+            Style::new().fg(ACCENT).add_modifier(Modifier::BOLD),
         ));
-        spans.push(Span::styled(format!(" {l}   "), Style::new().fg(FG)));
+        spans.push(dim(format!(" {l}  ")));
     }
     f.render_widget(Paragraph::new(Line::from(spans)), area);
 }
 
 fn draw_body(f: &mut Frame, area: Rect, s: &Snapshot, app: &App) {
-    let panel_h = 2 + 6.max(4 + s.gpus.len().min(3) as u16);
-    let [panels, logs] =
-        Layout::vertical([Constraint::Length(panel_h), Constraint::Min(0)]).areas(area);
+    let cfg = app.cfg.clone().unwrap_or_default();
+    let active = s.is_active();
 
-    // Mining and this computer, side by side.
-    let [left, right] = Layout::horizontal([Constraint::Percentage(50); 2]).areas(panels);
-    let (pool_dot, pool_color) = match (&s.pool, s.pool_connected) {
-        (Some(_), true) => ("● ", OK),
-        (Some(_), false) => ("◌ ", Color::Yellow),
-        (None, _) => ("○ ", DIM),
-    };
-    let mut pool = vec![Span::styled(pool_dot, Style::new().fg(pool_color))];
-    pool.extend(text(
-        s.pool.clone().unwrap_or_else(|| s.pool_id.clone()),
-        FG,
-    ));
+    // Mining (left) and money/limits (right).
     let total = s.accepted + s.rejected;
-    let mut shares = text(format!("{} ✓", s.accepted), OK);
-    shares.push(Span::styled(
-        format!("  {} ✗", s.rejected),
-        Style::new().fg(if s.rejected > 0 { Color::Yellow } else { DIM }),
-    ));
+    let mut shares = vec![
+        plain(format!("{} ✓", s.accepted), OK),
+        plain(
+            format!("  {} ✗", s.rejected),
+            if s.rejected > 0 { Color::Yellow } else { DIM },
+        ),
+    ];
     if total > 0 {
-        shares.extend(text(
-            format!("  {:.1}%", s.accepted as f64 * 100.0 / total as f64),
-            DIM,
-        ));
+        shares.push(dim(format!(
+            "  {:.1}% rejected",
+            s.rejected as f64 * 100.0 / total as f64
+        )));
     }
+    let pool = match (&s.pool, s.pool_connected) {
+        (Some(p), true) => vec![plain("● ", OK), plain(p.clone(), FG)],
+        (Some(p), false) => vec![plain("◌ ", Color::Yellow), plain(p.clone(), FG)],
+        (None, _) => vec![plain(format!("{}:{}", cfg.pool.host, cfg.pool.port), FG)],
+    };
+    let worker = match cfg.pool.worker.as_str() {
+        "" => erebor_core::config::default_worker(),
+        w => w.to_string(),
+    };
     let miner = s.miner.as_ref().map_or(fmt::NA.to_string(), |m| {
         format!("{} {}", m.name, m.version.clone().unwrap_or_default())
             .trim()
             .to_string()
     });
+    let left = vec![
+        kv(
+            "Hashrate",
+            vec![Span::styled(
+                fmt::hashrate(s.hashrate.filter(|_| active)),
+                Style::new().fg(ACCENT).add_modifier(Modifier::BOLD),
+            )],
+        ),
+        kv("Shares", shares),
+        kv("Pool", pool),
+        kv("Worker", vec![plain(worker, FG)]),
+        kv("Miner", vec![plain(miner, FG)]),
+    ];
+
+    let e = s.earnings.as_ref();
+    let money = |v: f64| format!("{v:.2} {}", e.map_or("", |e| e.currency.as_str()));
+    let earnings = match fmt::earnings_over(s, 1.0) {
+        Some(d) => vec![
+            plain(format!("{d}/day"), ACCENT),
+            dim(format!(
+                "  {}/month",
+                fmt::earnings_over(s, 30.0).unwrap_or_default()
+            )),
+        ],
+        None => vec![dim(fmt::NA)],
+    };
+    let net = match e.and_then(|e| e.net_per_day.zip(e.energy_cost_per_day)) {
+        Some((n, c)) => vec![
+            plain(
+                format!("{}/day", money(n)),
+                if n < 0.0 { Color::Red } else { OK },
+            ),
+            dim(format!("  power {}/day", money(c))),
+        ],
+        None if cfg.energy.price_per_kwh.is_none() => vec![dim("no kWh price set")],
+        None => vec![dim(fmt::NA)],
+    };
     let fee = if s.dev_fee.enabled {
         let now = if s.dev_fee.active == "project" {
             "now for Erebor"
@@ -633,69 +664,105 @@ fn draw_body(f: &mut Frame, area: Rect, s: &Snapshot, app: &App) {
     } else {
         "off".into()
     };
-    let auto = if s.auto_coin { " · auto" } else { "" };
-    let hashrate = fmt::hashrate(s.hashrate.filter(|_| s.is_active()));
-    let lines = vec![
-        row(
-            "Hashrate",
-            vec![Span::styled(
-                hashrate,
-                Style::new().fg(ACCENT).add_modifier(Modifier::BOLD),
-            )],
+    let right = vec![
+        kv("Earnings", earnings),
+        kv("Net", net),
+        kv(
+            "Power",
+            vec![plain(fmt::power(s.power_w, &s.power_source), FG)],
         ),
-        row(
-            "Coin",
-            text(format!("{} · {}{auto}", s.coin_name, s.algo), FG),
+        kv(
+            "CPU use",
+            vec![plain(fmt::performance(&cfg.performance), FG)],
         ),
-        row("Pool", pool),
-        row("Shares", shares),
-        row("Miner", text(miner, FG)),
-        row("Dev fee", text(fee, DIM)),
+        kv("Dev fee", vec![dim(fee)]),
     ];
-    f.render_widget(Paragraph::new(lines).block(block("Mining")), left);
 
-    let mut lines = vec![
-        row(
-            "Earnings",
-            text(
-                fmt::earnings_over(s, 1.0).map_or(fmt::NA.into(), |v| format!("{v} / day")),
-                ACCENT,
-            ),
-        ),
-        row(
-            "",
-            text(
-                fmt::earnings_over(s, 30.0).map_or(String::new(), |v| format!("≈ {v} / month")),
-                DIM,
-            ),
-        ),
-        row("CPU", temp_bar(s.cpu_temp_c)),
-    ];
-    for (i, g) in s.gpus.iter().take(3).enumerate() {
-        lines.push(row(&format!("GPU {i}"), temp_bar(g.temp_c)));
+    // Devices: one row each.
+    let limit = cfg.safety.max_temp_c;
+    let mut devices = vec![Row::new(vec![
+        Cell::from(" CPU"),
+        Cell::from(temp_span(s.cpu_temp_c, limit)),
+        Cell::from(dim("")),
+        Cell::from(dim("")),
+    ])];
+    for (i, g) in s.gpus.iter().enumerate() {
+        devices.push(Row::new(vec![
+            Cell::from(format!(" GPU {i}  {}", g.name)),
+            Cell::from(temp_span(g.temp_c, limit)),
+            Cell::from(plain(
+                g.power_w.map_or(fmt::NA.into(), |w| format!("{w:.0} W")),
+                FG,
+            )),
+            Cell::from(plain(
+                g.util_percent
+                    .map_or(fmt::NA.into(), |u| format!("{u:.0}%")),
+                FG,
+            )),
+        ]));
     }
-    lines.push(row(
-        "Power",
-        text(fmt::power(s.power_w, &s.power_source), FG),
-    ));
-    f.render_widget(Paragraph::new(lines).block(block("This computer")), right);
 
-    if logs.height > 2 {
-        let h = (logs.height - 2) as usize;
-        let max_scroll = app.logs.len().saturating_sub(h);
-        let end = app.logs.len() - app.scroll.min(max_scroll);
-        let lines: Vec<Line> = app.logs[end.saturating_sub(h)..end]
-            .iter()
-            .map(|l| Line::styled(format!(" {l}"), Style::new().fg(DIM)))
-            .collect();
-        let title = if app.scroll > 0 { "Log ↑" } else { "Log" };
-        f.render_widget(Paragraph::new(lines).block(block(title)), logs);
+    let two_cols = area.width >= 76;
+    let stats_h = if two_cols { 5 } else { 10 };
+    let [r1, stats, _, r2, table, _, r3, logs] = Layout::vertical([
+        Constraint::Length(1),
+        Constraint::Length(stats_h),
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Length(1 + devices.len() as u16),
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Min(0),
+    ])
+    .areas(area);
+
+    f.render_widget(Paragraph::new(rule("Mining", area.width)), r1);
+    if two_cols {
+        let [l, r] = Layout::horizontal([Constraint::Percentage(50); 2]).areas(stats);
+        f.render_widget(Paragraph::new(left), l);
+        f.render_widget(Paragraph::new(right), r);
+    } else {
+        f.render_widget(Paragraph::new([left, right].concat()), stats);
     }
+
+    f.render_widget(
+        Paragraph::new(rule(
+            &format!("Devices · stop above {limit:.0} °C"),
+            area.width,
+        )),
+        r2,
+    );
+    let head = Row::new(["", "TEMP", "POWER", "LOAD"]).style(Style::new().fg(DIM));
+    f.render_widget(
+        Table::new(
+            devices,
+            [
+                Constraint::Length(30),
+                Constraint::Length(8),
+                Constraint::Length(8),
+                Constraint::Length(6),
+                Constraint::Min(0),
+            ],
+        )
+        .header(head),
+        table,
+    );
+
+    let h = logs.height as usize;
+    let max_scroll = app.logs.len().saturating_sub(h);
+    let end = app.logs.len() - app.scroll.min(max_scroll);
+    let lines: Vec<Line> = app.logs[end.saturating_sub(h)..end]
+        .iter()
+        .map(|l| Line::styled(format!(" {l}"), Style::new().fg(DIM)))
+        .collect();
+    let title = if app.scroll > 0 { "Log ↑" } else { "Log" };
+    f.render_widget(Paragraph::new(rule(title, area.width)), r3);
+    f.render_widget(Paragraph::new(lines), logs);
 }
 
 fn draw_help(f: &mut Frame, area: Rect) {
-    let w = area.width.min(62);
-    let h = area.height.min(16);
+    let w = area.width.min(64);
+    let h = area.height.min(18);
     let r = Rect::new(
         area.x + (area.width - w) / 2,
         area.y + (area.height - h) / 2,
@@ -708,7 +775,7 @@ fn draw_help(f: &mut Frame, area: Rect) {
         ("X", "stop mining"),
         ("R", "restart mining"),
         ("↑ ↓ PgUp PgDn", "scroll the log (Home/End: oldest/newest)"),
-        ("Q / Esc", "close the dashboard — mining keeps running"),
+        ("Q / Esc", "close the dashboard: mining keeps running"),
     ];
     let mut lines: Vec<Line> = text
         .iter()
@@ -722,10 +789,12 @@ fn draw_help(f: &mut Frame, area: Rect) {
     lines.extend([
         Line::raw(""),
         Line::styled(" From the shell:", Style::new().fg(DIM)),
+        Line::styled(" erebor config      every setting", Style::new().fg(FG)),
         Line::styled(
-            " erebor start · erebor stop · erebor status · erebor doctor",
+            " erebor coins       coins and estimates",
             Style::new().fg(FG),
         ),
+        Line::styled(" erebor logs -f     follow the log", Style::new().fg(FG)),
         Line::raw(""),
         Line::styled(" Any key closes this help.", Style::new().fg(DIM)),
     ]);
@@ -734,7 +803,12 @@ fn draw_help(f: &mut Frame, area: Rect) {
         Paragraph::new(lines)
             .wrap(Wrap { trim: false })
             .style(Style::new().bg(BG))
-            .block(block("Help")),
+            .block(
+                Block::bordered()
+                    .border_type(ratatui::widgets::BorderType::Rounded)
+                    .border_style(Style::new().fg(DIM))
+                    .title(" Help "),
+            ),
         r,
     );
 }
@@ -778,6 +852,7 @@ mod tests {
                 supports_pause: true,
                 ..Default::default()
             }),
+            coin: "XMR".into(),
             coin_name: "Monero".into(),
             algo: "rx/0".into(),
             pool: Some("xmr.kryptex.network:7029".into()),
@@ -798,29 +873,29 @@ mod tests {
 
     #[test]
     fn renders_live_metrics_and_unavailable_values() {
-        for (w, h) in [(80, 30), (120, 30)] {
+        for (w, h) in [(80, 24), (120, 30), (60, 30)] {
             let out = render(&app_with(running()), w, h);
             for s in [
-                "EREBOR",
                 "● Running",
+                "Monero (XMR)",
                 "DEMO",
                 "4.25 kH/s",
-                "0.82 EUR / day",
-                "24.60 EUR / month",
+                "0.82 EUR/day",
+                "24.60 EUR/month",
                 "1h 02m 03s",
                 "XMRig 6.26.0",
                 "148 ✓",
-                "98.7%",
+                "1.3% rejected",
                 "log line 49",
-                " P  Pause",
-                " Q  Quit",
+                "P pause",
+                "Q quit",
             ] {
                 assert!(out.contains(s), "{w}x{h}: missing {s:?}\n{out}");
             }
             // No sensor: shown as unavailable, never a made-up number.
-            assert!(out.contains("CPU       n/a"), "{out}");
+            assert!(out.contains(" CPU") && out.contains("n/a"), "{out}");
             assert!(out.contains("Power     n/a"), "{out}");
-            assert!(!out.contains(" S  Start"), "{out}");
+            assert!(!out.contains("S start"), "{out}");
         }
     }
 
@@ -833,29 +908,31 @@ mod tests {
         s.gpus = vec![GpuSummary {
             name: "RTX".into(),
             temp_c: Some(55.0),
-            ..Default::default()
+            power_w: Some(120.0),
+            util_percent: Some(98.0),
         }];
+        s.earnings.as_mut().unwrap().energy_cost_per_day = Some(0.32);
+        s.earnings.as_mut().unwrap().net_per_day = Some(0.5);
         let out = render(&app_with(s), 100, 30);
         for want in [
             "● Stopped",
-            " S  Start",
+            "S start",
             "no payout wallet configured → erebor wallet set",
-            "█████████░ 85 °C",
-            "GPU 0",
+            "85 °C",
+            "GPU 0  RTX",
+            "120 W",
+            "98%",
+            "0.50 EUR/day",
+            "power 0.32 EUR/day",
         ] {
             assert!(out.contains(want), "missing {want:?}\n{out}");
         }
     }
 
     #[test]
-    fn logo_on_tall_terminals_and_splash() {
-        let tall = render(&app_with(running()), 80, 40);
-        assert!(
-            tall.contains(r"/::\") && tall.contains("███████ ██████"),
-            "{tall}"
-        );
-        assert!(tall.contains(TAGLINE), "{tall}");
-        assert!(!render(&app_with(running()), 80, 30).contains(TAGLINE));
+    fn logo_only_on_the_splash() {
+        let tall = render(&app_with(running()), 100, 50);
+        assert!(!tall.contains("███") && !tall.contains(TAGLINE), "{tall}");
         for (w, h) in [(80, 24), (20, 5), (1, 1)] {
             let mut t = Terminal::new(TestBackend::new(w, h)).unwrap();
             t.draw(draw_splash).unwrap();

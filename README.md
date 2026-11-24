@@ -92,11 +92,11 @@ only if you agree, excludes its own miners folder (Windows asks for administrato
 ## Command line
 
 CLI, terminal dashboard and background agent for **Linux, macOS and WSL2**. One command
-builds, installs into `~/.local/bin` (no root) and starts the guided setup:
+downloads the signed binary, checks its SHA-256, installs it into `~/.local/bin` (no root)
+and starts the guided setup:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/samuelviviani/erebor/main/scripts/install.sh \
-  | sh -s -- --repo https://github.com/samuelviviani/erebor.git
+curl -fsSL https://raw.githubusercontent.com/samuelviviani/erebor/main/scripts/install.sh | sh
 ```
 
 Then:

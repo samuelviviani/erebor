@@ -70,47 +70,75 @@ enum Cmd {
         #[arg(long)]
         offline: bool,
     },
-    /// Guided setup: wallet, miners, background, health check (like a first run).
+    /// Guided setup: every option, with defaults; reviewed before anything changes.
     Onboard(onboard::Opts),
+    /// Every setting, by key: `config`, `config get <key>`, `config set <key> <value>`.
+    Config {
+        #[command(subcommand)]
+        cmd: Option<ConfigCmd>,
+    },
+    /// Coins this computer can mine, with hashrate and estimated earnings.
+    Coins {
+        #[command(subcommand)]
+        cmd: Option<CoinsCmd>,
+    },
+    /// The engine log (the last lines kept in memory).
+    Logs {
+        /// Keep printing new lines.
+        #[arg(short, long)]
+        follow: bool,
+    },
     /// Start, stop, pause, resume or restart mining.
-    #[command(hide = true)]
     Mining {
         #[command(subcommand)]
         action: MiningCmd,
     },
     /// Detected CPU, GPUs and sensors.
-    #[command(hide = true)]
     Hardware {
         #[command(subcommand)]
         cmd: HardwareCmd,
     },
     /// Mining pools.
-    #[command(hide = true)]
     Pools {
         #[command(subcommand)]
         cmd: PoolsCmd,
     },
     /// The background process that owns mining.
-    #[command(hide = true)]
     Agent {
         #[command(subcommand)]
         cmd: AgentCmd,
     },
     /// Demo mode: a simulated miner, no CPU/GPU mining, no network.
-    #[command(hide = true)]
     Demo { state: OnOff },
     /// Miner programs (pinned releases, SHA-256 verified).
-    #[command(hide = true)]
     Miner {
         #[command(subcommand)]
         cmd: MinerCmd,
     },
-    /// This device's identity (Erebor Fleet).
-    #[command(hide = true)]
+    /// This computer's name and id.
     Device {
         #[command(subcommand)]
         cmd: DeviceCmd,
     },
+}
+
+#[derive(Subcommand, Debug)]
+enum ConfigCmd {
+    /// All settings as `key = value` (the default).
+    Show,
+    /// One setting (a section prints all its keys).
+    Get { key: String },
+    /// Change one setting; the engine validates it. VALUE is JSON (`true`, `0.25`,
+    /// `null`, `[..]`) or plain text.
+    Set { key: String, value: String },
+}
+
+#[derive(Subcommand, Debug)]
+enum CoinsCmd {
+    /// Every coin, its algorithm, hashrate here and estimated earnings (the default).
+    List,
+    /// Mine this coin (`auto`: the most profitable, switching by itself).
+    Set { coin: String },
 }
 
 #[derive(Subcommand, Debug, Clone, Copy)]
@@ -364,6 +392,9 @@ fn run(cli: Cli, dir: &Path) -> Result<(), Fail> {
         Cmd::Wallet { cmd } => wallet_cmd(dir, cmd, json),
         Cmd::Pools { cmd } => pools_cmd(dir, cmd, json),
         Cmd::Monitor => erebor_tui::run(dir.to_path_buf()).map_err(Fail::from),
+        Cmd::Config { cmd } => config_cmd(dir, cmd.unwrap_or(ConfigCmd::Show), json),
+        Cmd::Coins { cmd } => coins_cmd(dir, cmd.unwrap_or(CoinsCmd::List), json),
+        Cmd::Logs { follow } => logs(dir, follow, json),
         Cmd::Agent { cmd } => agent(dir, cmd, json),
         Cmd::Demo { state } => {
             let mut c = load_config_live(dir)?;
@@ -437,6 +468,10 @@ fn needs_engine(cmd: &Cmd) -> bool {
             | Cmd::Demo { .. }
             | Cmd::Miner { .. }
             | Cmd::Device { .. }
+            | Cmd::Coins { .. }
+            | Cmd::Config {
+                cmd: Some(ConfigCmd::Set { .. })
+            }
             | Cmd::Wallet {
                 cmd: WalletCmd::Set { .. }
             }
@@ -1030,6 +1065,252 @@ fn agent(dir: &Path, cmd: AgentCmd, json: bool) -> Result<(), Fail> {
     }
 }
 
+/// `a.b.c` in a JSON object; `None` when a key does not exist.
+fn at<'a>(v: &'a Value, key: &str) -> Option<&'a Value> {
+    key.split('.').try_fold(v, |v, k| v.get(k))
+}
+
+/// `key = value` lines for every leaf under `v`.
+fn flatten(prefix: &str, v: &Value, out: &mut Vec<(String, String)>) {
+    match v {
+        Value::Object(m) => {
+            for (k, v) in m {
+                let key = if prefix.is_empty() {
+                    k.clone()
+                } else {
+                    format!("{prefix}.{k}")
+                };
+                flatten(&key, v, out);
+            }
+        }
+        Value::String(s) => out.push((prefix.into(), s.clone())),
+        v => out.push((prefix.into(), v.to_string())),
+    }
+}
+
+/// The new value for `key`: JSON when it parses, else text. Text stays text for
+/// string settings ("1234" as a worker name).
+fn parse_value(current: &Value, raw: &str) -> Value {
+    match (current, serde_json::from_str::<Value>(raw)) {
+        (Value::String(_), Ok(Value::String(s))) => Value::String(s),
+        (Value::String(_), _) => Value::String(raw.into()),
+        (_, Ok(v)) => v,
+        (_, Err(_)) => Value::String(raw.into()),
+    }
+}
+
+fn set_key(cfg: &mut Value, key: &str, raw: &str) -> Result<(), Fail> {
+    let slot = key
+        .split('.')
+        .try_fold(cfg, |v, k| v.get_mut(k))
+        .ok_or_else(|| Fail::from(format!("unknown_key: {key}")))?;
+    if slot.is_object() {
+        return Err(format!("not_a_setting: {key} is a section").into());
+    }
+    *slot = parse_value(slot, raw);
+    Ok(())
+}
+
+fn config_cmd(dir: &Path, cmd: ConfigCmd, json: bool) -> Result<(), Fail> {
+    let to_value = |c: &AppConfig| serde_json::to_value(c).unwrap_or_default();
+    let print = |v: &Value, prefix: &str| {
+        if json {
+            print_json(v);
+            return;
+        }
+        let mut rows = vec![];
+        flatten(prefix, v, &mut rows);
+        let w = rows.iter().map(|r| r.0.len()).max().unwrap_or(0);
+        for (k, v) in rows {
+            println!("{}  {v}", ui::label(&k, w));
+        }
+    };
+    match cmd {
+        ConfigCmd::Show => print(&to_value(&load_config(dir)?), ""),
+        ConfigCmd::Get { key } => {
+            let c = to_value(&load_config(dir)?);
+            let v = at(&c, &key).ok_or_else(|| Fail::from(format!("unknown_key: {key}")))?;
+            match v {
+                Value::Object(_) => print(v, &key),
+                Value::String(s) if !json => println!("{s}"),
+                v if !json => println!("{v}"),
+                v => print_json(v),
+            }
+        }
+        ConfigCmd::Set { key, value } => {
+            let mut c = to_value(&load_config_live(dir)?);
+            set_key(&mut c, &key, &value)?;
+            let wanted = at(&c, &key).cloned().unwrap_or_default();
+            let new: AppConfig = serde_json::from_value(c)
+                .map_err(|e| Fail::from(format!("invalid_value: {key}: {e}")))?;
+            let saved = to_value(&save_config(dir, &new)?);
+            let got = at(&saved, &key).cloned().unwrap_or_default();
+            if json {
+                print_json(&json!({ "key": key, "value": got }));
+            } else if got == wanted {
+                println!("{}", ui::ok(format!("{key} = {}", display(&got))));
+            } else {
+                // The engine owns some keys (miner paths, version) or adjusts a value.
+                println!(
+                    "{}",
+                    ui::warn(format!("{key} kept by Erebor: {}", display(&got)))
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
+fn display(v: &Value) -> String {
+    match v {
+        Value::String(s) => s.clone(),
+        v => v.to_string(),
+    }
+}
+
+fn coins_cmd(dir: &Path, cmd: CoinsCmd, json: bool) -> Result<(), Fail> {
+    if let CoinsCmd::Set { coin } = cmd {
+        let id = coin.trim().to_uppercase();
+        if id != AUTO_COIN && erebor_core::coins::find(&id).is_none() {
+            return fail("unknown_coin");
+        }
+        let mut c = load_config_live(dir)?;
+        c.coin = id;
+        let saved = save_config(dir, &c)?;
+        if json {
+            print_json(&json!({ "coin": saved.coin }));
+        } else if saved.coin == AUTO_COIN && c.coin != AUTO_COIN {
+            println!(
+                "{}",
+                ui::warn("This payout cannot mine that coin: kept automatic.")
+            );
+        } else {
+            println!(
+                "{}",
+                ui::ok(format!(
+                    "Coin set: {}. Running mining switches over now.",
+                    if saved.coin == AUTO_COIN {
+                        "auto"
+                    } else {
+                        saved.coin.as_str()
+                    }
+                ))
+            );
+            if ipc::snapshot(dir).is_ok_and(|s| s.job.is_some_and(|j| !j.done)) {
+                println!("{}", ui::paint("Installing its miner first…", ui::DIM));
+            }
+        }
+        return Ok(());
+    }
+    let opts = call(dir, "coin_options", Value::Null)?;
+    let current = load_config(dir)?.coin;
+    if json {
+        print_json(&json!({ "coin": current, "options": opts }));
+        return Ok(());
+    }
+    let currency = load_config(dir)?.energy.currency;
+    println!(
+        "{}",
+        ui::paint(
+            format!(
+                "  {:<6}{:<18}{:<14}{:<5}{:>12}{:>12}  NOTE",
+                "COIN",
+                "NAME",
+                "ALGO",
+                "DEV",
+                "HASHRATE",
+                format!("{currency}/DAY")
+            ),
+            ui::DIM
+        )
+    );
+    // Mineable first, best estimate first.
+    let mut opts = opts.as_array().cloned().unwrap_or_default();
+    opts.sort_by(|a, b| {
+        let v = |o: &Value| o["valuePerDay"].as_f64().unwrap_or(-1.0);
+        a["blocker"]
+            .is_null()
+            .cmp(&b["blocker"].is_null())
+            .reverse()
+            .then(v(b).total_cmp(&v(a)))
+    });
+    for o in &opts {
+        let c = &o["coin"];
+        let id = c["id"].as_str().unwrap_or("?");
+        let mark = if id == current { "*" } else { " " };
+        let note = match o["blocker"].as_str() {
+            Some(b) => explain(b).0,
+            None if c["asic"] == true => "ASIC coin: earns little".into(),
+            None if o["minerInstalled"] == false => "miner installed on first use".into(),
+            None => String::new(),
+        };
+        let line = format!(
+            "{mark} {:<6}{:<18}{:<14}{:<5}{:>12}{:>12}  {note}",
+            id,
+            c["name"].as_str().unwrap_or(""),
+            c["algo"].as_str().unwrap_or(""),
+            c["device"].as_str().unwrap_or("").to_uppercase(),
+            o["hashrate"]
+                .as_f64()
+                .map_or("-".into(), |h| fmt::hashrate(Some(h))),
+            o["valuePerDay"]
+                .as_f64()
+                .map_or("-".into(), |v| format!("{v:.3}")),
+        );
+        if o["blocker"].is_null() {
+            println!("{line}");
+        } else {
+            println!("{}", ui::paint(line, ui::DIM));
+        }
+    }
+    println!(
+        "\n{}",
+        ui::paint(
+            format!(
+                "* = selected ({}). Hashrate is measured while mining each coin. Change: erebor coins set <COIN|auto>",
+                if current == AUTO_COIN { "auto" } else { current.as_str() }
+            ),
+            ui::DIM
+        )
+    );
+    Ok(())
+}
+
+fn logs(dir: &Path, follow: bool, json: bool) -> Result<(), Fail> {
+    let get = || -> Result<Vec<String>, Fail> {
+        Ok(call(dir, "get_logs", Value::Null)?
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|v| v.as_str().map(str::to_string))
+            .collect())
+    };
+    let mut seen = get()?;
+    if json && !follow {
+        print_json(&seen);
+        return Ok(());
+    }
+    for l in &seen {
+        println!("{l}");
+    }
+    if !follow {
+        return Ok(());
+    }
+    loop {
+        std::thread::sleep(Duration::from_secs(1));
+        let now = get()?;
+        // The log is a ring buffer: print what follows the last line already shown.
+        let new = match seen.last().and_then(|l| now.iter().rposition(|x| x == l)) {
+            Some(i) => &now[i + 1..],
+            None => &now[..],
+        };
+        for l in new {
+            println!("{l}");
+        }
+        seen = now;
+    }
+}
+
 /// `erebor power [eco|balanced|max]`: show or change how much CPU mining uses.
 fn power(dir: &Path, level: Option<onboard::Perf>, json: bool) -> Result<(), Fail> {
     use erebor_core::config::Preset;
@@ -1329,7 +1610,8 @@ fn install_wait(dir: &Path, kind: MinerKind, progress: bool) -> Result<(), Fail>
         };
         if progress {
             eprint!(
-                "\rInstalling {}: {:>3.0}%",
+                "\r  {} Installing {}  {:>3.0}%",
+                ui::paint("◇", ui::BRAND),
                 kind.label(),
                 j.progress * 100.0
             );
@@ -1453,6 +1735,38 @@ mod tests {
         assert!(p(&["mining"]).is_err());
         assert!(p(&[]).unwrap().cmd.is_none());
         assert!(p(&["demo", "maybe"]).is_err());
+    }
+
+    #[test]
+    fn config_keys() {
+        let mut c = serde_json::to_value(AppConfig::default()).unwrap();
+        set_key(&mut c, "pool.worker", "1234").unwrap();
+        set_key(&mut c, "energy.pricePerKwh", "0.25").unwrap();
+        set_key(&mut c, "safety.autoRestart", "true").unwrap();
+        set_key(&mut c, "performance.preset", "custom").unwrap();
+        assert_eq!(
+            set_key(&mut c, "pool.nope", "1").unwrap_err().code,
+            "unknown_key: pool.nope"
+        );
+        assert!(set_key(&mut c, "pool", "x").is_err());
+        let a: AppConfig = serde_json::from_value(c.clone()).unwrap();
+        assert_eq!(a.pool.worker, "1234");
+        assert_eq!(a.energy.price_per_kwh, Some(0.25));
+        assert!(a.safety.auto_restart);
+        assert_eq!(a.performance.preset, erebor_core::config::Preset::Custom);
+        assert_eq!(at(&c, "pool.worker"), Some(&json!("1234")));
+        // Wrong type: refused before reaching the engine.
+        set_key(&mut c, "safety.maxTempC", "hot").unwrap();
+        assert!(serde_json::from_value::<AppConfig>(c).is_err());
+        let mut rows = vec![];
+        flatten(
+            "",
+            &serde_json::to_value(AppConfig::default()).unwrap(),
+            &mut rows,
+        );
+        assert!(rows
+            .iter()
+            .any(|(k, v)| k == "safety.maxTempC" && v == "85.0"));
     }
 
     #[test]

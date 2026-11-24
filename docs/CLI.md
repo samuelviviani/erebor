@@ -42,37 +42,35 @@ cargo test -p erebor-core -p erebor-agent -p erebor-tui -p erebor-cli
 
 `cargo test --workspace` compila anche l'app desktop e richiede le dipendenze Tauri (vedi [DEVELOPMENT.md](../DEVELOPMENT.md)).
 
-## Installazione e setup guidato (consigliato)
-
-Come OpenClaw: un comando installa e avvia subito la procedura guidata.
+## Installazione (un comando)
 
 ```bash
-sh scripts/install.sh                 # dal checkout del repository
-# oppure, senza clonare a mano:
-curl -fsSL https://raw.githubusercontent.com/samuelviviani/erebor/main/scripts/install.sh \
-  | sh -s -- --repo https://github.com/samuelviviani/erebor.git
+curl -fsSL https://raw.githubusercontent.com/samuelviviani/erebor/main/scripts/install.sh | sh
 ```
 
-L'installer controlla sistema e compilatore C (su Ubuntu suggerisce `sudo apt install -y build-essential`), installa Rust con rustup se manca (chiedendo prima), compila `erebor` ed `erebor-agent` in release, li copia in `~/.local/bin` (senza root), indica come aggiungerlo al `PATH` e lancia `erebor onboard`. Opzioni: `--no-onboard`, `--prefix DIR`, `--repo URL`, `--ref REF`, `--yes`.
+Scarica dall'ultima release GitHub il binario `erebor` per il tuo sistema (macOS e Linux, x86_64 e aarch64), ne verifica lo SHA-256 con `SHA256SUMS`, lo copia in `~/.local/bin` (senza root), indica come aggiungerlo al `PATH` e lancia `erebor onboard`. Non serve Rust. Dopo si aggiorna da solo (vedi sopra).
+
+Opzioni (dopo `| sh -s --`): `--version vX.Y.Z`, `--no-onboard`, `--prefix DIR`, `--yes`, `--from-source` (compila con Rust: anche `--repo URL`, `--ref REF`; dal checkout `sh scripts/install.sh --from-source`).
 
 ### `erebor onboard`
 
-Parte da sola anche lanciando `erebor` senza argomenti la prima volta. Passi:
+Parte da sola anche lanciando `erebor` senza argomenti la prima volta. Mostra **tutte** le opzioni, divise in sezioni, ognuna con un valore predefinito (Invio lo accetta):
 
-1. **Setup esistente**: se Erebor è già configurato, propone *Mantieni* / *Modifica* / *Ricomincia dai valori predefiniti* (le statistiche restano).
-2. **Modalità**: *Quick start* (consigliata: wallet, miner ufficiale, valori sicuri), *Personalizzata* (anche pool, prestazioni, nome worker e dispositivo, temperatura massima, riavvio automatico, GPU, avvio al login), *Demo* (miner simulato).
-3. **Wallet**: indirizzo pubblico (Monero, ID Kryptex o Bitcoin), validato subito; le seed phrase vengono riconosciute e rifiutate.
-4. **Miner**: XMRig fissato e verificato per la CPU; con una GPU NVIDIA/AMD supportata anche SRBMiner-MULTI (in Quick start automaticamente).
-5. **Agent**: tenerlo attivo in background (predefinito sì), minare sempre anche dopo un riavvio (predefinito no), avviare il mining subito (predefinito **no**).
-6. **Applicazione e controllo**: avvia l'agent, salva la configurazione tramite il motore, installa il miner, esegue il controllo di salute (come `doctor`), poi riepilogo e prossimi passi.
+1. **Mode**: mining reale o demo (miner simulato).
+2. **Payout**: ID Kryptex, validato subito; seed phrase e chiavi private vengono riconosciute e rifiutate.
+3. **Mining**: moneta (auto o una delle monete minabili su questo computer), thread CPU (eco 25%, balanced 50%, max 100%, custom %), nome worker.
+4. **Electricity**: valuta e prezzo per kWh (facoltativo), stop quando il mining costa più di quanto rende.
+5. **Safety**: temperatura massima, riavvio automatico del miner.
+6. **Miners**: XMRig e, con una GPU supportata, SRBMiner-MULTI e lolMiner (build fissate, SHA-256 verificato).
+7. **Running**: agent in background, avvio con il computer, avvio immediato del mining.
 
-Tutte le risposte vengono raccolte prima: interrompere la procedura (Ctrl-C) non cambia nulla.
+Alla fine un **riepilogo** chiede conferma: prima di quella non cambia nulla (anche Ctrl-C non cambia nulla). Poi avvia l'agent, salva tramite il motore, installa i miner, esegue il controllo di salute e mostra i prossimi comandi.
 
-Senza prompt (script, provisioning):
+Senza prompt (script, provisioning); il resto si regola dopo con `erebor config set`:
 
 ```bash
-erebor onboard --non-interactive --wallet <INDIRIZZO> [--pool ID] \
-  [--performance eco|balanced|performance] [--no-install-miner] [--install-service] \
+erebor onboard --non-interactive --wallet <KRYPTEX_ID> [--coin ID|auto] [--worker NOME] \
+  [--pool ID] [--performance eco|balanced|max] [--no-install-miner] [--install-service] \
   [--start] [--no-background] [--skip-health] [--reset]
 erebor onboard --non-interactive --mode demo --start
 ```
@@ -96,7 +94,7 @@ Parte solo con configurazione valida (wallet e miner):
 
 ```bash
 erebor demo off
-erebor wallet set <INDIRIZZO>    # indirizzo pubblico Monero, ID Kryptex (krx…) o indirizzo BTC
+erebor wallet set <KRYPTEX_ID>   # ID Kryptex (krx…)
 erebor miner install xmrig       # release fissata, SHA-256 verificato
 erebor pools test
 erebor mining start
@@ -113,6 +111,12 @@ Condivisa con l'app desktop: `~/.local/share/org.erebor.desktop` (Linux), `~/Lib
 | Comando | Cosa fa | `--json` |
 |---|---|---|
 | `erebor onboard` | Setup guidato (vedi sopra); `erebor` senza argomenti lo apre al primo avvio | ✓ |
+| `erebor config` | Tutte le impostazioni come `chiave = valore` (`config.json`, nomi camelCase) | ✓ |
+| `erebor config get <KEY>` | Un valore, o tutte le chiavi di una sezione (`config get energy`) | ✓ |
+| `erebor config set <KEY> <VALUE>` | Cambia un'impostazione; VALUE è JSON (`true`, `0.25`, `null`, `[…]`) o testo. Il motore la valida come per l'app; chiavi gestite da Erebor (percorsi dei miner, versione) restano invariate e la CLI lo segnala | ✓ |
+| `erebor coins` | Monete: algoritmo, CPU/GPU, hashrate misurato qui, guadagno stimato al giorno, perché non è minabile (`*` = scelta) | ✓ |
+| `erebor coins set <COIN\|auto>` | Mina quella moneta (il miner mancante si installa da solo) o torna alla scelta automatica | ✓ |
+| `erebor logs [-f]` | Log del motore; `-f` continua a stampare le righe nuove | ✓ |
 | `erebor status` | Stato, miner, moneta/algoritmo, pool, hashrate, uptime, share, temperatura, consumo, ricompense stimate, dev fee | ✓ |
 | `erebor doctor [--offline]` | OS, CPU/GPU, sensori, utente/permessi, cartella dati, agent, configurazione, consenso, wallet, miner, connettività pool | ✓ |
 | `erebor mining start\|stop\|pause\|resume\|restart` | Comandi verificati: riporta successo solo se lo stato è davvero cambiato | ✓ |
@@ -129,7 +133,11 @@ Condivisa con l'app desktop: `~/.local/share/org.erebor.desktop` (Linux), `~/Lib
 | `erebor agent install-service\|uninstall-service` | Avvio al login, opzionale, disattivato di default | |
 | `erebor demo on\|off` | Modalità demo esplicita | ✓ |
 | `erebor miner install [xmrig\|srbminer]` | Scarica e verifica il miner fissato | ✓ |
-| `erebor device show` / `device name <NOME>` | Identità del dispositivo (Fleet) | ✓ |
+| `erebor device show` / `device name <NOME>` | Nome e id di questo computer | ✓ |
+
+Tutti i comandi compaiono in `erebor --help`: nessuno è nascosto.
+
+Impostazioni utili: `performance.preset` (`eco`, `balanced`, `performance`, `custom`) e `performance.customThreadsPercent`; `pool.worker`; `safety.maxTempC`, `safety.autoRestart`; `energy.pricePerKwh`, `energy.currency`, `energy.estimatedWatts`, `energy.stopIfUnprofitable`, `energy.minProfitPerDay`; `schedule.enabled`, `schedule.startMinute`, `schedule.endMinute`, `schedule.days`; `autoUpdateMiners`; `startOnLaunch`.
 
 `pause`/`resume` funzionano solo se il miner lo supporta (`pause_unsupported` altrimenti). `--json` e `--data-dir` sono opzioni globali: valgono prima o dopo il sottocomando.
 
@@ -172,7 +180,8 @@ Stabile e versionato. In caso di errore, con `--json`, su stdout:
   "powerW": null,
   "powerSource": "unavailable",  // measured | estimated | unavailable
   "devFee": {"enabled": true, "percent": 2.0, "active": "user"},
-  "earnings": {"valuePerDay": 0.82, "currency": "EUR", "btcPerDay": 0.0000141, "live": true},
+  "earnings": {"valuePerDay": 0.82, "currency": "EUR", "btcPerDay": 0.0000141, "live": true,
+               "energyCostPerDay": 0.32, "netPerDay": 0.50},  // null senza prezzo kWh
   "restartInSecs": null,
   "job": null                    // installazione/benchmark in corso
 }

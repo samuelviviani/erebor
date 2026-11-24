@@ -111,6 +111,10 @@ pub struct EarningsSummary {
     pub btc_per_day: f64,
     /// Based on the live hashrate (false: last measured one).
     pub live: bool,
+    /// Electricity cost per day; `None` without a price per kWh or a power reading.
+    pub energy_cost_per_day: Option<f64>,
+    /// `value_per_day` minus `energy_cost_per_day`.
+    pub net_per_day: Option<f64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -216,6 +220,8 @@ impl Snapshot {
                 currency: c.energy.currency.clone(),
                 btc_per_day: p.btc_per_day,
                 live: p.live,
+                energy_cost_per_day: p.energy_cost_per_day,
+                net_per_day: p.net_per_day,
             }),
             restart_in_secs: s.restart_in_secs,
             job: s.job.as_ref().map(|j| JobSummary {

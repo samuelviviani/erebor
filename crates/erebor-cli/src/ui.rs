@@ -51,46 +51,42 @@ pub const HELP: clap::builder::Styles = clap::builder::Styles::styled()
     .valid(OK)
     .invalid(WARN);
 
-/// The text after `erebor --help`: quick start and the less common commands.
+/// The text after `erebor --help`: examples, then exit codes.
 pub fn after_help() -> String {
-    let h = |s: &str| paint(s, BRAND);
-    let c = |cmd: &str, what: &str| format!("  {}  {what}\n", paint(format!("{cmd:<19}"), CMD));
-    let mut s = h("Quick start:\n");
+    let mut s = paint("Examples:\n", BRAND);
     for (cmd, what) in [
-        ("erebor", "live dashboard (first time: guided setup)"),
+        ("erebor", "dashboard (first time: guided setup)"),
         (
-            "erebor start",
-            "start mining (keeps running in the background)",
+            "erebor coins set XMR",
+            "mine one coin (auto: the most profitable)",
         ),
-        ("erebor stop", "stop mining"),
+        ("erebor config set performance.preset custom", ""),
         (
-            "erebor power max",
-            "use the whole CPU (eco · balanced · max)",
+            "erebor config set performance.customThreadsPercent 75",
+            "custom share of CPU threads",
         ),
         (
-            "erebor service on",
-            "mine always, also after the computer restarts",
+            "erebor config set energy.pricePerKwh 0.25",
+            "net earnings, stop if unprofitable",
         ),
-        ("erebor demo on", "try it with a simulated miner first"),
+        (
+            "erebor config set pool.worker rig01",
+            "worker name on the pool",
+        ),
+        ("erebor service on", "mine always, also after a restart"),
+        ("erebor logs -f", "follow the engine log"),
+        ("erebor status --json", "for scripts and monitoring"),
     ] {
-        s += &c(cmd, what);
-    }
-    s += &format!("\n{}\n", h("More commands:"));
-    for (cmd, what) in [
-        ("mining", "pause, resume, restart"),
-        ("miner install", "install XMRig (CPU) or SRBMiner (GPU)"),
-        ("pools", "list, test or change the pool"),
-        ("hardware", "detected CPU, GPUs and sensors"),
-        ("agent", "the background process (start, stop, status)"),
-        ("demo", "simulated miner on/off"),
-        ("device", "this computer's name and id"),
-    ] {
-        s += &c(cmd, what);
+        s += &format!("  {}", paint(format!("{cmd:<55}"), CMD));
+        if !what.is_empty() {
+            s += &paint(what, DIM);
+        }
+        s += "\n";
     }
     s += &format!(
         "\n{}\n{}",
         paint(
-            "Details on any command: erebor help <command> · docs/CLI.md",
+            "Every setting: erebor config · details: erebor help <command> · docs/CLI.md",
             DIM
         ),
         paint(

@@ -2,6 +2,17 @@
 
 Formato: [Keep a Changelog](https://keepachangelog.com/it/1.1.0/), versioni [SemVer](https://semver.org/lang/it/).
 
+## [Unreleased]
+
+### Added
+- CLI: `erebor config` (ogni impostazione: `get`, `set`), `erebor coins` (monete con hashrate e guadagno stimato, `coins set`), `erebor logs [-f]`. Nessun comando nascosto in `erebor --help`.
+- Installazione con un comando: `curl -fsSL …/scripts/install.sh | sh` scarica il binario della release e ne verifica lo SHA-256 (non serve più Rust; `--from-source` per compilare).
+- Snapshot: `earnings.energyCostPerDay` e `earnings.netPerDay`.
+
+### Changed
+- Dashboard da terminale: il logo compare solo all'avvio; schermata compatta con mining, guadagno netto, tabella dispositivi (temperatura, consumo, carico) e log.
+- Setup da terminale: tutte le opzioni in sezioni (moneta, thread CPU, worker, prezzo energia, sicurezza, miner, avvio), riepilogo e conferma finale.
+
 ## [0.1.5] - 2026-11-24
 
 ### Fixed

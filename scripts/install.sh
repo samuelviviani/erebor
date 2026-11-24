@@ -1,35 +1,42 @@
 #!/bin/sh
-# Erebor installer (macOS, Linux, WSL2): builds the `erebor` CLI and agent from source,
-# installs them in ~/.local/bin (no root) and starts the guided setup.
+# Erebor installer (macOS, Linux, WSL2). One command:
 #
-#   sh scripts/install.sh                      # from a checkout of the repository
-#   curl -fsSL <raw URL>/scripts/install.sh | sh -s -- --repo <git URL>
+#   curl -fsSL https://raw.githubusercontent.com/samuelviviani/erebor/main/scripts/install.sh | sh
 #
-# Options:
-#   --no-onboard     install only; run `erebor onboard` later
-#   --prefix DIR     install into DIR/bin (default: ~/.local)
-#   --repo URL       git repository to clone when not run from a checkout ($EREBOR_REPO_URL)
-#   --ref REF        branch or tag to build (default: the repository default)
-#   --yes            no questions (installs Rust with rustup if it is missing)
+# Downloads the signed `erebor` binary of the latest GitHub release for this system,
+# checks its SHA-256, installs it in ~/.local/bin (no root) and starts the guided setup.
+# Afterwards it updates itself (`erebor update`).
 #
-# What it changes: Rust via rustup if missing (asks first), the sources in
-# ~/.local/share/erebor/src when cloning, two files in <prefix>/bin. Nothing else:
-# no root, no services, no mining. The setup asks before doing anything.
+# Options (after `| sh -s --`):
+#   --version vX.Y.Z  a specific release instead of the latest
+#   --no-onboard      install only; run `erebor onboard` later
+#   --prefix DIR      install into DIR/bin (default: ~/.local)
+#   --from-source     build with Rust instead of downloading (also --repo URL, --ref REF)
+#   --yes             no questions (from source: installs Rust with rustup if missing)
+#
+# What it changes: one file in <prefix>/bin. From source also: Rust via rustup if
+# missing (asks first) and the sources in ~/.local/share/erebor/src. No root, no
+# services, no mining: the setup asks before doing anything.
 set -eu
 
+GITHUB=samuelviviani/erebor
 ONBOARD=1
 PREFIX="${HOME}/.local"
-REPO="${EREBOR_REPO_URL:-}"
+REPO="${EREBOR_REPO_URL:-https://github.com/$GITHUB.git}"
 REF=""
 YES=0
+SOURCE=0
+VERSION=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --no-onboard) ONBOARD=0 ;;
     --prefix) PREFIX="$2"; shift ;;
-    --repo) REPO="$2"; shift ;;
-    --ref) REF="$2"; shift ;;
+    --repo) REPO="$2"; SOURCE=1; shift ;;
+    --ref) REF="$2"; SOURCE=1; shift ;;
+    --from-source) SOURCE=1 ;;
+    --version) VERSION="$2"; shift ;;
     --yes|-y) YES=1 ;;
-    -h|--help) sed -n '2,19p' "$0" 2>/dev/null | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,22p' "$0" 2>/dev/null | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown option: $1 (see --help)" >&2; exit 2 ;;
   esac
   shift
@@ -54,7 +61,57 @@ case "$(uname -s)" in
   Darwin) OS=macos ;;
   *) die "unsupported system $(uname -s): on Windows use the desktop app (or WSL2)" ;;
 esac
-say "System: $OS $(uname -m)"
+case "$(uname -m)" in
+  x86_64|amd64) ARCH=x86_64 ;;
+  arm64|aarch64) ARCH=aarch64 ;;
+  *) die "unsupported CPU $(uname -m)" ;;
+esac
+say "System: $OS $ARCH"
+
+finish() {
+  say "Installed: $PREFIX/bin/erebor ($("$PREFIX/bin/erebor" --version))"
+  case ":$PATH:" in
+    *":$PREFIX/bin:"*) ;;
+    *)
+      shell_rc="$HOME/.profile"
+      case "${SHELL:-}" in */zsh) shell_rc="$HOME/.zshrc" ;; */bash) shell_rc="$HOME/.bashrc" ;; esac
+      printf '\n  %s is not in your PATH. Add it with:\n    echo '\''export PATH="%s/bin:$PATH"'\'' >> %s\n\n' \
+        "$PREFIX/bin" "$PREFIX" "$shell_rc"
+      ;;
+  esac
+  if [ "$ONBOARD" = 1 ] && has_tty; then
+    say "Starting the guided setup"
+    exec "$PREFIX/bin/erebor" onboard </dev/tty
+  fi
+  printf '\nNext: %s/bin/erebor onboard\n' "$PREFIX"
+  exit 0
+}
+
+if [ "$SOURCE" = 0 ]; then
+  command -v curl >/dev/null 2>&1 || die "curl is required"
+  if [ -n "$VERSION" ]; then
+    URL="https://github.com/$GITHUB/releases/download/$VERSION"
+  else
+    URL="https://github.com/$GITHUB/releases/latest/download"
+  fi
+  ASSET="erebor-$OS-$ARCH"
+  TMP=$(mktemp -d)
+  trap 'rm -rf "$TMP"' EXIT
+  say "Downloading $ASSET ${VERSION:-(latest release)}"
+  curl -fsSL --proto '=https' -o "$TMP/erebor" "$URL/$ASSET" || die "download failed: $URL/$ASSET"
+  curl -fsSL --proto '=https' -o "$TMP/SHA256SUMS" "$URL/SHA256SUMS" || die "download failed: $URL/SHA256SUMS"
+  want=$(awk -v f="$ASSET" '$2 == f { print $1 }' "$TMP/SHA256SUMS")
+  if command -v sha256sum >/dev/null 2>&1; then
+    got=$(sha256sum "$TMP/erebor" | awk '{ print $1 }')
+  else
+    got=$(shasum -a 256 "$TMP/erebor" | awk '{ print $1 }')
+  fi
+  [ -n "$want" ] && [ "$want" = "$got" ] || die "checksum mismatch for $ASSET: not installed"
+  say "SHA-256 verified"
+  mkdir -p "$PREFIX/bin"
+  install -m 755 "$TMP/erebor" "$PREFIX/bin/erebor"
+  finish
+fi
 
 # C compiler: the bundled SQLite and TLS code are compiled from source.
 if ! command -v cc >/dev/null 2>&1; then
@@ -84,7 +141,6 @@ if [ -n "$here" ] && [ -f "$here/../crates/erebor-cli/Cargo.toml" ]; then
 elif [ -f "./crates/erebor-cli/Cargo.toml" ]; then
   SRC=$(pwd)
 else
-  [ -n "$REPO" ] || die "not run from a checkout: pass --repo <git URL> (or set EREBOR_REPO_URL)"
   command -v git >/dev/null 2>&1 || die "git is required to download the sources"
   SRC="${HOME}/.local/share/erebor/src"
   if [ -d "$SRC/.git" ]; then
@@ -104,20 +160,4 @@ say "Building erebor (release, a few minutes the first time)"
 
 mkdir -p "$PREFIX/bin"
 install -m 755 "$SRC/target/release/erebor" "$SRC/target/release/erebor-agent" "$PREFIX/bin/"
-say "Installed: $PREFIX/bin/erebor ($("$PREFIX/bin/erebor" --version))"
-
-case ":$PATH:" in
-  *":$PREFIX/bin:"*) ;;
-  *)
-    shell_rc="$HOME/.profile"
-    case "${SHELL:-}" in */zsh) shell_rc="$HOME/.zshrc" ;; */bash) shell_rc="$HOME/.bashrc" ;; esac
-    printf '\n  %s is not in your PATH. Add it with:\n    echo '\''export PATH="%s/bin:$PATH"'\'' >> %s\n\n' \
-      "$PREFIX/bin" "$PREFIX" "$shell_rc"
-    ;;
-esac
-
-if [ "$ONBOARD" = 1 ] && has_tty; then
-  say "Starting the guided setup"
-  exec "$PREFIX/bin/erebor" onboard </dev/tty
-fi
-printf '\nNext: %s/bin/erebor onboard\n' "$PREFIX"
+finish

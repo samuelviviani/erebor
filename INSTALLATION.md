@@ -44,7 +44,9 @@ dist/erebor-node uninstall-service
 ## CLI, Agent e TUI da terminale
 
 ```bash
-sh scripts/install.sh    # compila, installa in ~/.local/bin e avvia il setup guidato
+curl -fsSL https://raw.githubusercontent.com/samuelviviani/erebor/main/scripts/install.sh | sh
+# scarica il binario firmato, verifica lo SHA-256, installa in ~/.local/bin e avvia il setup
+# dal checkout, compilando: sh scripts/install.sh --from-source
 ```
 
 Compilazione su Ubuntu, comandi e risoluzione dei problemi: [docs/CLI.md](docs/CLI.md). L'Agent (`erebor agent start`, servizio systemd utente opzionale) sostituisce il nodo per l'uso locale: [docs/AGENT.md](docs/AGENT.md). Il nodo resta per l'interfaccia web del telefono e serve anche il socket locale, quindi `erebor status` funziona anche con il nodo attivo.
