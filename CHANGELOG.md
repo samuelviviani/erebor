@@ -2,7 +2,7 @@
 
 Formato: [Keep a Changelog](https://keepachangelog.com/it/1.1.0/), versioni [SemVer](https://semver.org/lang/it/).
 
-## [Unreleased]
+## [0.1.6] - 2026-11-24
 
 ### Added
 - CLI: `erebor config` (ogni impostazione: `get`, `set`), `erebor coins` (monete con hashrate e guadagno stimato, `coins set`), `erebor logs [-f]`. Nessun comando nascosto in `erebor --help`.
