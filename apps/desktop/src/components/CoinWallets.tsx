@@ -89,11 +89,12 @@ export function CoinSheet({
   const mode = payoutMode(c.wallet);
   const payout = c.wallet ? t(`payout.${mode}.short`) : t("wallet.none");
   // With an own wallet saved the engine reports no payout blocker: redo its checks.
-  const viaUnmineable = mode === "bitcoin" && !!c.wallet && !!coin.unmineableHost;
+  const unmineable = mode === "bitcoin" || mode === "convert";
+  const viaUnmineable = unmineable && !!c.wallet && !!coin.unmineableHost;
   const mainBlocked = saved
     ? (!c.wallet && !c.demoMode) ||
       (!coin.host && !viaUnmineable) ||
-      (!!c.wallet && mode === "bitcoin" && !coin.unmineableHost)
+      (!!c.wallet && unmineable && !coin.unmineableHost)
     : PAYOUT_BLOCKERS.includes(option.blocker ?? "");
 
   const [own, setOwn] = useState(!!saved || mainBlocked);
@@ -229,7 +230,7 @@ export function CoinSheet({
 
         <div className="space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <p className="flex items-center gap-1.5 text-xs font-medium tracking-wide text-faint uppercase">
+            <p className="flex items-center gap-1.5 text-sm font-medium text-fg">
               {t("sheet.payTo")}
               <Explain term="ownWallets" align="left" />
             </p>
@@ -247,7 +248,7 @@ export function CoinSheet({
           {!own ? (
             <p
               className={cx(
-                "rounded-xl px-3.5 py-3 text-[13px]",
+                "rounded-xl px-3.5 py-3 text-sm",
                 mainBlocked ? "bg-warn/10 text-fg" : "bg-surface-2",
               )}
             >
@@ -340,7 +341,7 @@ function OwnRoute({
       </Field>
 
       <div>
-        <p className="mb-2 flex items-center gap-1.5 text-xs font-medium tracking-wide text-faint uppercase">
+        <p className="mb-2 flex items-center gap-1.5 text-sm font-medium text-fg">
           {t("adv.pool")}
           <Explain term="poolChoice" align="left" />
         </p>
@@ -506,14 +507,14 @@ function Checklist({ option }: { option: CoinOption }) {
   };
   return (
     <div>
-      <p className="mb-2 text-xs font-medium tracking-wide text-faint uppercase">
+      <p className="mb-2 text-sm font-medium text-fg">
         {t("req.title")}
       </p>
       <ul className="divide-y divide-line rounded-xl border border-line">
         {option.requirements.map((r) => (
           <li
             key={r.kind}
-            className="flex min-h-11 items-center gap-2.5 px-3.5 py-2 text-[13px]"
+            className="flex min-h-11 items-center gap-2.5 px-3.5 py-2 text-sm"
           >
             {REQ_ICON[r.status]}
             <span

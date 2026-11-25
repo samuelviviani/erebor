@@ -29,6 +29,7 @@ export function Guide() {
     if (!d || !guide || d.open) return;
     if (typeof d.showModal === "function") d.showModal();
     else d.setAttribute("open", "");
+    d.focus(); // the sheet, not the close button: no focus ring at open
   }, [guide]);
 
   const close = () => {
@@ -52,7 +53,8 @@ export function Guide() {
         close();
       }}
       aria-labelledby="guide-title"
-      className="pop-in shadow-soft fixed inset-0 z-50 m-auto w-[min(480px,calc(100vw-32px))] overflow-hidden rounded-3xl border border-line bg-surface p-0 text-fg backdrop:bg-black/60"
+      tabIndex={-1}
+      className="pop-in shadow-soft outline-none fixed inset-0 z-50 m-auto w-[min(480px,calc(100vw-32px))] overflow-hidden rounded-3xl border border-line bg-surface p-0 text-fg backdrop:bg-black/60"
     >
       <div className="relative flex h-48 items-center justify-center overflow-hidden bg-gradient-to-br from-accent/25 via-accent/5 to-transparent">
         <div aria-hidden className="absolute -right-16 -bottom-20 size-64 rounded-full border border-accent/15" />
@@ -77,13 +79,13 @@ export function Guide() {
         <h2 id="guide-title" className="font-display text-2xl tracking-tight">
           {t(`tour.${i + 1}.title`)}
         </h2>
-        <p className="mt-2 text-[15px] leading-relaxed text-muted">{t(`tour.${i + 1}.body`)}</p>
+        <p className="mt-2 text-base leading-relaxed text-muted">{t(`tour.${i + 1}.body`)}</p>
       </div>
 
       <div className="flex items-center gap-3 px-7 pt-6 pb-6">
         <div className="flex gap-1.5" aria-label={t("tour.step", { n: i + 1, t: STEPS.length })}>
           {STEPS.map((_, k) => (
-            <span key={k} className={cx("h-1.5 rounded-full transition-all duration-300", k === i ? "w-6 bg-accent" : "w-1.5 bg-line")} />
+            <span key={k} className={cx("h-1.5 rounded-full transition-[width,background-color] duration-300 ease-[var(--ease)]", k === i ? "w-6 bg-accent" : "w-1.5 bg-line")} />
           ))}
         </div>
         <div className="ml-auto flex gap-2">

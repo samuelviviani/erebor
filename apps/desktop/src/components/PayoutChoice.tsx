@@ -9,10 +9,14 @@ import {
 import { useState } from "react";
 import { openExternal } from "../lib/api";
 import { useT } from "../lib/i18n";
+import { useApp } from "../lib/store";
 import { WalletInput } from "./shared";
 import { cx, Explain } from "./ui";
 
-export type PayoutMode = "kryptex" | "bitcoin" | "monero";
+export type PayoutMode = "kryptex" | "bitcoin" | "convert" | "monero";
+
+/** Coins unMineable pays out besides BTC (same list as `wallet::UNMINEABLE_PAYOUTS`). */
+export const CONVERT_COINS = ["LTC", "DOGE", "USDT"] as const;
 /** What the user ends up holding: Bitcoin, or the coins as mined. */
 type Pays = "btc" | "coin";
 
@@ -20,21 +24,20 @@ type Pays = "btc" | "coin";
  * Payout methods as data: a new service (another pool account, another auto-exchange,
  * another coin's own wallet) is one more entry here plus its texts and validator.
  */
-const METHODS: {
+const ALL_METHODS: {
   id: PayoutMode;
   pays: Pays;
   icon: LucideIcon;
   recommended?: boolean;
-  signup?: string;
+  signup?: boolean;
+  /** Only offered to experienced miners (or when already in use). */
+  advanced?: boolean;
 }[] = [
   // BTC straight to the user's own wallet, no account: the default.
   { id: "bitcoin", pays: "btc", icon: Bitcoin, recommended: true },
-  {
-    id: "kryptex",
-    pays: "btc",
-    icon: Wallet,
-    signup: "https://www.kryptex.com/",
-  },
+  { id: "kryptex", pays: "btc", icon: Wallet, signup: true },
+  // Same unMineable route, paid in a coin with a low payout threshold.
+  { id: "convert", pays: "btc", icon: Coins, advanced: true },
   // Coins paid in themselves: Coins & wallets › the coin's sheet (own wallet).
 ];
 
@@ -42,6 +45,7 @@ const METHODS: {
 function detect(wallet: string): PayoutMode | null {
   const w = wallet.trim();
   if (/^krx/i.test(w)) return "kryptex";
+  if (/^(LTC|DOGE|USDT):/i.test(w)) return "convert";
   if (/^(bc1|tb1|[13])/i.test(w)) return "bitcoin";
   if (/^[48]/.test(w)) return "monero";
   return null;
@@ -59,20 +63,31 @@ export function PayoutChoice({
   value,
   onChange,
   onValid,
+  advanced = false,
 }: {
   value: string;
   onChange: (v: string) => void;
   onValid?: (ok: boolean) => void;
+  /** Offer the methods for experienced miners too (never during onboarding). */
+  advanced?: boolean;
 }) {
   const t = useT();
+  const info = useApp((s) => s.info);
+  const [initial] = useState(() => payoutMode(value));
+  const METHODS = ALL_METHODS.filter(
+    (m) => advanced || !m.advanced || m.id === initial,
+  );
   const [mode, setMode] = useState<PayoutMode>(() =>
-    METHODS.some((m) => m.id === payoutMode(value))
-      ? payoutMode(value)
-      : METHODS[0].id,
+    METHODS.some((m) => m.id === initial) ? initial : METHODS[0].id,
   );
   const pays = METHODS.find((m) => m.id === mode)!.pays;
   const methods = METHODS.filter((m) => m.pays === pays);
   const method = METHODS.find((m) => m.id === mode)!;
+  // "LTC:address": the coin is picked apart from the address the user pastes.
+  const [coin, setCoin] = useState<string>(() =>
+    mode === "convert" ? value.split(":")[0].toUpperCase() : CONVERT_COINS[0],
+  );
+  const address = mode === "convert" ? value.replace(/^[A-Za-z]+:/, "") : value;
 
   const pick = (m: PayoutMode) => {
     setMode(m);
@@ -80,8 +95,17 @@ export function PayoutChoice({
   };
   const type = (v: string) => {
     const d = detect(v);
+    // A full "LTC:address" picks its coin; in the coin's field everything else is
+    // that coin's address (a Litecoin "3…" address is not Bitcoin here).
+    if (d === "convert") setCoin(v.split(":")[0].toUpperCase());
+    else if (mode === "convert") return onChange(v ? `${coin}:${v}` : "");
     if (d && d !== mode && METHODS.some((m) => m.id === d)) setMode(d);
     onChange(v);
+  };
+  const pickCoin = (c: string) => {
+    setCoin(c);
+    // An address is only valid for its own coin: start over.
+    onChange("");
   };
 
   // A single method: just the field, no choice to make. Step 1 only when methods
@@ -127,7 +151,7 @@ export function PayoutChoice({
                     {t(`payout.pays.${p}`)}
                   </span>
                   {p === "btc" && (
-                    <span className="ml-auto rounded-md bg-accent-solid px-1.5 py-0.5 text-[10px] font-semibold text-accent-fg">
+                    <span className="ml-auto rounded-lg bg-accent-solid px-1.5 py-0.5 text-2xs font-semibold text-accent-fg">
                       {t("payout.kryptex.badge")}
                     </span>
                   )}
@@ -144,7 +168,7 @@ export function PayoutChoice({
       {/* Step 2: which service */}
       {choose && (
         <div>
-          <p className="mb-2 flex items-center gap-1.5 text-xs font-medium tracking-wide text-faint uppercase">
+          <p className="mb-2 flex items-center gap-1.5 text-sm font-medium text-fg">
             {t("payout.via")}
             <Explain term={pays === "btc" ? "btc" : "wallet"} align="left" />
           </p>
@@ -177,7 +201,7 @@ export function PayoutChoice({
                     <span className="flex items-center gap-2 text-sm font-medium">
                       {t(`payout.${id}`)}
                       {recommended && (
-                        <span className="text-[11px] font-normal text-accent">
+                        <span className="text-2xs font-normal text-accent">
                           {t("payout.kryptex.badge")}
                         </span>
                       )}
@@ -208,19 +232,57 @@ export function PayoutChoice({
         </div>
       )}
 
+      {mode === "convert" && (
+        <div
+          role="radiogroup"
+          aria-label={t("payout.convert.coin")}
+          className="flex flex-wrap gap-2"
+        >
+          {CONVERT_COINS.map((c) => (
+            <button
+              key={c}
+              type="button"
+              role="radio"
+              aria-checked={coin === c}
+              onClick={() => coin !== c && pickCoin(c)}
+              className={cx(
+                "rounded-full border px-3 py-1 text-xs font-medium transition-colors",
+                coin === c
+                  ? "border-accent bg-accent-soft text-fg"
+                  : "border-line text-muted hover:border-faint",
+              )}
+            >
+              {t(`payout.convert.${c}`)}
+            </button>
+          ))}
+        </div>
+      )}
+
       <div>
         <WalletInput
-          value={value}
+          value={address}
+          prefix={mode === "convert" ? `${coin}:` : ""}
           onChange={type}
           onValid={onValid}
-          label={t(`payout.${mode}.field`)}
-          placeholder={t(`payout.${mode}.placeholder`)}
+          label={t(`payout.${mode}.field`, { c: coin })}
+          placeholder={t(
+            mode === "convert"
+              ? `payout.convert.${coin}.placeholder`
+              : `payout.${mode}.placeholder`,
+          )}
           hint={t(`payout.${mode}.hint`)}
         />
+        {(mode === "bitcoin" || mode === "convert") && info && (
+          <p className="mt-2 text-xs leading-relaxed text-faint">
+            {t("payout.referral", { code: info.unmineableReferral })}
+          </p>
+        )}
         {method.signup && !value && (
           <button
             type="button"
-            onClick={() => openExternal(method.signup!)}
+            onClick={() =>
+              openExternal(info?.kryptexSignupUrl ?? "https://www.kryptex.com/")
+            }
             className="mt-2 inline-flex items-center gap-1.5 text-xs text-accent hover:underline"
           >
             {t(`payout.${mode}.signup`)} <ExternalLink className="size-3.5" />

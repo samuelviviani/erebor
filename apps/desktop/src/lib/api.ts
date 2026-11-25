@@ -114,6 +114,8 @@ export interface AppConfig {
   startOnLaunch: boolean;
   defenderAllowed: boolean;
   notify: Notify;
+  /** Extra share of mining time given to Erebor on top of the fee (0 = off). */
+  donationPercent: number;
 }
 
 export interface CoinPoolChoice {
@@ -168,7 +170,6 @@ export interface Thermostat {
 }
 
 export interface Notify {
-  ntfyUrl: string;
   telegramToken: string;
   telegramChat: string;
 }
@@ -178,6 +179,10 @@ export interface AppInfo {
   platform: string;
   devFeePercent: number;
   devFeeWalletConfigured: boolean;
+  maxDonationPercent: number;
+  /** Erebor's unMineable referral code, added to unMineable payouts. */
+  unmineableReferral: string;
+  kryptexSignupUrl: string;
   xmrigPinnedVersion: string;
   xmrigPinnedAvailable: boolean;
   xmrigDonatePercent: number;
@@ -440,7 +445,13 @@ export type WalletError =
 
 export interface AddressInfo {
   network: "mainnet" | "testnet" | "stagenet";
-  kind: "standard" | "integrated" | "subaddress" | "kryptex" | "bitcoin";
+  kind:
+    | "standard"
+    | "integrated"
+    | "subaddress"
+    | "kryptex"
+    | "bitcoin"
+    | "converted";
 }
 
 /** Inside the Erebor app (Tauri) rather than a plain browser (tests, dev preview). */

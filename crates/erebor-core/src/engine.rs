@@ -460,7 +460,7 @@ impl Engine {
         let _ = store.close_dangling_sessions(now_unix());
         let _ = store.prune(now_unix() - RETENTION_DAYS * 86_400);
         let devfee = DevFeeManager::new(
-            devfee::DEFAULT_FEE_PERCENT,
+            fee_percent(&config),
             fee_enabled(&config),
             load_ledger(&store),
         );
@@ -566,21 +566,19 @@ impl Engine {
         if !own && self.config.wallet.is_empty() && !self.config.demo_mode {
             return Some("wallet_missing");
         }
-        let via_unmineable = payout == Some(AddressKind::Bitcoin) && coin.unmineable_host.is_some();
+        let unmineable = wallet::via_unmineable(payout);
+        let via_unmineable = unmineable && coin.unmineable_host.is_some();
         // Not on Kryptex: only an own wallet (or unMineable with a BTC payout) reaches it.
         if !own && coin.host.is_none() && !via_unmineable {
             return Some("own_wallet_required");
         }
-        if !own && payout == Some(AddressKind::Bitcoin) && coin.unmineable_host.is_none() {
+        if !own && unmineable && coin.unmineable_host.is_none() {
             return Some("not_on_unmineable");
         }
         if let Some(b) = self.hardware_blocker(coin) {
             return Some(b);
         }
-        if coin.own_endpoint()
-            && !own
-            && !matches!(payout, Some(AddressKind::Kryptex | AddressKind::Bitcoin))
-        {
+        if coin.own_endpoint() && !own && payout != Some(AddressKind::Kryptex) && !unmineable {
             return Some("kryptex_or_btc_required");
         }
         None
@@ -801,7 +799,7 @@ impl Engine {
     /// Market data as seen by this user: unMineable's fee replaces Kryptex's when the
     /// user is paid in BTC through unMineable.
     fn markets(&self) -> Vec<CoinMarket> {
-        let btc = self.payout() == Some(AddressKind::Bitcoin);
+        let btc = wallet::via_unmineable(self.payout());
         self.market
             .coins
             .iter()
@@ -1040,7 +1038,7 @@ impl Engine {
     /// thread of its own (a slow server never stalls the engine).
     fn push(&mut self, code: &str, detail: Option<&str>) {
         let n = &self.config.notify;
-        if n.ntfy_url.is_empty() && n.telegram_token.is_empty() {
+        if n.telegram_token.is_empty() || n.telegram_chat.is_empty() {
             return;
         }
         if self
@@ -1068,7 +1066,7 @@ impl Engine {
     /// Channels, title and body of a test message; sent by the caller outside the lock.
     pub fn test_notify(&self) -> Result<(crate::config::Notify, String, String), String> {
         let n = &self.config.notify;
-        if n.ntfy_url.is_empty() && (n.telegram_token.is_empty() || n.telegram_chat.is_empty()) {
+        if n.telegram_token.is_empty() || n.telegram_chat.is_empty() {
             return Err("notify_not_configured".into());
         }
         let title = format!("Erebor · {}", self.worker_label());
@@ -1127,11 +1125,11 @@ impl Engine {
             self.stop("mode_changed");
             self.persist_ledger();
             self.store = open_store(&self.data_dir, new.demo_mode)?;
-            self.devfee =
-                DevFeeManager::new(devfee::DEFAULT_FEE_PERCENT, false, load_ledger(&self.store));
+            self.devfee = DevFeeManager::new(fee_percent(&new), false, load_ledger(&self.store));
         }
         self.config = new;
         self.devfee.set_enabled(fee_enabled(&self.config));
+        self.devfee.set_percent(fee_percent(&self.config));
         self.save_config()?;
         if relaunch {
             self.stop("config_changed");
@@ -1340,32 +1338,40 @@ impl Engine {
         }
     }
 
-    /// Where Erebor's 2% goes, whatever the user's payout: the project's BTC address on
+    /// Where Erebor's share goes, whatever the user's payout: the project's BTC address on
     /// unMineable when the build has one and unMineable mines this coin, else the
-    /// project's Kryptex account. `None`: no project destination for this coin (no fee).
+    /// project's Kryptex account, else unMineable through another coin of the same
+    /// algorithm (the miner keeps running the same algorithm, only the pool changes).
+    /// `None`: no project destination for this coin (no fee).
     fn project_target(&self, coin: &Coin) -> Option<PoolTarget> {
         let demo = self.config.demo_mode;
         let btc = devfee::build_btc_wallet().or(demo.then_some("DEMO-PROJECT-BTC"));
-        if let (Some(addr), Some(host)) = (btc, coin.unmineable_host) {
-            let (user, pass) = login_unmineable(addr, PROJECT_WORKER);
-            return Some(PoolTarget {
+        let unmineable = |host: &str, addr: &str| {
+            let (user, pass) = login_unmineable(&format!("BTC:{addr}"), PROJECT_WORKER, None);
+            PoolTarget {
                 url: format!("{host}:{}", coins::UNMINEABLE_PORT),
+                tls: false,
+                user,
+                pass,
+            }
+        };
+        if let (Some(addr), Some(host)) = (btc, coin.unmineable_host) {
+            return Some(unmineable(host, addr));
+        }
+        let krx = devfee::build_wallet()
+            .filter(|w| wallet::is_kryptex_id(w))
+            .or(demo.then_some("DEMO-PROJECT-WALLET"));
+        if let (Some(krx), Some(host)) = (krx, coin.host) {
+            let (user, pass) = login(krx, PROJECT_WORKER);
+            return Some(PoolTarget {
+                url: format!("{host}:{}", coin.port),
                 tls: false,
                 user,
                 pass,
             });
         }
-        let krx = devfee::build_wallet()
-            .filter(|w| wallet::is_kryptex_id(w))
-            .or(demo.then_some("DEMO-PROJECT-WALLET"))?;
-        let host = coin.host?;
-        let (user, pass) = login(krx, PROJECT_WORKER);
-        Some(PoolTarget {
-            url: format!("{host}:{}", coin.port),
-            tls: false,
-            user,
-            pass,
-        })
+        let host = coins::unmineable_host_for_algo(coin.algo)?;
+        Some(unmineable(host, btc?))
     }
 
     fn pool_target(&self, target: Target) -> PoolTarget {
@@ -1405,7 +1411,7 @@ impl Engine {
         // configured pool for XMR when it is a Kryptex host); Monero → configured pool.
         let (host, port, tls) = match wallet::payout_kind(wallet) {
             // `coin_blocker` keeps coins with no route here from starting.
-            Some(AddressKind::Bitcoin) => (
+            Some(AddressKind::Bitcoin | AddressKind::Converted) => (
                 coin.unmineable_host.or(coin.host).unwrap_or_default(),
                 coins::UNMINEABLE_PORT,
                 false,
@@ -1994,9 +2000,7 @@ impl Engine {
                 } else {
                     xmrig::XMRIG_DONATE_LEVEL as f64
                 }),
-            pool_fee_percent: if self.coin.own_endpoint()
-                || self.payout() == Some(AddressKind::Bitcoin)
-            {
+            pool_fee_percent: if self.coin.own_endpoint() || wallet::via_unmineable(self.payout()) {
                 self.coin_market(self.coin.id).map(|m| m.pool_fee_percent)
             } else {
                 pools::find(&self.config.pool.id).map(|p| p.fee_percent)
@@ -2413,26 +2417,31 @@ impl Drop for Engine {
 /// Stratum login. Kryptex account mining: `krxID/worker` (Latin letters and digits only).
 /// Monero address pools: the address as user, the worker as password.
 /// unMineable: payout coin, address and worker in the user field.
-fn login_unmineable(btc: &str, worker: &str) -> (String, String) {
+/// unMineable: `COIN:address.worker`, then `#referral` when given.
+fn login_unmineable(coin_addr: &str, worker: &str, referral: Option<&str>) -> (String, String) {
     let w: String = worker.chars().filter(char::is_ascii_alphanumeric).collect();
     let w = if w.is_empty() {
         "erebor".to_string()
     } else {
         w
     };
-    (format!("BTC:{btc}.{w}"), "x".into())
+    let r = referral.map(|r| format!("#{r}")).unwrap_or_default();
+    (format!("{coin_addr}.{w}{r}"), "x".into())
 }
 
 fn login(wallet: &str, worker: &str) -> (String, String) {
-    if wallet::payout_kind(wallet) == Some(AddressKind::Bitcoin) {
-        // unMineable: payout coin, address and worker in the user field.
-        let w: String = worker.chars().filter(char::is_ascii_alphanumeric).collect();
-        let w = if w.is_empty() {
-            "erebor".to_string()
-        } else {
-            w
-        };
-        return (format!("BTC:{wallet}.{w}"), "x".into());
+    // The user's unMineable payout carries Erebor's referral (lower fee for the user).
+    let referral = Some(devfee::UNMINEABLE_REFERRAL);
+    match wallet::payout_kind(wallet) {
+        Some(AddressKind::Bitcoin) => {
+            return login_unmineable(&format!("BTC:{wallet}"), worker, referral)
+        }
+        Some(AddressKind::Converted) => {
+            let (coin, addr) = wallet.split_once(':').unwrap_or_default();
+            let coin_addr = format!("{}:{addr}", coin.to_ascii_uppercase());
+            return login_unmineable(&coin_addr, worker, referral);
+        }
+        _ => {}
     }
     if wallet::is_kryptex_id(wallet) {
         let w: String = worker.chars().filter(char::is_ascii_alphanumeric).collect();
@@ -2446,6 +2455,11 @@ fn login(wallet: &str, worker: &str) -> (String, String) {
         let pass = if worker.is_empty() { "x" } else { worker };
         (wallet.to_string(), pass.to_string())
     }
+}
+
+/// Erebor's fee plus the donation the user chose (0 unless they turned it on).
+fn fee_percent(c: &AppConfig) -> f64 {
+    devfee::DEFAULT_FEE_PERCENT + c.donation_percent.clamp(0.0, devfee::MAX_DONATION_PERCENT)
 }
 
 fn fee_enabled(c: &AppConfig) -> bool {
@@ -3510,7 +3524,28 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "Monero/BTC payouts are off for now: Kryptex only"]
+    fn converted_payout_mines_on_unmineable_with_referral() {
+        const LTC: &str = "LTC:LQ3B36Yv2rBTxdgAdYpU2UcEZsaNwXeATk";
+        let d = tempfile::tempdir().unwrap();
+        let (mut e, _) = engine(d.path(), false);
+        let mut c = e.config().clone();
+        c.wallet = LTC.into();
+        c.pool.worker = "rig".into();
+        e.update_config(c).unwrap();
+        e.start(false).unwrap();
+        let t = e.pool_target(Target::User);
+        assert_eq!(t.url, "rx.unmineable.com:3333");
+        assert_eq!(t.user, format!("{LTC}.rig#v3ni-3jdo"));
+        // A donation raises the project's share, never past the cap.
+        let mut c = e.config().clone();
+        c.donation_percent = 1.0;
+        e.update_config(c.clone()).unwrap();
+        assert_eq!(e.devfee.status().percent, 3.0);
+        c.donation_percent = 9.0;
+        assert!(e.update_config(c).is_err());
+    }
+
+    #[test]
     fn bitcoin_payout_mines_on_unmineable() {
         const BTC: &str = "bc1qqqqsyqcyq5rqwzqfpg9scrgwpugpzysn4v0345";
         let d = tempfile::tempdir().unwrap();
@@ -3533,7 +3568,7 @@ mod tests {
         assert_eq!(t.url, "pearlpow.unmineable.com:3333");
         assert_eq!(
             t.user,
-            format!("BTC:{BTC}.{}", crate::config::default_worker())
+            format!("BTC:{BTC}.{}#v3ni-3jdo", crate::config::default_worker())
         );
         assert_eq!(t.pass, "x");
         // unMineable's fee replaces Kryptex's in estimates.

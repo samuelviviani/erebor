@@ -11,6 +11,19 @@ use serde::{Deserialize, Serialize};
 
 /// Fee declared to users, in percent of effective mining time.
 pub const DEFAULT_FEE_PERCENT: f64 = 2.0;
+/// Optional extra share the user may give on top of the fee (Settings, off by default).
+pub const MAX_DONATION_PERCENT: f64 = 3.0;
+
+/// Erebor's referral code on unMineable, added to the user's unMineable login
+/// (`BTC:address.worker#code`): per unMineable the user's pool fee drops from 1% to 0.75%
+/// and the project gets 0.25% of that mining, paid by unMineable. Never added to the
+/// project's own login. Disclosed in the app and on the website's fees page.
+pub const UNMINEABLE_REFERRAL: &str = "v3ni-3jdo";
+
+/// Kryptex Pool sign-up link with Erebor's referral: Kryptex pays the project 20% of its
+/// own pool fee for accounts created this way; the miner pays nothing extra.
+pub const KRYPTEX_SIGNUP_URL: &str = "https://pool.kryptex.com/?ref=e17d6146";
+
 /// Minimum project block (seconds). With 2% this is two minutes every ~100 minutes:
 /// fewer, longer blocks waste less time on pool reconnections.
 const BLOCK_SECS: f64 = 120.0;
@@ -123,6 +136,17 @@ impl DevFeeManager {
         self.active = self.desired(self.active);
     }
 
+    /// Change the share (fee + donation). The ledger restarts so a higher share is
+    /// never charged on past time; at most one unfinished block (≤ 2 min) is dropped.
+    pub fn set_percent(&mut self, percent: f64) {
+        let rate = (percent / 100.0).clamp(0.0, 0.05);
+        if rate != self.rate {
+            self.rate = rate;
+            self.ledger = Ledger::default();
+            self.active = self.desired(Target::User);
+        }
+    }
+
     pub fn status(&self) -> DevFeeStatus {
         let total = self.ledger.user_secs + self.ledger.project_secs;
         DevFeeStatus {
@@ -144,6 +168,23 @@ impl DevFeeManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn raising_the_share_is_not_retroactive() {
+        let mut m = DevFeeManager::new(DEFAULT_FEE_PERCENT, true, Ledger::default());
+        run(&mut m, 3000, 1.0);
+        m.set_percent(DEFAULT_FEE_PERCENT + MAX_DONATION_PERCENT);
+        // Past time is not billed again at the new rate.
+        assert_eq!(m.active(), Target::User);
+        assert_eq!(m.ledger(), Ledger::default());
+        run(&mut m, 100_000, 1.0);
+        let s = m.status();
+        assert!(
+            (s.effective_percent - 5.0).abs() < 0.2,
+            "{}",
+            s.effective_percent
+        );
+    }
 
     fn run(m: &mut DevFeeManager, ticks: u32, step: f64) -> u32 {
         let mut switches = 0;

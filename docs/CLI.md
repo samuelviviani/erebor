@@ -121,7 +121,8 @@ It starts only with a valid configuration (payout and miner):
 
 ```bash
 erebor demo off
-erebor wallet set <KRYPTEX_ID>   # Kryptex ID (krx…)
+erebor wallet set <KRYPTEX_ID>   # Kryptex ID (krx…); or bc1… (BTC via unMineable),
+                                 # or LTC:… / DOGE:… / USDT:T… (paid in that coin)
 erebor miner install xmrig       # pinned release, SHA-256 verified
 erebor pools test
 erebor start
@@ -183,7 +184,7 @@ booleans, January first), `energy.heatingCreditPercent`, `energy.solar.*` (`enab
 `token`, `field`, `exportPositive`, `feedInPrice`), `energy.currency`,
 `energy.stopIfUnprofitable` (mining waits while it loses money and resumes when it pays),
 `energy.minProfitPerDay`, `energy.thermostat.*` (`enabled`, `url`, `token`, `field`,
-`onBelowC`, `offAboveC`); `notify.ntfyUrl`, `notify.telegramToken`, `notify.telegramChat`;
+`onBelowC`, `offAboveC`); `notify.telegramToken`, `notify.telegramChat`;
 `schedule.enabled`, `schedule.startMinute`, `schedule.endMinute`,
 `schedule.days`; `autoUpdateMiners`; `startOnLaunch`.
 

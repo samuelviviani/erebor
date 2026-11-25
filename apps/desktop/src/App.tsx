@@ -1,20 +1,21 @@
-import { lazy, Suspense, useEffect, useRef } from "react";
+import { Suspense, useEffect, useRef } from "react";
 import { Layout, Logo } from "./components/Layout";
 import { Button } from "./components/ui";
-import { translate, translateError, useT } from "./lib/i18n";
+import { alertText } from "./lib/alerts";
+import { translateError, useT } from "./lib/i18n";
 import { useApp, useResolvedTheme } from "./lib/store";
 import Coins from "./pages/Coins";
+import Computer from "./pages/Computer";
 import Dashboard from "./pages/Dashboard";
+import Energy from "./pages/Energy";
 import Onboarding from "./pages/Onboarding";
 import Settings from "./pages/Settings";
-
-// Recharts is large: load the statistics page on demand.
-const Stats = lazy(() => import("./pages/Stats"));
 
 const PAGES = {
   dashboard: Dashboard,
   coins: Coins,
-  stats: Stats,
+  energy: Energy,
+  computer: Computer,
   settings: Settings,
 };
 
@@ -35,6 +36,12 @@ export default function App() {
     document.documentElement.lang = config?.language ?? "en";
   }, [theme, config?.language]);
 
+  // Ambient light turns green while mining (index.css).
+  const mining = status?.state === "running";
+  useEffect(() => {
+    document.documentElement.dataset.mining = mining ? "on" : "off";
+  }, [mining]);
+
   // Backend alerts → toasts (only new ones; the first status sets the baseline).
   useEffect(() => {
     if (!status) return;
@@ -42,10 +49,8 @@ export default function App() {
     if (lastAlert.current != null) {
       const lang = config?.language ?? "en";
       for (const a of status.alerts.filter((a) => a.id > lastAlert.current!)) {
-        const text =
-          translate(lang, `alert.${a.code}`) +
-          (a.detail ? ` · ${a.detail}` : "");
-        toast(a.level, text);
+        const text = alertText(lang, a);
+        if (text) toast(a.level, text);
       }
     }
     lastAlert.current = maxId;

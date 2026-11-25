@@ -41,7 +41,7 @@ export function CardTitle({
   return (
     <div className="mb-4 flex items-start justify-between gap-3">
       <div className="min-w-0">
-        <h2 className="flex items-center gap-2 text-[15px] font-semibold text-fg">
+        <h2 className="flex items-center gap-2 text-base font-semibold text-fg">
           {icon && (
             <IconTile className="size-7 rounded-lg [&>svg]:size-4">{icon}</IconTile>
           )}
@@ -172,11 +172,11 @@ export function Explain({
           role="dialog"
           aria-label={t(`help.${term}.title`)}
           className={cx(
-            "pop-in glass absolute top-7 z-40 w-76 rounded-2xl p-4 text-left text-[13px] leading-relaxed font-normal tracking-normal text-muted normal-case",
+            "pop-in float absolute top-7 z-40 w-76 rounded-2xl p-4 text-left text-sm leading-relaxed font-normal tracking-normal text-muted normal-case",
             pos,
           )}
         >
-          <span className="mb-1.5 block text-[15px] font-semibold text-fg">
+          <span className="mb-1.5 block text-base font-semibold text-fg">
             {t(`help.${term}.title`)}
           </span>
           {t(`help.${term}.body`)}
@@ -203,19 +203,18 @@ export function Button({
   loading?: boolean;
 }) {
   const styles: Record<Variant, string> = {
-    primary:
-      "bg-gradient-to-b from-accent to-accent-solid text-accent-fg shadow-[inset_0_1px_0_rgb(255_255_255/0.22),0_8px_20px_-8px_var(--accent-solid)] hover:brightness-110",
+    primary: "bg-accent-solid text-accent-fg hover:brightness-110",
     secondary:
       "border border-line-strong bg-surface-2 text-fg shadow-[var(--highlight)] hover:bg-surface-3",
     ghost: "text-muted hover:bg-surface-2 hover:text-fg",
     danger: "border border-danger/35 bg-danger/8 text-danger hover:bg-danger/15",
-    go: "bg-go/14 text-go hover:bg-go/22",
-    stop: "bg-stop/12 text-stop hover:bg-stop/20",
+    go: "bg-go text-bg hover:brightness-110",
+    stop: "bg-stop text-bg hover:brightness-110",
   };
   const sizes: Record<Size, string> = {
     sm: "h-8 px-3 text-xs [&>svg]:size-3.5",
-    md: "h-9 px-4 text-[13px] [&>svg]:size-4",
-    lg: "h-12 px-6 text-[15px] [&>svg]:size-[18px]",
+    md: "h-9 px-4 text-sm [&>svg]:size-4",
+    lg: "h-12 px-6 text-base [&>svg]:size-[18px]",
   };
   return (
     <button
@@ -251,7 +250,7 @@ export function Badge({
   return (
     <span
       className={cx(
-        "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold [&>svg]:size-3",
+        "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-2xs font-semibold [&>svg]:size-3",
         t,
       )}
     >
@@ -283,7 +282,7 @@ export function Switch({
       className={cx(
         "relative block h-[26px] w-[44px] shrink-0 rounded-full transition-colors duration-300 disabled:opacity-45",
         checked
-          ? "bg-go shadow-[inset_0_1px_2px_rgb(0_0_0/0.15)]"
+          ? "bg-accent-solid shadow-[inset_0_1px_2px_rgb(0_0_0/0.15)]"
           : "bg-surface-3 shadow-[inset_0_0_0_1px_var(--border-strong)]",
       )}
     >
@@ -347,7 +346,7 @@ export function Field({
 }) {
   return (
     <label className="block">
-      <span className="mb-1.5 block text-[13px] font-medium text-muted">{label}</span>
+      <span className="mb-1.5 block text-sm font-medium text-muted">{label}</span>
       {children}
       {hint && <span className="mt-1.5 block text-xs leading-relaxed text-faint">{hint}</span>}
     </label>
@@ -355,7 +354,7 @@ export function Field({
 }
 
 export const inputClass =
-  "h-11 w-full rounded-xl border border-line-strong bg-bg/60 px-3.5 text-sm text-fg shadow-[inset_0_1px_2px_rgb(0_0_0/0.12)] transition-[border-color,box-shadow] duration-200 placeholder:text-faint focus:border-accent focus:shadow-[0_0_0_4px_var(--accent-soft)] focus:outline-none disabled:opacity-60 aria-[invalid=true]:border-danger/60";
+  "h-11 w-full rounded-xl border border-line-strong bg-bg/60 px-3.5 text-sm text-fg transition-[border-color,box-shadow] duration-200 placeholder:text-faint focus:border-accent focus:shadow-[0_0_0_4px_var(--accent-soft)] focus:outline-none disabled:opacity-60 aria-[invalid=true]:border-danger/60";
 
 /** Short inputs (time, price, watts): never a full-width box. */
 export const compactInput =
@@ -402,12 +401,12 @@ export function Segmented<T extends string>({
     <div
       role="radiogroup"
       aria-label={label}
-      className="relative inline-flex max-w-full rounded-full border border-line bg-bg/60 p-[3px] shadow-[inset_0_1px_2px_rgb(0_0_0/0.15)]"
+      className="relative inline-flex max-w-full rounded-full bg-surface-2 p-[3px]"
     >
       {thumb && thumb.w > 0 && (
         <span
           aria-hidden
-          className="absolute top-[3px] bottom-[3px] left-0 rounded-full border border-line-strong bg-surface-3 shadow-[var(--highlight),0_2px_8px_rgb(0_0_0/0.2)] transition-[transform,width] duration-300 ease-[var(--ease)]"
+          className="absolute top-[3px] bottom-[3px] left-0 rounded-full bg-nav-active transition-[transform,width] duration-300 ease-[var(--ease)]"
           style={{ width: thumb.w, transform: `translateX(${thumb.x}px)` }}
         />
       )}
@@ -429,8 +428,8 @@ export function Segmented<T extends string>({
             if (e.key === "ArrowLeft" || e.key === "ArrowUp") (e.preventDefault(), move(i - 1));
           }}
           className={cx(
-            "relative z-10 inline-flex items-center gap-1.5 rounded-full font-medium whitespace-nowrap transition-colors duration-200 [&>svg]:size-3.5",
-            size === "sm" ? "h-7 px-3 text-xs" : "h-8 px-3.5 text-[13px]",
+            "press relative z-10 inline-flex items-center gap-1.5 rounded-full font-medium whitespace-nowrap transition-colors duration-200 [&>svg]:size-3.5",
+            size === "sm" ? "h-7 px-3 text-xs" : "h-8 px-3.5 text-sm",
             value === o.value ? "text-fg" : "text-muted hover:text-fg",
           )}
         >
@@ -489,8 +488,8 @@ export function Progress({ value }: { value: number }) {
       aria-valuemax={100}
     >
       <div
-        className="bar-live h-full rounded-full transition-[width] duration-500 ease-[var(--ease)]"
-        style={{ width: `${Math.max(3, Math.round(value * 100))}%` }}
+        className="bar-live h-full w-full rounded-full transition-transform duration-300 ease-[var(--ease)]"
+        style={{ transform: `translateX(${Math.max(3, Math.round(value * 100)) - 100}%)` }}
       />
     </div>
   );
@@ -535,7 +534,7 @@ export function Notice({
   return (
     <div
       className={cx(
-        "flex gap-3 rounded-2xl border px-4 py-3 text-[13px] leading-relaxed",
+        "flex gap-3 rounded-2xl border px-4 py-3 text-sm leading-relaxed",
         t,
       )}
     >
@@ -560,7 +559,7 @@ export function Row({
   );
 }
 
-/** Accessible modal sheet (native <dialog>): Escape closes, focus stays inside, blurred backdrop. */
+/** Accessible modal sheet (native <dialog>): Escape closes, focus stays inside, dimmed backdrop. */
 export function Modal({
   open,
   onClose,
@@ -588,11 +587,15 @@ export function Modal({
     // Real modal (backdrop, focus trap) where supported; plain open elsewhere (tests).
     if (typeof d.showModal === "function") d.showModal();
     else d.setAttribute("open", "");
+    // Focus the sheet itself, not its first button: no ring on the close button at open;
+    // Tab still reaches every control.
+    d.focus();
   }, [open]);
   if (!open) return null;
   return (
     <dialog
       ref={ref}
+      tabIndex={-1}
       onCancel={(e) => {
         e.preventDefault();
         onClose();
@@ -600,14 +603,14 @@ export function Modal({
       onClick={(e) => e.target === e.currentTarget && onClose()}
       aria-labelledby={titleId}
       className={cx(
-        "sheet fixed inset-0 z-50 m-auto max-h-[calc(100vh-48px)] overflow-hidden rounded-[26px] border border-line-strong bg-surface p-0 text-fg shadow-[var(--highlight),var(--shadow-lg)]",
+        "sheet fixed inset-0 z-50 m-auto max-h-[calc(100vh-48px)] overflow-hidden rounded-3xl border border-line bg-surface p-0 text-fg shadow-[var(--shadow-lg)] outline-none",
         wide
           ? "w-[min(600px,calc(100vw-32px))]"
           : "w-[min(440px,calc(100vw-32px))]",
       )}
     >
       <div className="flex max-h-[calc(100vh-50px)] flex-col">
-        <div className="flex items-start gap-4 px-6 pt-6">
+        <div className="flex items-start gap-4 px-7 pt-7">
           {icon && <div className="shrink-0">{icon}</div>}
           <div className="min-w-0 flex-1 self-center">
             <h2 id={titleId} className="font-display text-xl leading-snug">
@@ -618,22 +621,22 @@ export function Modal({
             type="button"
             aria-label={closeLabel}
             onClick={onClose}
-            className="-mt-1 -mr-2 flex size-8 shrink-0 items-center justify-center rounded-full text-faint transition-colors hover:bg-surface-2 hover:text-fg"
+            className="-mt-0.5 -mr-2 flex size-8 shrink-0 items-center justify-center rounded-full text-faint transition-colors hover:bg-surface-2 hover:text-fg"
           >
             <X className="size-4" />
           </button>
         </div>
         {children && (
-          <div className="mt-3 min-h-0 overflow-y-auto px-6 pb-1 text-sm leading-relaxed text-muted">
+          <div className="mt-3 min-h-0 overflow-y-auto px-7 pb-1 text-sm leading-relaxed text-muted">
             {children}
           </div>
         )}
         {actions && (
-          <div className="mt-5 flex flex-wrap justify-end gap-2 border-t border-line bg-bg/30 px-6 py-4">
+          <div className="flex flex-wrap justify-end gap-2 px-7 pt-6 pb-7">
             {actions}
           </div>
         )}
-        {!actions && <div className="h-6" />}
+        {!actions && <div className="h-7" />}
       </div>
     </dialog>
   );

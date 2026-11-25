@@ -280,10 +280,10 @@ export default function Onboarding() {
                         strokeWidth={2}
                       />
                       <span className="min-w-0">
-                        <span className="block text-[15px] font-medium">
+                        <span className="block text-base font-medium">
                           {t(`${key}.title`)}
                         </span>
-                        <span className="mt-1 block text-[13.5px] leading-relaxed text-muted">
+                        <span className="mt-1 block text-sm leading-relaxed text-muted">
                           {t(`${key}.body`)}
                         </span>
                       </span>
@@ -385,7 +385,7 @@ export default function Onboarding() {
                   </Button>
                 )}
                 {hw && (
-                  <p className="flex items-start gap-2.5 rounded-xl border border-accent/30 bg-accent-soft px-4 py-3 text-[13px] leading-relaxed">
+                  <p className="flex items-start gap-2.5 rounded-xl border border-accent/30 bg-accent-soft px-4 py-3 text-sm leading-relaxed">
                     {gpu ? (
                       <Gpu className="mt-0.5 size-4 shrink-0 text-accent" />
                     ) : (
@@ -436,7 +436,7 @@ export default function Onboarding() {
                 <div className="flex flex-col gap-2 pt-2 sm:flex-row">
                   <Button
                     variant="primary"
-                    className="h-12 justify-center px-6 text-[15px] sm:flex-1"
+                    className="h-12 justify-center px-6 text-base sm:flex-1"
                     onClick={() => finish(true)}
                     loading={saving}
                     disabled={!demo && (!live.miner.path || !walletOk)}
@@ -516,7 +516,7 @@ function Section({
       <div>
         <h1 className="font-display text-3xl tracking-tight">{title}</h1>
         {sub && (
-          <p className="mt-2 text-[15px] leading-relaxed text-muted">{sub}</p>
+          <p className="mt-2 text-base leading-relaxed text-muted">{sub}</p>
         )}
       </div>
       {children}

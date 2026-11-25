@@ -28,6 +28,51 @@ pub enum AddressKind {
     Kryptex,
     /// Bitcoin mainnet address (paid out in BTC by a converting pool).
     Bitcoin,
+    /// `TICKER:address` for another coin unMineable pays out in (see `UNMINEABLE_PAYOUTS`).
+    Converted,
+}
+
+/// Coins unMineable can pay the main payout in besides BTC, in unMineable's own
+/// `TICKER:address` syntax. Chosen for low payout thresholds (api.unminable.com/v4/coin,
+/// 2026-11-25: LTC 0.00075 LTC, DOGE 30, USDT 1.5 on TRC20, its default chain; BTC
+/// needs 0.00075 BTC). Monero is left out: an XMR address already means "Monero pool".
+pub const UNMINEABLE_PAYOUTS: &[&str] = &["LTC", "DOGE", "USDT"];
+
+/// `TICKER:address` with a ticker of `UNMINEABLE_PAYOUTS`, checked against unMineable's
+/// published address patterns.
+fn validate_converted(input: &str) -> Option<Result<(), WalletError>> {
+    let (ticker, addr) = input.split_once(':')?;
+    let ticker = UNMINEABLE_PAYOUTS
+        .iter()
+        .find(|t| t.eq_ignore_ascii_case(ticker))?;
+    let b58 = |t: &str| t.bytes().all(|b| ALPHABET.contains(&b));
+    let alnum = |t: &str| t.bytes().all(|b| b.is_ascii_alphanumeric());
+    let ok = match *ticker {
+        // ^(L|M|3)[A-Za-z0-9]{33}$|^(ltc1)[0-9A-Za-z]{39}$
+        "LTC" => {
+            (addr.len() == 34 && matches!(addr.as_bytes()[0], b'L' | b'M' | b'3') && alnum(addr))
+                || (addr.len() == 43 && addr.starts_with("ltc1") && alnum(addr))
+        }
+        // ^(D|A|9)[base58]{33,34}$
+        "DOGE" => {
+            (34..=35).contains(&addr.len())
+                && matches!(addr.as_bytes()[0], b'D' | b'A' | b'9')
+                && b58(addr)
+        }
+        // TRC20: ^T[base58]{33}$
+        _ => addr.len() == 34 && addr.starts_with('T') && b58(addr),
+    };
+    Some(if ok {
+        Ok(())
+    } else {
+        Err(WalletError::UnknownPrefix)
+    })
+}
+
+/// Paid through unMineable (BTC or a converted coin): the payout reaches every coin
+/// unMineable mines.
+pub fn via_unmineable(kind: Option<AddressKind>) -> bool {
+    matches!(kind, Some(AddressKind::Bitcoin | AddressKind::Converted))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -161,7 +206,14 @@ pub fn validate_user_payout(input: &str) -> Result<AddressInfo, WalletError> {
         return Err(WalletError::Empty);
     }
     match validate_payout(input) {
-        Ok(i) if matches!(i.kind, AddressKind::Kryptex | AddressKind::Bitcoin) => Ok(i),
+        Ok(i)
+            if matches!(
+                i.kind,
+                AddressKind::Kryptex | AddressKind::Bitcoin | AddressKind::Converted
+            ) =>
+        {
+            Ok(i)
+        }
         Err(WalletError::LooksLikeSecret) => Err(WalletError::LooksLikeSecret),
         _ => Err(WalletError::KryptexOnly),
     }
@@ -176,6 +228,12 @@ pub fn validate_payout(input: &str) -> Result<AddressInfo, WalletError> {
         });
     }
     let s = input.trim();
+    if let Some(r) = validate_converted(s) {
+        return r.map(|_| AddressInfo {
+            network: Network::Mainnet,
+            kind: AddressKind::Converted,
+        });
+    }
     let lower = s.to_ascii_lowercase();
     if lower.starts_with("bc1")
         || lower.starts_with("tb1")
@@ -456,6 +514,35 @@ mod tests {
         assert_eq!(base58_decode("11"), Some(vec![0]));
         // Invalid trailing length (1 char) is rejected.
         assert_eq!(base58_decode("1"), None);
+    }
+
+    #[test]
+    fn converted_payouts() {
+        let ok = [
+            "LTC:LQ3B36Yv2rBTxdgAdYpU2UcEZsaNwXeATk",
+            "LTC:ltc1qg42tkwuuxefutzxezdkdel39gfstuap288mfea",
+            "DOGE:DH5yaieqoZN36fDVciNyRueRGvGLR3mr7L",
+            "usdt:TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t",
+        ];
+        for w in ok {
+            assert_eq!(
+                validate_user_payout(w).unwrap().kind,
+                AddressKind::Converted,
+                "{w}"
+            );
+        }
+        for w in [
+            "LTC:bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh",
+            "DOGE:D0000",
+            "USDT:0x52908400098527886E0F7030069857D2E4169EE7",
+            "XMR:48edfHu7V9Z84YzzMa6fUueoELZ9ZRXq9VetWzYGzKt52XU5xvqgzYnDK9URnRoJMk1j8nLwEVsaSWJ4fhdUyZijBGUicoD",
+        ] {
+            assert!(validate_user_payout(w).is_err(), "{w}");
+        }
+        assert!(via_unmineable(payout_kind(
+            "DOGE:DH5yaieqoZN36fDVciNyRueRGvGLR3mr7L"
+        )));
+        assert!(!via_unmineable(payout_kind("krx1a2b3c")));
     }
 
     #[test]

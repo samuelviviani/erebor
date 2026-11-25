@@ -4,7 +4,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions: [Sem
 
 ## [Unreleased]
 
+## [0.1.7] - 2026-11-25
+
 ### Added
+- Main payout in Litecoin, Dogecoin or USDT (TRC20) through unMineable, for experienced miners (Coins & wallets › change payout; CLI: `erebor wallet set LTC:…`). Their payout thresholds are far lower than BTC's 0.00075 BTC, so the first payout comes in days.
+- Optional donation in Settings › Support Erebor: 1–3% of mining time on top of the 2%, off by default and never charged on past time.
+- Tips can be hidden with ×; a hidden tip comes back only when the advice changes.
+- unMineable payouts carry Erebor's referral code (lower pool fee for you, a small share for the project paid by unMineable); the Kryptex sign-up link is Erebor's Kryptex Pool referral. Both are disclosed in the app and on the fees page.
 - More coins: Firo, Zano, Neurai (SRBMiner), Beam, Karlsen, Radiant (lolMiner), Iron Fish (SRBMiner, 0% miner fee) and Qubitcoin, mined with your own wallet on 2Miners, HeroMiners or WoolyPooly (Beam and Iron Fish also paid in BTC through unMineable). Bitcoin and Litecoin (+DOGE) can now go to unMineable too.
 - Every coin's sheet lists what mining it takes on this PC (graphics card, system, miner, payout), met or missing, with one-click miner install. Coins the PC can't mine open too, and big coins no PC can mine (ASIC-only, proof of stake) are explained at the bottom of Coins & wallets.
 - Payouts beyond Kryptex. The recommended payout is now BTC straight to your own Bitcoin wallet through unMineable (no account; Kaspa, Alephium, Nexa and Conflux added to the coins it mines). A Kryptex account remains an option.
@@ -33,6 +39,11 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions: [Sem
 - Code cleanup: unused functions, translations, help entries and a dependency removed.
 
 ### Fixed
+- Erebor's 2% on coins unMineable doesn't list (Zephyr, Tari RandomX, OctaSpace, ASIC coins) now goes through unMineable with the same algorithm instead of being skipped.
+- Coins & wallets: coins you can mine come first, then the ones that only need a wallet, then the ones this PC can't mine; the "add wallet" button no longer overflows its row.
+- Home: the BTC balance stays on the right and on one line, whatever its digits.
+- Settings: advanced options sit in one panel, so it is clear where they start and end. Shorter demo label.
+- macOS: the collapsed sidebar shows square icon buttons and the window buttons fit inside it.
 - "QTC" on Kryptex, 2Miners and unMineable is Quantus, not Qubitcoin: Erebor mined it with Qubitcoin's algorithm, so shares were rejected. Quantus is now its own coin (`quantus`); Qubitcoin stays "QTC" on HeroMiners. Settings that pointed at Kryptex or 2Miners move to Quantus by themselves.
 - The automatic choice never picks ASIC coins, as the app always said.
 

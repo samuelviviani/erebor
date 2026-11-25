@@ -37,6 +37,10 @@ struct AppInfo {
     platform: String,
     dev_fee_percent: f64,
     dev_fee_wallet_configured: bool,
+    max_donation_percent: f64,
+    /// Erebor's referral on unMineable (disclosed next to the unMineable payout).
+    unmineable_referral: &'static str,
+    kryptex_signup_url: &'static str,
     xmrig_pinned_version: String,
     xmrig_pinned_available: bool,
     xmrig_donate_percent: f64,
@@ -65,6 +69,9 @@ fn app_info() -> AppInfo {
         dev_fee_percent: devfee::DEFAULT_FEE_PERCENT,
         dev_fee_wallet_configured: devfee::build_wallet().is_some()
             || devfee::build_btc_wallet().is_some(),
+        max_donation_percent: devfee::MAX_DONATION_PERCENT,
+        unmineable_referral: devfee::UNMINEABLE_REFERRAL,
+        kryptex_signup_url: devfee::KRYPTEX_SIGNUP_URL,
         xmrig_pinned_available: m.asset_for_platform().is_ok(),
         xmrig_pinned_version: m.version,
         xmrig_donate_percent: xmrig::XMRIG_DONATE_LEVEL as f64,

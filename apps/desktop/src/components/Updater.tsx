@@ -139,12 +139,11 @@ export function Updater() {
         </div>
         <div className="h-1.5 w-64 overflow-hidden rounded-full bg-surface-2">
           <div
-            className="h-full rounded-full bg-accent transition-[width] duration-300"
+            className="h-full w-full rounded-full bg-accent transition-transform duration-300 ease-[var(--ease)]"
             style={{
-              width:
-                phase === "installing"
-                  ? "100%"
-                  : `${Math.round((progress ?? 0.05) * 100)}%`,
+              transform: `translateX(${
+                phase === "installing" ? 0 : Math.round((progress ?? 0.05) * 100) - 100
+              }%)`,
             }}
           />
         </div>
@@ -175,7 +174,7 @@ export function Updater() {
     return (
       <div className="flex justify-end px-6 pt-3">
         <button
-          className="rounded-full border border-accent/30 bg-accent/10 px-3 py-1 text-[11px] font-medium text-accent hover:bg-accent/15"
+          className="rounded-full border border-accent/30 bg-accent/10 px-3 py-1 text-2xs font-medium text-accent hover:bg-accent/15"
           onClick={() => setLater(false)}
         >
           {t("update.pill", { v: update.version })}

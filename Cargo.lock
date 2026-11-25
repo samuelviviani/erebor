@@ -1293,7 +1293,7 @@ dependencies = [
 
 [[package]]
 name = "erebor-agent"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "ctrlc",
  "erebor-core",
@@ -1303,7 +1303,7 @@ dependencies = [
 
 [[package]]
 name = "erebor-cli"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "anstream",
  "anstyle",
@@ -1320,7 +1320,7 @@ dependencies = [
 
 [[package]]
 name = "erebor-core"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -1342,7 +1342,7 @@ dependencies = [
 
 [[package]]
 name = "erebor-desktop"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "erebor-core",
  "serde_json",
@@ -1354,11 +1354,12 @@ dependencies = [
  "tauri-plugin-process",
  "tauri-plugin-single-instance",
  "tauri-plugin-updater",
+ "tauri-plugin-window-state",
 ]
 
 [[package]]
 name = "erebor-tui"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "crossterm",
  "erebor-core",
@@ -5341,6 +5342,21 @@ dependencies = [
  "url",
  "windows-sys 0.61.2",
  "zip",
+]
+
+[[package]]
+name = "tauri-plugin-window-state"
+version = "2.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5d6815cab7b212f9cfe16a9d79d8d22f9e14159e4a9460f7dec1467167a008e3"
+dependencies = [
+ "bitflags 2.13.2",
+ "log",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-plugin",
+ "thiserror 2.0.21",
 ]
 
 [[package]]

@@ -544,6 +544,15 @@ const fn gpu(
     }
 }
 
+/// unMineable host of any catalog coin with this algorithm: where a coin unMineable
+/// doesn't list can still send work of the same algorithm.
+pub fn unmineable_host_for_algo(algo: &str) -> Option<&'static str> {
+    COINS
+        .iter()
+        .find(|c| c.algo == algo && c.unmineable_host.is_some())
+        .and_then(|c| c.unmineable_host)
+}
+
 pub fn find(id: &str) -> Option<&'static Coin> {
     COINS.iter().find(|c| c.id.eq_ignore_ascii_case(id))
 }
@@ -911,5 +920,15 @@ mod tests {
         assert_eq!(c.id, "PRL");
         assert!((v - btc_per_day(3e9, &markets[0], prl)).abs() < 1e-18);
         assert!(best(&[rvn], &h, &markets).is_none());
+    }
+
+    #[test]
+    fn same_algorithm_reaches_unmineable() {
+        // Zephyr and Tari aren't listed on unMineable, but their RandomX work is.
+        assert_eq!(
+            super::unmineable_host_for_algo("rx/0"),
+            Some("rx.unmineable.com")
+        );
+        assert_eq!(super::unmineable_host_for_algo("firopow"), None);
     }
 }

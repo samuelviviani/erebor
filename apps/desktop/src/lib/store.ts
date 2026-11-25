@@ -2,15 +2,17 @@ import { useEffect, useState } from "react";
 import { create } from "zustand";
 import { api, errorText, type AppConfig, type AppInfo, type Status } from "./api";
 
-export type Page = "dashboard" | "coins" | "stats" | "settings";
-export type SettingsTab = "general" | "when" | "energy" | "safety" | "notify" | "data" | "advanced";
+export type Page = "dashboard" | "coins" | "energy" | "computer" | "settings";
 
-/** One reading of the live sensors, for the Home computer charts. */
+/** One reading of the live sensors, for the Computer charts. */
 export interface Sample {
   ts: number;
   cpu: number;
   cpuTemp: number | null;
-  mem: number;
+  cpuPower: number | null;
+  /** The whole machine's draw, as the Home figure shows it. */
+  power: number | null;
+  hash: number | null;
   gpus: { util: number | null; temp: number | null; power: number | null; hash: number | null }[];
 }
 /** 2 s polling → 5 minutes of history. */
@@ -41,9 +43,6 @@ interface AppStore {
   guide: boolean;
   setGuide: (open: boolean) => void;
   setPage: (p: Page) => void;
-  /** Section shown in Settings; other pages can open a given one. */
-  settingsTab: SettingsTab;
-  openSettings: (tab: SettingsTab) => void;
   init: () => Promise<void>;
   refreshStatus: () => Promise<void>;
   /** Persist a modified config; returns the saved config or throws an error string. */
@@ -78,8 +77,6 @@ export const useApp = create<AppStore>((set, get) => ({
   guide: false,
   setGuide: (guide) => set({ guide }),
   setPage: (page) => set({ page }),
-  settingsTab: "general",
-  openSettings: (settingsTab) => set({ settingsTab, page: "settings" }),
   init: async () => {
     try {
       const [info, config] = await Promise.all([api.appInfo(), api.getConfig()]);
@@ -98,7 +95,9 @@ export const useApp = create<AppStore>((set, get) => ({
         ts: Date.now(),
         cpu: h.cpuUsage,
         cpuTemp: h.cpuTempC,
-        mem: h.memTotalBytes ? (h.memUsedBytes / h.memTotalBytes) * 100 : 0,
+        cpuPower: h.powerW,
+        power: status.powerW ?? h.powerW,
+        hash: status.state === "running" ? (status.stats?.hashrate10s ?? null) : null,
         gpus: h.gpus.map((g, i) => ({ util: g.utilPercent, temp: g.tempC, power: g.powerW, hash: status.gpus[i]?.hashrate ?? null })),
       };
       set({ status, history: [...get().history, sample].slice(-HISTORY) });

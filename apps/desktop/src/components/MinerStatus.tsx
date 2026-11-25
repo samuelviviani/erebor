@@ -1,19 +1,19 @@
-import { Loader2, Play, Square } from "lucide-react";
+import { Power } from "lucide-react";
 import { useState } from "react";
 import { api, errorText } from "../lib/api";
 import { hashrate } from "../lib/format";
 import { translateError, useT } from "../lib/i18n";
 import { useApp } from "../lib/store";
 import { CoinIcon } from "./CoinIcon";
-import { Button, cx } from "./ui";
+import { cx } from "./ui";
 
-const DOT = { running: "bg-go", paused: "bg-hold", error: "bg-stop", stopped: "bg-faint" } as const;
+type Phase = "running" | "paused" | "error" | "stopped";
 
 /**
  * What the miner is doing right now, in a few words, including the moments in between
  * (coin change, start-up, connecting) so the state never looks blank.
  */
-function useMinerPhase(): { state: keyof typeof DOT; text: string; busy: boolean } {
+function useMinerPhase(): { state: Phase; text: string; busy: boolean } {
   const t = useT();
   const { status, coinBusy, config, restartUntil } = useApp();
   const state = status?.state ?? "stopped";
@@ -35,12 +35,58 @@ function useMinerPhase(): { state: keyof typeof DOT; text: string; busy: boolean
   return { state, busy: false, text: t("phase.ready") };
 }
 
-/** Coloured dot that pulses only while something is in progress (starting, switching…). */
-function StateDot({ state, busy }: { state: keyof typeof DOT; busy?: boolean }) {
+
+/**
+ * The power key's face: a round button with a power glyph. Idle: a still ring that turns green
+ * on hover. Mining: a slow arc turns around it (motion-safe); hovering turns it red. Needs a
+ * `group` parent (the button). `sm` is the same key in the status bar.
+ */
+export function PowerKnob({
+  running,
+  paused,
+  busy,
+  size = "lg",
+}: {
+  running: boolean;
+  paused: boolean;
+  busy: boolean;
+  size?: "lg" | "sm";
+}) {
+  const lg = size === "lg";
   return (
-    <span className="relative flex size-2.5 shrink-0">
-      {busy && <span className={cx("absolute inline-flex size-full animate-ping rounded-full opacity-50", DOT[state])} />}
-      <span className={cx("relative inline-flex size-2.5 rounded-full shadow-[0_0_10px_currentColor]", DOT[state], state === "running" ? "text-go" : "text-transparent")} />
+    <span
+      className={cx(
+        "relative flex shrink-0 items-center justify-center rounded-full",
+        lg ? "size-[84px]" : "size-9",
+      )}
+    >
+      {/* The ring: a turning arc while mining, a still outline otherwise. */}
+      <span
+        aria-hidden
+        className={cx(
+          "absolute inset-0 rounded-full transition-colors duration-300",
+          running
+            ? "bg-[conic-gradient(from_0deg,transparent_0deg,var(--go)_300deg,transparent_360deg)] motion-safe:animate-[spin_4s_linear_infinite] group-hover:bg-[conic-gradient(var(--stop),var(--stop))]"
+            : busy
+              ? "bg-[conic-gradient(from_0deg,transparent_0deg,var(--fg)_200deg,transparent_360deg)] opacity-40 motion-safe:animate-spin"
+              : paused
+                ? "bg-warn/70"
+                : "bg-line-strong group-hover:bg-go group-disabled:bg-line",
+        )}
+      />
+      <span
+        className={cx(
+          "absolute flex items-center justify-center rounded-full bg-surface shadow-[0_1px_2px_rgb(0_0_0/0.12)] transition-colors duration-200",
+          lg ? "inset-[3px]" : "inset-[2px]",
+          running
+            ? "text-go group-hover:text-stop"
+            : paused
+              ? "text-warn"
+              : "text-muted group-hover:text-go group-disabled:text-faint",
+        )}
+      >
+        <Power className={lg ? "size-8" : "size-4"} strokeWidth={2.25} />
+      </span>
     </span>
   );
 }
@@ -49,13 +95,16 @@ function StateDot({ state, busy }: { state: keyof typeof DOT; busy?: boolean }) 
  * Always-visible miner status (top of every page and of Settings): state, coin, what it
  * is doing right now (restarting, connecting…) and a start/stop button.
  */
-export function StatusBar({ action = true }: { action?: boolean }) {
+/** `control`: show the small power key; off on Home, where the big one already is. */
+export function StatusBar({ control = true }: { control?: boolean }) {
   const t = useT();
   const { status, config, toast, refreshStatus } = useApp();
   const phase = useMinerPhase();
   const [busy, setBusy] = useState(false);
   const state = status?.state ?? "stopped";
-  const active = state === "running" || state === "paused";
+  // Waiting (PC in use, not paying now) is on: the key looks paused and its action is stop.
+  const held = !!status?.held;
+  const active = state === "running" || state === "paused" || held;
   const toggle = async () => {
     setBusy(true);
     try {
@@ -68,30 +117,40 @@ export function StatusBar({ action = true }: { action?: boolean }) {
     }
   };
   return (
-    <div role="status" aria-live="polite" aria-label={t("status.label")} title={t(`state.${phase.state}`)} className="flex min-h-14 min-w-0 items-center gap-3 text-[13px]">
-      <StateDot state={phase.state} busy={phase.busy} />
-      <span className="sr-only">{t(`state.${phase.state}`)}</span>
-      {status && <CoinIcon id={status.coin.id} size={20} className="ring-2 ring-surface-2" />}
-      <span className="min-w-0 flex-1 truncate">
-        {status && <span className="font-semibold">{status.coin.name}</span>}
-        <span className={cx("num ml-2", phase.busy ? "text-accent" : phase.state === "error" ? "text-danger" : "text-muted")}>
-          {phase.busy && <Loader2 className="mr-1 inline size-3.5 animate-spin" aria-hidden />}
-          {phase.text}
-        </span>
-      </span>
-      {action && status && (
-        <Button
-          size="sm"
-          variant={active ? "stop" : "go"}
+    <div className="flex min-h-14 min-w-0 items-center gap-3 text-sm">
+      {/* The power key from Home, small: it shows the state and is the switch, on every page. */}
+      {status && control && (
+        <button
+          type="button"
           onClick={toggle}
-          loading={busy}
-          disabled={!active && !!status.startBlocker}
-          className="[&>svg]:fill-current"
+          disabled={busy || (!active && !!status.startBlocker)}
+          aria-label={active ? t("dash.stop.long") : t("dash.start.long")}
+          title={active ? t("dash.stop.long") : t("dash.start.long")}
+          className="group press -ml-1 shrink-0 rounded-full disabled:opacity-50"
         >
-          {!busy && (active ? <Square /> : <Play />)}
-          {active ? t("dash.stop") : t("dash.start")}
-        </Button>
+          <PowerKnob
+            running={state === "running"}
+            paused={state === "paused" || held}
+            busy={busy || phase.busy}
+            size="sm"
+          />
+        </button>
       )}
+      <div
+        role="status"
+        aria-live="polite"
+        aria-label={t("status.label")}
+        className="flex min-w-0 flex-1 items-center gap-2.5"
+      >
+        <span className="sr-only">{t(`state.${phase.state}`)}</span>
+        {status && <CoinIcon id={status.coin.id} size={20} />}
+        <span className="min-w-0 flex-1 truncate">
+          {status && <span className="font-semibold">{status.coin.name}</span>}
+          <span className={cx("num ml-2", phase.busy ? "text-accent" : phase.state === "error" ? "text-danger" : "text-muted")}>
+            {phase.text}
+          </span>
+        </span>
+      </div>
     </div>
   );
 }

@@ -329,6 +329,9 @@ pub struct AppConfig {
     /// Windows: the user agreed to exclude the miners folder from Defender.
     pub defender_allowed: bool,
     pub notify: Notify,
+    /// Extra share of mining time given to the project on top of the fee (0 to
+    /// `devfee::MAX_DONATION_PERCENT`). Off by default, only the user turns it on.
+    pub donation_percent: f64,
 }
 
 /// Where a coin with an own wallet is mined.
@@ -351,8 +354,6 @@ pub struct CoinPoolChoice {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Notify {
-    /// Full topic URL, e.g. `https://ntfy.sh/my-secret-topic` or a self-hosted server.
-    pub ntfy_url: String,
     pub telegram_token: String,
     pub telegram_chat: String,
 }
@@ -385,6 +386,7 @@ impl Default for AppConfig {
             defender_allowed: false,
             auto_update_miners: true,
             notify: Notify::default(),
+            donation_percent: 0.0,
         }
     }
 }
@@ -426,6 +428,9 @@ pub fn valid_worker(w: &str) -> bool {
 impl AppConfig {
     /// Validate everything that ends up in a process argument, a file or a network request.
     pub fn validate(&self) -> Result<(), String> {
+        if !(0.0..=crate::devfee::MAX_DONATION_PERCENT).contains(&self.donation_percent) {
+            return Err("donationPercent: invalid value".into());
+        }
         if !self.wallet.is_empty() {
             wallet::validate_payout(&self.wallet).map_err(|e| format!("wallet: {e:?}"))?;
             if wallet::is_kryptex_id(&self.wallet)
@@ -479,12 +484,6 @@ impl AppConfig {
             return Err("energy.heatingCreditPercent: 0..100".into());
         }
         let n = &self.notify;
-        if !(n.ntfy_url.is_empty()
-            || n.ntfy_url.starts_with("https://")
-            || n.ntfy_url.starts_with("http://"))
-        {
-            return Err("notify.ntfyUrl: must start with https://".into());
-        }
         if !n
             .telegram_token
             .chars()
@@ -548,22 +547,19 @@ impl AppConfig {
         if self.coin != AUTO_COIN && !self.coin_wallets.contains_key(&self.coin) {
             let c = crate::coins::find(&self.coin).ok_or("coin: unknown")?;
             let payout = wallet::payout_kind(&self.wallet);
-            // GPU coins are mined on Kryptex or unMineable: Kryptex ID or BTC address.
+            let unmineable = wallet::via_unmineable(payout);
+            // GPU coins are mined on Kryptex or unMineable: Kryptex ID or unMineable payout.
             if c.device == crate::coins::Device::Gpu
                 && !self.wallet.is_empty()
-                && !matches!(
-                    payout,
-                    Some(wallet::AddressKind::Kryptex | wallet::AddressKind::Bitcoin)
-                )
+                && payout != Some(wallet::AddressKind::Kryptex)
+                && !unmineable
             {
                 return Err("kryptex_or_btc_required".into());
             }
-            let via_unmineable =
-                payout == Some(wallet::AddressKind::Bitcoin) && c.unmineable_host.is_some();
-            if c.host.is_none() && !via_unmineable {
+            if c.host.is_none() && !(unmineable && c.unmineable_host.is_some()) {
                 return Err("own_wallet_required".into());
             }
-            if payout == Some(wallet::AddressKind::Bitcoin) && c.unmineable_host.is_none() {
+            if unmineable && c.unmineable_host.is_none() {
                 return Err("not_on_unmineable".into());
             }
         }

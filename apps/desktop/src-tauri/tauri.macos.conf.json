@@ -1,0 +1,21 @@
+{
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Erebor",
+        "width": 1200,
+        "height": 800,
+        "minWidth": 860,
+        "minHeight": 580,
+        "backgroundColor": "#07080a",
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
+        "trafficLightPosition": {
+          "x": 12,
+          "y": 22
+        }
+      }
+    ]
+  }
+}

@@ -82,7 +82,10 @@ fn tray(app: &tauri::App, st: Arc<AppState>) -> tauri::Result<()> {
             &item("quit", l("Esci", "Quit"))?,
         ],
     )?;
-    let mut b = TrayIconBuilder::new().menu(&menu).tooltip("Erebor");
+    let live = st.clone();
+    let mut b = TrayIconBuilder::with_id("main")
+        .menu(&menu)
+        .tooltip("Erebor");
     if let Some(icon) = app.default_window_icon() {
         b = b.icon(icon.clone());
     }
@@ -113,7 +116,37 @@ fn tray(app: &tauri::App, st: Arc<AppState>) -> tauri::Result<()> {
         }
     })
     .build(app)?;
+    let Some(tray) = app.tray_by_id("main") else {
+        return Ok(());
+    };
+    // The speed beside the icon in the macOS menu bar (and in the tooltip elsewhere),
+    // so a glance is enough to know it is mining.
+    std::thread::spawn(move || loop {
+        let s = rpc_call(&live, "get_status", Value::Null).unwrap_or_default();
+        let h = s["stats"]["hashrate10s"]
+            .as_f64()
+            .or_else(|| s["stats"]["hashrate60s"].as_f64())
+            .filter(|h| *h > 0.0 && s["state"] == "running");
+        let label = h.map(hashrate);
+        #[cfg(target_os = "macos")]
+        let _ = tray.set_title(label.as_deref());
+        let _ = tray.set_tooltip(Some(match &label {
+            Some(l) => format!("Erebor · {l}"),
+            None => "Erebor".to_string(),
+        }));
+        std::thread::sleep(std::time::Duration::from_secs(5));
+    });
     Ok(())
+}
+
+/// Same format as the app (`hashrate` in src/lib/format.ts).
+fn hashrate(h: f64) -> String {
+    for (unit, div) in [("TH/s", 1e12), ("GH/s", 1e9), ("MH/s", 1e6), ("kH/s", 1e3)] {
+        if h >= div {
+            return format!("{:.2} {unit}", h / div);
+        }
+    }
+    format!("{h:.0} H/s")
 }
 
 #[tauri::command]
@@ -158,6 +191,8 @@ fn main() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        // Size and position are remembered between launches.
+        .plugin(tauri_plugin_window_state::Builder::default().build())
         .setup(|app| {
             let dir = app.path().app_data_dir()?;
             let backend = match Engine::new(dir.clone(), engine::default_factory()) {

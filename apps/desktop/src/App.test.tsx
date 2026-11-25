@@ -1,6 +1,7 @@
 import { clearMocks } from "@tauri-apps/api/mocks";
 import {
   act,
+  within,
   fireEvent,
   render,
   screen,
@@ -101,7 +102,7 @@ test("demo path: start and stop from the dashboard", async () => {
   fireEvent.click(await screen.findByRole("button", { name: "Start mining" }));
 
   expect(await screen.findByText("Mining active")).toBeInTheDocument();
-  expect(screen.getByText(/data is simulated/)).toBeInTheDocument();
+  expect(screen.getByRole("status", { name: /data is simulated/ })).toBeInTheDocument();
   // Right after start the status line says what is happening instead of going blank.
   expect(screen.getAllByText("Starting the miner…").length).toBeGreaterThan(0);
   await waitFor(
@@ -117,42 +118,50 @@ test("demo path: start and stop from the dashboard", async () => {
   expect(await screen.findByText("Mining inactive")).toBeInTheDocument();
 });
 
-test("settings: one page of grouped rows, technical things behind Advanced options", async () => {
+test("settings hold the app and, folded away, the advanced miner tools; energy and computer are their own sections", async () => {
   installMockBackend({ onboardingCompleted: true, demoMode: true });
   render(<App />);
   await screen.findByText("Per month (estimate)");
-  fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+  // ⌘, / Ctrl+, opens the settings like any desktop app.
+  fireEvent.keyDown(window, { key: ",", ctrlKey: true });
   expect(
     await screen.findByRole("heading", { name: "Settings" }),
   ).toBeInTheDocument();
   expect(screen.queryByText("Erebor fee")).not.toBeInTheDocument();
-  expect(screen.queryByText("Miner installation")).not.toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: /Advanced options/ }));
-  expect(await screen.findByText("Miner installation")).toBeInTheDocument();
+  expect(screen.queryByText("Time bands")).not.toBeInTheDocument();
+  // Miners and pool are advanced: in Settings, inside a closed disclosure.
+  expect(screen.getByText("Advanced options").closest("details")).not.toHaveAttribute("open");
+  expect(screen.getByText("XMRig")).not.toBeVisible();
   // No remote access or node: those features are gone.
   expect(screen.queryByText(/other devices/)).not.toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: "Energy" }));
+  expect(await screen.findByRole("heading", { name: "Energy" })).toBeInTheDocument();
+  expect(screen.getByText("Time bands")).toBeInTheDocument();
+  // One price, no rules: every half hour is the same, so there is no day plan to show.
+  expect(screen.queryByRole("img", { name: "Today" })).not.toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: "Computer" }));
+  expect(await screen.findByText("GPU power limit")).toBeInTheDocument();
+  expect(screen.queryByText("Monero pool")).not.toBeInTheDocument();
 });
 
-test("earnings page: one period selector, earned and time on top, the bill from earnings to net profit", async () => {
-  installMockBackend({ onboardingCompleted: true, demoMode: true });
-  render(<App />);
-  await screen.findByText("Per month (estimate)");
-  act(() => useApp.getState().setPage("stats"));
-  expect(
-    await screen.findByText("From earnings to profit"),
-  ).toBeInTheDocument();
-  expect(screen.getByText("Net profit")).toBeInTheDocument();
-  expect(screen.queryByText("Dettagli tecnici")).not.toBeInTheDocument();
-  fireEvent.click(screen.getByRole("radio", { name: "30 days" }));
-  expect(screen.getByText("Day by day")).toBeInTheDocument();
-  fireEvent.click(
-    await screen.findByRole("button", {
-      name: "Set your electricity price",
-    }),
-  );
-  expect(
-    await screen.findByRole("heading", { name: "Settings" }),
-  ).toBeInTheDocument();
+test("today's plan uses the engine's window rule: Monday = 0, windows cross midnight", async () => {
+  const { inWindow, gridPrice } = await import("./pages/Energy");
+  const all = Array(7).fill(true);
+  const monOnly = [true, false, false, false, false, false, false];
+  // 22:00–06:00 started on Monday: Monday 23:00 and Tuesday 05:00 are in, Tuesday 07:00 is not.
+  expect(inWindow(monOnly, 22 * 60, 6 * 60, 0, 23 * 60)).toBe(true);
+  expect(inWindow(monOnly, 22 * 60, 6 * 60, 1, 5 * 60)).toBe(true);
+  expect(inWindow(monOnly, 22 * 60, 6 * 60, 1, 7 * 60)).toBe(false);
+  expect(inWindow(monOnly, 22 * 60, 6 * 60, 0, 5 * 60)).toBe(false);
+  expect(inWindow(all, 60, 60, 3, 0)).toBe(true);
+  const e = {
+    pricePerKwh: 0.3,
+    bands: [{ startMinute: 19 * 60, endMinute: 8 * 60, days: all, price: 0.1 }],
+  } as unknown as Parameters<typeof gridPrice>[0];
+  expect(gridPrice(e, 2, 20 * 60)).toBe(0.1);
+  expect(gridPrice(e, 2, 12 * 60)).toBe(0.3);
 });
 
 test("demo banner: exit demo returns to the real onboarding when nothing real is configured", async () => {
@@ -183,7 +192,7 @@ test("coins: automatic lists coins without selecting; choosing by hand warns and
   render(<App />);
   expect(await screen.findByText("Per month (estimate)")).toBeInTheDocument();
   act(() => useApp.getState().setPage("coins"));
-  expect(await screen.findByText("Now mining")).toBeInTheDocument();
+  expect(await screen.findByText("mining now")).toBeInTheDocument();
   // The main payout sits on the same page.
   expect(screen.getByText("Your earnings go to")).toBeInTheDocument();
   expect(await screen.findByText("Pearl")).toBeInTheDocument();
@@ -239,7 +248,10 @@ test("advice: a Monero payout is told how to get BTC; a manual coin is told to g
     await screen.findByRole("button", { name: "Yes, automatic choice" }),
   );
   await waitFor(() => expect(backend.config.coin).toBe("AUTO"));
-  expect(await screen.findByText(/most profitable setup/)).toBeInTheDocument();
+  // Back on automatic the advice has nothing to warn about: no tip on Home.
+  await waitFor(() =>
+    expect(screen.queryByText(/you picked Monero by hand/)).not.toBeInTheDocument(),
+  );
 });
 
 test("help: question marks explain terms in plain words", async () => {
@@ -325,22 +337,23 @@ test("Kryptex payout: the Bitcoin balance is spelled out in BTC", async () => {
   expect(screen.getByText("0.00000011 BTC")).toBeInTheDocument();
 });
 
-test("home shows the whole computer live, no Erebor fee, no mining status in the sidebar", async () => {
+test("home sums the computer up in four numbers; the live charts are on Computer", async () => {
   installMockBackend({ onboardingCompleted: true, demoMode: true });
   render(<App />);
-  expect(await screen.findByText("Demo GPU")).toBeInTheDocument();
-  expect(screen.getByText("Your computer")).toBeInTheDocument();
+  expect(await screen.findByText("Your computer")).toBeInTheDocument();
+  for (const k of ["Speed", "Power draw", "Hottest"])
+    expect(screen.getByText(k)).toBeInTheDocument();
   expect(screen.queryByText("Commissione Erebor")).not.toBeInTheDocument();
-  expect(
-    screen.queryByRole("button", { name: "Computer" }),
-  ).not.toBeInTheDocument();
   expect(
     screen.getByRole("navigation", { name: "Erebor" }),
   ).not.toHaveTextContent("Mining inactive");
-  expect(await screen.findByText("6.7 / 12 GB")).toBeInTheDocument();
+  // The link on Home (the last "Computer" button: the sidebar comes first).
+  fireEvent.click(screen.getAllByRole("button", { name: "Computer" }).at(-1)!);
+  expect(await screen.findByText("Demo GPU")).toBeInTheDocument();
+  expect(await screen.findByText(/6\.7 \/ 12 GB/)).toBeInTheDocument();
   // Live charts fill in as readings arrive (one every 2 s).
-  expect(screen.getByText("CPU usage")).toBeInTheDocument();
-  expect(screen.getAllByText("Load").length).toBeGreaterThan(0);
+  expect(screen.getAllByText("Load").length).toBe(2);
+  expect(screen.getAllByText("Temperature").length).toBe(2);
 });
 
 test("coins & wallets: the main payout can be changed from a clear dialog", async () => {
@@ -379,9 +392,7 @@ test("coins & wallets: every coin opens, saying what mining it takes and what is
   render(<App />);
   await screen.findByText("Per month (estimate)");
   act(() => useApp.getState().setPage("coins"));
-  expect(
-    await screen.findByText("Not mineable from a PC"),
-  ).toBeInTheDocument();
+  expect((await screen.findAllByText("Paid to")).length).toBeGreaterThan(0);
   // Without a GPU the row says so first; the sheet lists everything else too.
   fireEvent.click(await screen.findByRole("button", { name: "Firo details" }));
   const sheet = await screen.findByRole("dialog");
@@ -438,7 +449,7 @@ test("coins & wallets: a coin's sheet sets its own wallet and leaves it out of a
   );
   expect(backend.config.autoExclude).toEqual(["XMR"]);
   expect(
-    await screen.findByText("As XMR to your wallet · Kryptex"),
+    await screen.findByText("XMR to your wallet · Kryptex"),
   ).toBeInTheDocument();
   expect(screen.getByText("left out of automatic")).toBeInTheDocument();
 });
@@ -488,4 +499,15 @@ test("onboarding: the flag switch changes the language at once", async () => {
       "Minare dal tuo computer, senza diventare un esperto",
     ),
   ).toBeInTheDocument();
+});
+
+test("home: the coin in the title is a menu — automatic first, mineable coins, then all coins", async () => {
+  installMockBackend({ onboardingCompleted: true, demoMode: true });
+  render(<App />);
+  fireEvent.click(await screen.findByRole("button", { name: /Change coin/ }));
+  const menu = screen.getByRole("menu", { name: "Change coin" });
+  expect(within(menu).getByRole("menuitemradio", { name: /Automatic \(recommended\)/ })).toHaveAttribute("aria-checked", "true");
+  expect(within(menu).getByRole("menuitemradio", { name: /Monero/ })).toBeInTheDocument();
+  fireEvent.click(within(menu).getByRole("menuitem", { name: /All coins and wallets/ }));
+  expect(await screen.findByRole("heading", { name: "Coins & wallets" })).toBeInTheDocument();
 });

@@ -1,19 +1,17 @@
 import {
-  ArrowRight,
-  Ban,
   Bitcoin,
+  Coins as CoinsIcon,
   Check,
+  ChevronRight,
   Copy,
   Cpu,
   ExternalLink,
   Gpu,
-  Pencil,
   Plus,
   Server,
   Settings2,
   ShieldCheck,
   ShieldHalf,
-  Sparkles,
   TriangleAlert,
   Wallet as WalletIcon,
 } from "lucide-react";
@@ -39,7 +37,6 @@ import {
   Button,
   cx,
   Explain,
-  IconTile,
   Modal,
   Notice,
   Segmented,
@@ -82,73 +79,67 @@ export default function Coins() {
     return c.wallet ? t(`coins.dest.${mode}`) : t("coins.dest.none");
   };
 
+  // Mineable first, then coins that only need a wallet, then the ones this PC can't mine.
   const byValue = (a: CoinOption, b: CoinOption) =>
-    !!a.blocker !== !!b.blocker
-      ? a.blocker
-        ? 1
-        : -1
-      : (b.valuePerDay ?? -1) - (a.valuePerDay ?? -1);
+    rank(a) - rank(b) || (b.valuePerDay ?? -1) - (a.valuePerDay ?? -1);
 
-  // ASIC coins (BTC, LTC…) apart: mineable from the CPU, but they earn almost nothing.
-  const group = (device: "gpu" | "cpu" | "asic") => {
-    const list = options
+  const now = useApp((s) => s.status?.coin.id);
+  const sorted = (device: "gpu" | "cpu" | "asic") =>
+    options
       .filter((o) =>
-        device === "asic"
-          ? o.coin.asic
-          : o.coin.device === device && !o.coin.asic,
+        device === "asic" ? o.coin.asic : o.coin.device === device && !o.coin.asic,
       )
       .sort(byValue);
+
+  // One table per device: coin, where it is paid, what it earns a day on this PC.
+  const table = (device: "gpu" | "cpu" | "asic", list: CoinOption[]) => (
+    <div
+      className="divide-y divide-line overflow-hidden rounded-2xl border border-line bg-surface shadow-[var(--highlight)]"
+      role={showManual ? "radiogroup" : undefined}
+      aria-label={t(`coins.${device}`)}
+    >
+      <div className="hidden grid-cols-[minmax(0,1.4fr)_minmax(0,1.2fr)_8rem_2.25rem] gap-4 px-4 py-2 text-xs text-faint sm:grid">
+        <span>{t("coins.col.coin")}</span>
+        <span>{t("coins.col.paid")}</span>
+        <span className="text-right">{t("coins.col.day")}</span>
+        <span />
+      </div>
+      {list.map((o) => (
+        <Row
+          key={o.coin.id}
+          option={o}
+          manual={showManual}
+          selected={selected === o.coin.id}
+          now={o.coin.id === now}
+          best={o.coin.id === best}
+          excluded={exclude.has(o.coin.id) && !o.coin.asic}
+          destination={destination(o)}
+          onSelect={() => ask(o.coin.id, o.coin.name)}
+          onOpen={() => setSheet(o)}
+          value={o.valuePerDay != null ? `≈ ${money(o.valuePerDay, currency, locale)}` : "—"}
+          speed={o.hashrate != null ? hashrate(o.hashrate) : t("coin.notMeasured")}
+        />
+      ))}
+    </div>
+  );
+
+  const section = (device: "gpu" | "cpu") => {
+    const list = sorted(device);
     if (!list.length) return null;
     return (
-      <section>
-        <h3 className="eyebrow mb-3 flex items-center gap-2 px-1 [&_svg]:size-3.5">
-          {device === "gpu" ? (
-            <Gpu className="size-4" />
-          ) : device === "asic" ? (
-            <Server className="size-4" />
-          ) : (
-            <Cpu className="size-4" />
-          )}
-          {t(`coins.${device}`)}
-          <Explain term="gpu" align="left" />
-        </h3>
-        {device === "asic" && (
-          <p className="mb-2 px-1 text-xs leading-relaxed text-faint">
-            {t("coins.asic.note")}
-          </p>
-        )}
-        <div
-          className="panel divide-y divide-line overflow-hidden"
-          role={showManual ? "radiogroup" : undefined}
-          aria-label={t(`coins.${device}`)}
+      <section aria-labelledby={`coins-${device}`}>
+        <h3
+          id={`coins-${device}`}
+          className="mb-2.5 flex items-center gap-2 px-1 text-sm font-semibold [&>svg]:size-4 [&>svg]:text-faint"
         >
-          {list.map((o) => (
-            <Row
-              key={o.coin.id}
-              option={o}
-              manual={showManual}
-              selected={selected === o.coin.id}
-              best={o.coin.id === best}
-              excluded={exclude.has(o.coin.id) && !o.coin.asic}
-              destination={destination(o)}
-              onSelect={() => ask(o.coin.id, o.coin.name)}
-              onOpen={() => setSheet(o)}
-              value={
-                o.valuePerDay != null
-                  ? `≈ ${money(o.valuePerDay, currency, locale)}`
-                  : "—"
-              }
-              speed={
-                o.hashrate != null
-                  ? `${t("home.perDay")} · ${hashrate(o.hashrate)}`
-                  : t("coin.notMeasured")
-              }
-            />
-          ))}
-        </div>
+          {device === "gpu" ? <Gpu /> : <Cpu />}
+          {t(`coins.${device}`)}
+        </h3>
+        {table(device, list)}
       </section>
     );
   };
+  const asic = sorted("asic");
 
   return (
     <>
@@ -156,8 +147,11 @@ export default function Coins() {
 
       <PayoutCard />
 
-      <div className="mt-12 mb-5 flex flex-wrap items-center justify-between gap-3 px-1">
-        <h2 className="font-display text-lg">{t("coins.mine")}</h2>
+      <div className="mt-10 mb-4 flex flex-wrap items-center justify-between gap-3 px-1">
+        <h2 className="flex items-center gap-1.5 text-base font-semibold">
+          {t("coins.mine")}
+          <Explain term="auto" align="left" />
+        </h2>
         <Segmented
           label={t("coins.mine")}
           value={showManual ? "manual" : "auto"}
@@ -175,23 +169,31 @@ export default function Coins() {
       </div>
 
       <div className="space-y-8">
-        <div className="space-y-4">
-          {showManual ? (
-            <Notice tone="warn" icon={<TriangleAlert />}>{t("coins.manual.warn")}</Notice>
-          ) : (
-            <AutoCard />
-          )}
-          {(!showManual || selected !== "AUTO") && (
-            <CoinAdvice card={false} warnOnly />
-          )}
-        </div>
-        {group("gpu")}
-        {group("cpu")}
-        {group("asic")}
-        <NotFromAPC />
+        {showManual ? (
+          <Notice tone="warn" icon={<TriangleAlert />}>{t("coins.manual.warn")}</Notice>
+        ) : (
+          <p className="-mt-2 px-1 text-sm text-muted">{t("coins.auto.line")}</p>
+        )}
+        <CoinAdvice card={false} warnOnly />
+        {section("gpu")}
+        {section("cpu")}
+        {asic.length > 0 && (
+          <details className="group/asic">
+            <summary className="flex cursor-default list-none items-center gap-2 px-1 text-sm font-semibold [&::-webkit-details-marker]:hidden">
+              <ChevronRight className="size-4 text-faint transition-transform duration-200 group-open/asic:rotate-90" aria-hidden />
+              <Server className="size-4 text-faint" aria-hidden />
+              <span>{t("coins.asic")}</span>
+              <span className="text-xs font-normal text-faint">{t("coins.asic.short")}</span>
+            </summary>
+            <p className="mt-3 mb-3 max-w-2xl px-1 text-xs leading-relaxed text-faint">
+              {t("coins.asic.note")}
+            </p>
+            {table("asic", asic)}
+          </details>
+        )}
       </div>
 
-      <p className="mt-10 flex items-center justify-center gap-2 px-1 text-xs text-faint">
+      <p className="mt-10 flex items-center gap-2 px-1 text-xs text-faint">
         <ShieldCheck className="size-4 shrink-0 text-go" />
         {t("wallet.noncustodial")}
       </p>
@@ -211,6 +213,7 @@ export default function Coins() {
 const PAYOUT_ICON: Record<PayoutMode, ReactNode> = {
   kryptex: <WalletIcon className="size-5" />,
   bitcoin: <Bitcoin className="size-5" />,
+  convert: <CoinsIcon className="size-5" />,
   monero: <ShieldHalf className="size-5" />,
 };
 
@@ -219,6 +222,10 @@ function balanceUrl(mode: PayoutMode, wallet: string): string | null {
   if (mode === "kryptex") return KRYPTEX_LOGIN;
   if (mode === "bitcoin")
     return `https://unmineable.com/coins/BTC/address/${encodeURIComponent(wallet)}`;
+  if (mode === "convert") {
+    const [coin, address] = wallet.split(":");
+    return `https://unmineable.com/coins/${coin.toUpperCase()}/address/${encodeURIComponent(address)}`;
+  }
   return null;
 }
 
@@ -267,22 +274,22 @@ function PayoutCard() {
   };
 
   return (
-    <section className="panel flex flex-wrap items-center gap-4 px-5 py-5">
-      <IconTile tone={c.wallet ? "accent" : "warn"} className="size-12 rounded-2xl [&>svg]:size-6">
+    <section
+      aria-labelledby="payout"
+      className="flex flex-wrap items-center gap-x-4 gap-y-3 rounded-2xl border border-line bg-surface px-4 py-3.5 shadow-[var(--highlight)]"
+    >
+      <span
+        aria-hidden
+        className={cx("flex w-5 shrink-0 justify-center [&>svg]:size-5", c.wallet ? "text-btc" : "text-warn")}
+      >
         {PAYOUT_ICON[mode]}
-      </IconTile>
+      </span>
       <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-1.5 text-xs text-faint">
-          {t("wallet.goesTo")}
-          <Explain
-            term={
-              mode === "bitcoin" ? "btc" : mode === "kryptex" ? "kryptex" : "wallet"
-            }
-            align="left"
-          />
-        </div>
-        <div className="flex min-w-0 items-center gap-2">
-          <span className="shrink-0 text-base font-semibold">
+        <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+          <span id="payout" className="text-sm text-muted">
+            {t("wallet.goesTo")}
+          </span>
+          <span className="text-sm font-semibold">
             {c.wallet ? t(`payout.${mode}.short`) : t("wallet.none")}
           </span>
           {c.wallet && (
@@ -301,19 +308,28 @@ function PayoutCard() {
               )}
             </button>
           )}
+          <Explain
+            term={
+              mode === "bitcoin" || mode === "convert"
+                ? "btc"
+                : mode === "kryptex"
+                  ? "kryptex"
+                  : "wallet"
+            }
+            align="left"
+          />
         </div>
-        <p className="mt-0.5 text-xs text-muted">
+        <p className="mt-0.5 text-xs text-faint">
           {c.wallet ? t(`wallet.oneLine.${mode}`) : t("coins.payout.missing")}
         </p>
       </div>
-      <div className="flex gap-2">
+      <div className="flex gap-1.5">
         {url && (
-          <Button variant="ghost" onClick={() => openExternal(url)}>
-            <ExternalLink className="size-4" /> {t("wallet.balance")}
+          <Button size="sm" variant="ghost" onClick={() => openExternal(url)}>
+            <ExternalLink /> {t("wallet.balance")}
           </Button>
         )}
-        <Button variant={c.wallet ? "secondary" : "primary"} onClick={startEdit}>
-          <Pencil className="size-4" />{" "}
+        <Button size="sm" variant={c.wallet ? "secondary" : "primary"} onClick={startEdit}>
           {c.wallet ? t("wallet.change") : t("wallet.set")}
         </Button>
       </div>
@@ -341,60 +357,31 @@ function PayoutCard() {
         }
       >
         <p className="mb-4">{t("confirm.wallet.body")}</p>
-        <PayoutChoice value={draft} onChange={setDraft} onValid={setValid} />
+        <PayoutChoice value={draft} onChange={setDraft} onValid={setValid} advanced />
       </Modal>
     </section>
   );
 }
 
-/** Automatic mode at a glance: the coin being mined now and what it earns. */
-function AutoCard() {
-  const t = useT();
-  const { config, status } = useApp();
-  const locale = config?.language === "en" ? "en-US" : "it-IT";
-  const currency = config?.energy.currency ?? "EUR";
-  const coin = status?.coin;
-  const perDay = status?.projection?.valuePerDay;
+/** What stops this coin here. Missing hardware comes first: a wallet wouldn't help. */
+function rowBlocker(o: CoinOption) {
   return (
-    <section className="panel flex items-center gap-5 p-5">
-      <span className="relative shrink-0">
-        {coin ? (
-          <CoinIcon id={coin.id} size={56} className="shadow-[0_8px_20px_-8px_rgb(0_0_0/0.7)]" />
-        ) : (
-          <span className="block size-13" />
-        )}
-        <span className="absolute -right-1 -bottom-1 flex size-6 items-center justify-center rounded-full border-2 border-surface bg-accent-solid text-accent-fg">
-          <Sparkles className="size-3.5" />
-        </span>
-      </span>
-      <div className="min-w-0 flex-1">
-        <p className="eyebrow flex items-center gap-1.5">
-          {t("coins.auto.now")}
-          <Explain term="auto" align="left" />
-        </p>
-        <p className="font-display mt-1 truncate text-2xl">
-          {coin?.name ?? "—"}
-        </p>
-        {coin && (
-          <p className="mt-0.5 truncate text-xs text-faint">
-            {t(coin.device === "gpu" ? "coins.gpu" : "coins.cpu")} · {coin.algo}
-          </p>
-        )}
-      </div>
-      {perDay != null && (
-        <div className="num shrink-0 text-right">
-          <p className="text-xl font-semibold">≈ {money(perDay, currency, locale)}</p>
-          <p className="text-xs text-faint">{t("home.perDay")}</p>
-        </div>
-      )}
-    </section>
+    o.requirements.find((r) => r.status === "missing" && r.kind !== "payout")
+      ?.code ?? o.blocker
   );
+}
+
+/** 0: mineable now; 1: only needs a wallet; 2: this PC can't mine it. */
+function rank(o: CoinOption) {
+  const b = rowBlocker(o);
+  return !b ? 0 : PAYOUT_BLOCKERS.includes(b) ? 1 : 2;
 }
 
 function Row({
   option: o,
   manual,
   selected,
+  now,
   best,
   excluded,
   destination,
@@ -406,6 +393,7 @@ function Row({
   option: CoinOption;
   manual: boolean;
   selected: boolean;
+  now: boolean;
   best: boolean;
   excluded: boolean;
   destination: string;
@@ -416,81 +404,83 @@ function Row({
 }) {
   const t = useT();
   const { coin } = o;
-  // What this PC lacks comes first: a wallet wouldn't help without the hardware.
-  const blocker =
-    o.requirements.find(
-      (r) => r.status === "missing" && r.kind !== "payout",
-    )?.code ?? o.blocker;
+  const blocker = rowBlocker(o);
   // An own wallet fixes a payout blocker; a hardware one leaves nothing to do.
-  const fixable = !!blocker && PAYOUT_BLOCKERS.includes(blocker);
-  const dead = !!blocker && !fixable;
+  const fixable = rank(o) === 1;
+  const dead = rank(o) === 2;
   return (
     <div
       className={cx(
-        "relative flex items-center gap-4 px-5 py-4 transition-colors duration-200",
-        manual && selected ? "bg-accent-soft" : manual && !blocker && "hover:bg-surface-2/70",
+        "relative grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1 px-4 py-3 transition-colors duration-200 sm:grid-cols-[minmax(0,1.4fr)_minmax(0,1.2fr)_8rem_2.25rem]",
+        manual && selected
+          ? "bg-accent-soft"
+          : manual && !blocker && "hover:bg-surface-2/70",
       )}
     >
-      <span className={cx("shrink-0", dead && "opacity-50")}>
-        <CoinIcon id={coin.id} size={40} />
-      </span>
-      <div className={cx("min-w-0 flex-1", dead && "opacity-60")}>
-        <div className="flex flex-wrap items-center gap-x-2">
-          {manual ? (
-            // Stretched button: the whole row selects the coin.
-            <button
-              type="button"
-              role="radio"
-              aria-checked={selected}
-              disabled={!!blocker}
-              onClick={onSelect}
-              className="text-left text-[15px] font-medium after:absolute after:inset-0 disabled:cursor-not-allowed"
-            >
-              {coin.name}
-            </button>
-          ) : (
-            <span className="text-[15px] font-medium">{coin.name}</span>
-          )}
-          <span className="text-xs text-faint">{coin.id}</span>
-          {best && !blocker && (
-            <Badge tone="ok">{t("coins.auto.best")}</Badge>
-          )}
-          {excluded && (
-            <Badge>{t("coins.excluded")}</Badge>
-          )}
-        </div>
-        <p
-          className={cx(
-            "mt-0.5 text-[13px] leading-relaxed",
-            fixable ? "text-warn" : "text-muted",
-          )}
-        >
-          {blocker
-            ? t(`coin.blocker.${blocker}`)
-            : `${t("coin.algoLabel")} ${coin.algo}${o.minerInstalled ? "" : ` · ${t("coin.needsMiner")}`}`}
-        </p>
-        {!blocker && (
-          <p className="mt-0.5 flex items-center gap-1 text-xs text-faint">
-            <ArrowRight className="size-3 shrink-0" aria-hidden />
-            <span className="truncate">{destination}</span>
+      {/* Coin */}
+      <div className={cx("flex min-w-0 items-center gap-3", dead && "opacity-55")}>
+        <CoinIcon id={coin.id} size={28} />
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+            {manual ? (
+              // Stretched button: the whole row selects the coin.
+              <button
+                type="button"
+                role="radio"
+                aria-checked={selected}
+                disabled={!!blocker}
+                onClick={onSelect}
+                className="text-left text-sm font-medium after:absolute after:inset-0 disabled:cursor-not-allowed"
+              >
+                {coin.name}
+              </button>
+            ) : (
+              <span className="text-sm font-medium">{coin.name}</span>
+            )}
+            <span className="text-xs text-faint">{coin.id}</span>
+            {now && <Badge tone="ok">{t("coins.auto.now")}</Badge>}
+            {best && !now && !blocker && <Badge>{t("coins.auto.best")}</Badge>}
+            {excluded && <Badge>{t("coins.excluded")}</Badge>}
+          </div>
+          <p className="truncate text-xs text-faint">
+            {coin.algo}
+            {!blocker && !o.minerInstalled && ` · ${t("coin.needsMiner")}`}
           </p>
+        </div>
+      </div>
+
+      {/* Paid to, or what is missing */}
+      <p
+        className={cx(
+          "col-span-2 row-start-2 truncate text-xs sm:col-span-1 sm:row-start-auto sm:text-sm",
+          blocker ? (fixable ? "text-warn" : "text-faint") : "text-muted",
+        )}
+        title={blocker ? t(`coin.blocker.${blocker}`) : destination}
+      >
+        {blocker ? t(`coin.blocker.${blocker}`) : destination}
+      </p>
+
+      {/* Per day */}
+      <div className="num hidden text-right sm:block">
+        {!blocker && (
+          <>
+            <span className="block text-sm font-semibold">{value}</span>
+            <span className="block text-xs text-faint">{speed}</span>
+          </>
         )}
       </div>
-      {!blocker && (
-        <div className="num shrink-0 text-right">
-          <span className="block text-[15px] font-semibold text-fg">{value}</span>
-          <span className="block text-xs text-faint">{speed}</span>
-        </div>
-      )}
+
       {fixable ? (
-        <Button
-          size="sm"
-          className="relative z-10"
+        // Same footprint as the settings button: the column is only 2.25rem wide.
+        <button
+          type="button"
           onClick={onOpen}
           aria-label={`${t("coins.addWallet")} ${coin.name}`}
+          title={t("coins.addWallet")}
+          className="relative z-10 row-start-1 flex size-9 shrink-0 items-center justify-center justify-self-end rounded-full border border-accent/40 bg-accent-soft text-accent transition-colors hover:bg-accent-solid hover:text-accent-fg sm:row-start-auto"
         >
-          <Plus className="size-4" /> {t("coins.addWallet")}
-        </Button>
+          <Plus className="size-4" />
+        </button>
       ) : (
         // Also on coins this PC can't mine: the sheet lists what is missing.
         <button
@@ -498,58 +488,11 @@ function Row({
           onClick={onOpen}
           aria-label={t("coins.settings", { c: coin.name })}
           title={t("coins.settings", { c: coin.name })}
-          className="relative z-10 flex size-9 shrink-0 items-center justify-center rounded-full text-faint transition-colors hover:bg-surface-3 hover:text-fg"
+          className="relative z-10 row-start-1 flex size-9 shrink-0 items-center justify-center justify-self-end rounded-full text-faint transition-colors hover:bg-surface-3 hover:text-fg sm:row-start-auto"
         >
-          <Settings2 className="size-4" />
+          {manual && selected ? <Check className="size-4 text-accent" /> : <Settings2 className="size-4" />}
         </button>
       )}
-      {manual && (
-        <Check
-          className={cx("size-5 shrink-0 text-accent", !selected && "invisible")}
-          aria-hidden
-        />
-      )}
     </div>
-  );
-}
-
-/** Big coins a PC can't mine: dedicated machines (ASIC) or no mining at all. */
-const ASIC_ONLY: [string, string][] = [
-  ["ZEC", "Zcash"],
-  ["DASH", "Dash"],
-  ["KDA", "Kadena"],
-  ["CKB", "Nervos"],
-  ["ZEN", "Horizen"],
-  ["HNS", "Handshake"],
-  ["SC", "Siacoin"],
-];
-
-function NotFromAPC() {
-  const t = useT();
-  return (
-    <section>
-      <h3 className="eyebrow mb-3 flex items-center gap-2 px-1">
-        <Ban className="size-3.5" />
-        {t("coins.none.title")}
-      </h3>
-      <div className="space-y-3 rounded-[20px] border border-dashed border-line-strong px-5 py-5">
-        <p className="text-[13px] leading-relaxed text-muted">
-          {t("coins.none.asic")}
-        </p>
-        <ul className="flex flex-wrap gap-2">
-          {ASIC_ONLY.map(([id, name]) => (
-            <li
-              key={id}
-              className="rounded-full border border-line bg-surface-2/60 px-3 py-1 text-xs text-muted"
-            >
-              {name} <span className="text-faint">{id}</span>
-            </li>
-          ))}
-        </ul>
-        <p className="text-[13px] leading-relaxed text-faint">
-          {t("coins.none.pos")}
-        </p>
-      </div>
-    </section>
   );
 }

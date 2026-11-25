@@ -9,8 +9,15 @@ const MODES: Record<Preset, { icon: LucideIcon; color: string; text: string }> =
   eco: { icon: Leaf, color: "var(--go)", text: "text-go" },
   balanced: { icon: Scale, color: "var(--accent)", text: "text-accent" },
   performance: { icon: Zap, color: "var(--perf)", text: "text-perf" },
-  custom: { icon: SlidersHorizontal, color: "var(--fg)", text: "text-fg" },
+  custom: { icon: SlidersHorizontal, color: "var(--accent)", text: "" },
 };
+
+/** Custom share coloured like the mode it is closest to: green (eco) → blue → orange (performance). */
+function shareColor(p: number) {
+  const mix = (a: string, b: string, t: number) =>
+    `color-mix(in oklch, ${b} ${Math.round(Math.min(1, Math.max(0, t)) * 100)}%, ${a})`;
+  return p <= 50 ? mix("var(--go)", "var(--accent)", (p - 25) / 25) : mix("var(--accent)", "var(--perf)", (p - 50) / 50);
+}
 const SHARE: Record<Exclude<Preset, "custom">, number> = { eco: 25, balanced: 50, performance: 100 };
 /** One bar per 5% of the processor: the meter is also the custom slider's scale. */
 const BARS = 20;
@@ -51,6 +58,8 @@ export function ModeSelector({
   const shown: Preset = drag != null ? "custom" : value;
   const share = drag ?? pending ?? (value === "custom" ? customPercent : SHARE[value]);
   const mode = MODES[shown];
+  // The colour follows the share: a custom 90% looks like Performance, 30% like Eco.
+  const color = shown === "custom" ? shareColor(share) : mode.color;
 
   const move = (i: number) => {
     const next = (i + n) % n;
@@ -74,9 +83,9 @@ export function ModeSelector({
       {/* The meter */}
       <div className="px-3 pt-3 pb-2">
         <div className="mb-2 flex items-baseline justify-between">
-          <span className={cx("text-[13px] font-semibold transition-colors duration-300", mode.text)}>{t(`hw.mode.${shown}`)}</span>
+          <span className="text-sm font-semibold transition-colors duration-300" style={{ color }}>{t(`hw.mode.${shown}`)}</span>
           <span className="num text-xs text-muted">
-            <span className={cx("text-base font-semibold transition-colors duration-300", mode.text)}>{share}%</span> CPU
+            <span className="text-base font-semibold transition-colors duration-300" style={{ color }}>{share}%</span> CPU
           </span>
         </div>
         <div
@@ -118,7 +127,7 @@ export function ModeSelector({
                 className="flex-1 rounded-[3px] transition-colors duration-200"
                 style={{
                   height: `${26 + (74 * i) / (BARS - 1)}%`,
-                  backgroundColor: lit ? mode.color : "var(--surface-3)",
+                  backgroundColor: lit ? color : "var(--surface-3)",
                 }}
               />
             );
@@ -131,7 +140,7 @@ export function ModeSelector({
         {idx >= 0 && (
           <span
             aria-hidden
-            className="absolute inset-y-0 left-0 rounded-[14px] border border-line-strong bg-surface-3 shadow-[var(--highlight)] transition-transform duration-300 ease-[var(--ease)]"
+            className="absolute inset-y-0 left-0 rounded-2xl border border-line-strong bg-surface-3 shadow-[var(--highlight)] transition-transform duration-300 ease-[var(--ease)]"
             style={{ width: `calc((100% - ${(n - 1) * 4}px) / ${n})`, transform: `translateX(calc(${idx} * (100% + 4px)))` }}
           />
         )}
@@ -155,12 +164,13 @@ export function ModeSelector({
               }}
               title={t(`hw.mode.${id}.desc`)}
               className={cx(
-                "relative z-10 flex min-w-0 flex-col items-center justify-center gap-1 rounded-[14px] px-1 py-2.5 text-xs font-medium transition-colors duration-300 focus-visible:ring-2 focus-visible:ring-accent/60 focus-visible:outline-none",
+                "relative z-10 flex min-w-0 flex-col items-center justify-center gap-1 rounded-2xl px-1 py-2.5 text-xs font-medium transition-colors duration-300 focus-visible:ring-2 focus-visible:ring-accent/60 focus-visible:outline-none",
                 on ? MODES[id].text : "text-muted hover:text-fg",
               )}
+              style={on && id === "custom" ? { color } : undefined}
             >
               <Icon className="size-4" aria-hidden />
-              <span className="max-w-full truncate">{t(`hw.mode.${id}`)}</span>
+              <span className="max-w-full truncate text-2xs">{t(`hw.mode.${id}`)}</span>
             </button>
           );
         })}

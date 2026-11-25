@@ -1,5 +1,5 @@
 //! Push notifications for problems (warnings and errors only), sent to channels the user
-//! set up: an ntfy topic URL and/or a Telegram bot. Outgoing only: nothing listens.
+//! set up: a Telegram bot. Outgoing only: nothing listens.
 
 use crate::config::Notify;
 use std::time::Duration;
@@ -42,14 +42,6 @@ pub fn send(n: &Notify, title: &str, body: &str) -> Result<(), String> {
             result = Err(e.to_string());
         }
     };
-    if !n.ntfy_url.is_empty() {
-        keep(
-            agent
-                .post(&n.ntfy_url)
-                .set("Title", title)
-                .send_string(body),
-        );
-    }
     if !n.telegram_token.is_empty() && !n.telegram_chat.is_empty() {
         let url = format!(
             "https://api.telegram.org/bot{}/sendMessage",

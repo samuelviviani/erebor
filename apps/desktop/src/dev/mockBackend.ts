@@ -82,7 +82,8 @@ export function defaultConfig(): AppConfig {
     autoUpdateMiners: true,
     startOnLaunch: false,
     defenderAllowed: false,
-    notify: { ntfyUrl: "", telegramToken: "", telegramChat: "" },
+    notify: { telegramToken: "", telegramChat: "" },
+    donationPercent: 0,
   };
 }
 
@@ -91,6 +92,9 @@ const info: AppInfo = {
   platform: "mock",
   devFeePercent: 2,
   devFeeWalletConfigured: true,
+  maxDonationPercent: 3,
+  unmineableReferral: "v3ni-3jdo",
+  kryptexSignupUrl: "https://pool.kryptex.com/?ref=e17d6146",
   xmrigPinnedVersion: "6.26.0",
   xmrigPinnedAvailable: true,
   xmrigDonatePercent: 1,
@@ -420,6 +424,12 @@ export function installMockBackend(initial?: Partial<AppConfig>): MockState {
           )
         )
           return { network: "mainnet", kind: "bitcoin" };
+        if (
+          /^(LTC:([LM3][A-Za-z0-9]{33}|ltc1[0-9A-Za-z]{39})|DOGE:[DA9][1-9A-HJ-NP-Za-km-z]{33,34}|USDT:T[1-9A-HJ-NP-Za-km-z]{33})$/i.test(
+            String(a.address),
+          )
+        )
+          return { network: "mainnet", kind: "converted" };
         throw {
           code: String(a.address).includes(" ")
             ? "looks_like_secret"

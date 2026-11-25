@@ -56,8 +56,11 @@ export function WalletInput({
   placeholder,
   hint,
   label,
+  prefix = "",
 }: {
   value: string;
+  /** Validated in front of `value` ("LTC:" for an unMineable payout in Litecoin). */
+  prefix?: string;
   onChange: (v: string) => void;
   onValid?: (ok: boolean) => void;
   placeholder?: string;
@@ -74,7 +77,7 @@ export function WalletInput({
     }
     const id = setTimeout(() => {
       api
-        .validateWallet(value)
+        .validateWallet(prefix + value)
         .then((info) => {
           setState({
             ok: true,
@@ -83,7 +86,9 @@ export function WalletInput({
                 ? t("wallet.ok.kryptex")
                 : info.kind === "bitcoin"
                   ? t("wallet.ok.bitcoin")
-                  : `${t("wallet.ok")} · ${info.kind}`,
+                  : info.kind === "converted"
+                    ? t("wallet.ok.converted", { c: prefix.slice(0, -1) })
+                    : `${t("wallet.ok")} · ${info.kind}`,
           });
           onValid?.(true);
         })
@@ -94,7 +99,7 @@ export function WalletInput({
         });
     }, 250);
     return () => clearTimeout(id);
-  }, [value]);
+  }, [value, prefix]);
   return (
     <Field
       label={label ?? t("wallet.address")}
@@ -348,8 +353,8 @@ export const MINER_LABEL: Record<MinerKind, string> = {
 };
 
 /** Install the pinned, hash-verified miner or select an existing binary. */
-export function MinerSetup({ kind = "xmrig" }: { kind?: MinerKind }) {
-  const t = useT();
+/** One miner's state and the two ways to get it: install the verified build, or pick a file. */
+export function useMiner(kind: MinerKind) {
   const { info, config, setConfig, toast, status } = useApp();
   const lang = config?.language ?? "en";
   const busy = !!status?.job && !status.job.done;
@@ -380,6 +385,15 @@ export function MinerSetup({ kind = "xmrig" }: { kind?: MinerKind }) {
       toast("error", translateError(lang, errorText(e)));
     }
   };
+  return { m, label, pinned, pinnedVersion, outdated, busy, install, select };
+}
+
+export function MinerSetup({ kind = "xmrig" }: { kind?: MinerKind }) {
+  const t = useT();
+  const status = useApp((s) => s.status);
+  const miner = useMiner(kind);
+  if (!miner) return null;
+  const { m, label, pinned, pinnedVersion, outdated, busy, install, select } = miner;
   return (
     <div className="space-y-4">
       {m.path ? (

@@ -5,7 +5,8 @@ import { site } from "@/site";
 export const metadata: Metadata = { title: "Fees", alternates: { canonical: "/fees" } };
 
 const fees = [
-  ["Erebor fee", `${site.devFeePercent}% of effective mining time`, "The Erebor project (worker \"EREBOR\"): its Bitcoin address on unMineable, or its Kryptex account for coins unMineable doesn't mine"],
+  ["Erebor fee", `${site.devFeePercent}% of effective mining time`, "The Erebor project (worker \"EREBOR\"): its Bitcoin address on unMineable (for coins unMineable doesn't list, through another coin of the same algorithm), or its Kryptex account"],
+  ["Donation (optional)", "0% by default; you can add 1–3% of mining time in Settings › Support Erebor", "The Erebor project, only if you turn it on"],
   ["XMRig donation (processor)", `${site.xmrigDonatePercent}% of time (the minimum of official builds)`, "XMRig developers"],
   ["SRBMiner-MULTI fee (graphics card)", "0.65–3% depending on the algorithm (e.g. Pearl 2%)", "SRBMiner-MULTI developer"],
   ["lolMiner fee (graphics card)", "0.75–2% depending on the algorithm", "lolMiner developer"],
@@ -49,6 +50,18 @@ export default function Fees() {
         <li>Project time uses a single worker name, the same for everyone: the project never sees your computers&apos; names.</li>
         <li>Mining starts only when you press Start and you can stop it at any time.</li>
         <li>The project&apos;s account is a public build parameter. Builds without it apply no fee.</li>
+      </ul>
+      <h2>Referrals</h2>
+      <ul>
+        <li>
+          When you are paid through unMineable, Erebor adds its referral code (<code>v3ni-3jdo</code>) to your login. Per
+          unMineable this lowers your pool fee, and unMineable pays the project a small share out of its own fee. It costs
+          you nothing.
+        </li>
+        <li>
+          The &quot;create a Kryptex account&quot; link in the app is Erebor&apos;s Kryptex Pool referral link. Kryptex pays the
+          project part of its own pool fee for accounts created through it; you pay nothing extra.
+        </li>
       </ul>
       <h2>Miner fees</h2>
       <p>

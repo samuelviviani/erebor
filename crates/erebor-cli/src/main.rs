@@ -911,8 +911,8 @@ fn pools_cmd(dir: &Path, cmd: PoolsCmd, json: bool) -> Result<(), Fail> {
                     Some(wallet::AddressKind::Kryptex) if !pools::is_kryptex_host(&host) => {
                         Some("a Kryptex ID only works on Kryptex")
                     }
-                    Some(wallet::AddressKind::Bitcoin) => {
-                        Some("BTC payouts mine on unMineable; this pool is not used")
+                    Some(wallet::AddressKind::Bitcoin | wallet::AddressKind::Converted) => {
+                        Some("unMineable payouts mine on unMineable; this pool is not used")
                     }
                     _ => None,
                 };

@@ -1,4 +1,5 @@
-import { Lightbulb, Sparkles } from "lucide-react";
+import { Lightbulb, Sparkles, X } from "lucide-react";
+import { useState } from "react";
 import { useT } from "../lib/i18n";
 import { useApp } from "../lib/store";
 import { useCoinChange } from "./CoinChange";
@@ -8,6 +9,16 @@ import { Button, cx, Explain } from "./ui";
 
 /** Below this gain the current setup counts as "already the best". */
 const MIN_GAIN = 5;
+
+/** Tips the user hid, by what they advise: a different advice shows up again. */
+const HIDDEN_KEY = "erebor.advice.hidden";
+function readHidden(): string[] {
+  try {
+    return JSON.parse(localStorage.getItem(HIDDEN_KEY) ?? "[]");
+  } catch {
+    return [];
+  }
+}
 
 /**
  * What is being mined and Erebor's advice for the most BTC on this PC: the coin (once
@@ -25,11 +36,14 @@ export function CoinAdvice({
   const t = useT();
   const { config, status, setPage } = useApp();
   const { ask, dialog } = useCoinChange();
+  const [hidden, setHidden] = useState(readHidden);
   if (!config || !status) return <div className="skeleton h-24" />;
   const a = status.advice;
   const coin = status.coin;
   const auto = status.autoCoin;
-  const mine = payoutMode(config.wallet);
+  // Paid in LTC/DOGE/USDT through unMineable: the same route as BTC for the advice.
+  const mode = payoutMode(config.wallet);
+  const mine = mode === "convert" ? "bitcoin" : mode;
   const gain =
     a.btcPerDay != null && a.currentBtcPerDay
       ? Math.round((a.btcPerDay / a.currentBtcPerDay - 1) * 100)
@@ -44,18 +58,22 @@ export function CoinAdvice({
   };
 
   let tip: {
+    /** What is advised, without numbers: hiding it holds until the advice changes. */
+    id: string;
     warn: boolean;
     text: string;
     action?: { label: string; run: () => void };
   };
   if (mine === "monero") {
     tip = {
+      id: "monero",
       warn: true,
       text: t(a.device === "gpu" ? "advice.monero.gpu" : "advice.monero.cpu"),
       action: toWallet,
     };
   } else if (!auto) {
     tip = {
+      id: `manual:${coin.id}`,
       warn: true,
       text:
         a.coin && a.coin.id !== coin.id && better
@@ -72,12 +90,14 @@ export function CoinAdvice({
     };
   } else if (a.coin && a.payout !== mine && better) {
     tip = {
+      id: `payout:${a.payout}`,
       warn: true,
       text: t("advice.payout.better", { p: t(`payout.${a.payout}`), g: gain! }),
       action: toWallet,
     };
   } else {
     tip = {
+      id: `best:${a.coin?.id ?? ""}`,
       warn: false,
       text: a.coin
         ? t("advice.best", {
@@ -89,7 +109,19 @@ export function CoinAdvice({
     };
   }
 
-  if (!card && warnOnly && !tip.warn) return dialog;
+  const hide = () => {
+    // Only the latest few matter: old advice ids are dropped.
+    const next = [...hidden.filter((h) => h !== tip.id), tip.id].slice(-20);
+    setHidden(next);
+    try {
+      localStorage.setItem(HIDDEN_KEY, JSON.stringify(next));
+    } catch {
+      /* per-viewer convenience only */
+    }
+  };
+  const showTip = (!warnOnly || tip.warn) && !hidden.includes(tip.id);
+
+  if (!card && !showTip) return dialog;
   return (
     <div className="space-y-3">
       {card && (
@@ -103,7 +135,7 @@ export function CoinAdvice({
             )}
           </span>
           <span className="min-w-0 flex-1">
-            <span className="flex items-center gap-2 text-[15px] font-medium">
+            <span className="flex items-center gap-2 text-base font-medium">
               <span className="truncate">{coin.name}</span>
               <span
                 className={cx(
@@ -126,10 +158,10 @@ export function CoinAdvice({
           )}
         </div>
       )}
-      {(!warnOnly || tip.warn) && (
+      {showTip && (
         <div
           className={cx(
-            "flex flex-wrap items-start gap-3 rounded-2xl border px-4 py-3.5 text-[13px] leading-relaxed",
+            "flex flex-wrap items-start gap-3 rounded-2xl border px-4 py-3.5 text-sm leading-relaxed",
             tip.warn
               ? "border-warn/25 bg-warn/8"
               : "border-accent/20 bg-accent-soft",
@@ -157,6 +189,15 @@ export function CoinAdvice({
               {tip.action.label}
             </Button>
           )}
+          <button
+            type="button"
+            onClick={hide}
+            aria-label={t("advice.hide")}
+            title={t("advice.hide")}
+            className="-mt-0.5 -mr-1 flex size-7 shrink-0 items-center justify-center rounded-full text-faint transition-colors hover:bg-surface-2 hover:text-fg"
+          >
+            <X className="size-3.5" aria-hidden />
+          </button>
         </div>
       )}
       {dialog}
