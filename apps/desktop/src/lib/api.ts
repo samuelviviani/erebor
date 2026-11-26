@@ -77,6 +77,9 @@ export interface AppConfig {
   performance: {
     preset: Preset;
     customThreadsPercent: number;
+    /** Graphics card mode, apart from the processor's (performance = full load). */
+    gpuPreset: Preset;
+    customGpuPercent: number;
     /** Mine only after this many minutes without input; null = always. */
     idleMinutes: number | null;
     /** Watts per GPU while mining (needs admin rights); null = untouched. */
@@ -116,6 +119,8 @@ export interface AppConfig {
   notify: Notify;
   /** Extra share of mining time given to Erebor on top of the fee (0 = off). */
   donationPercent: number;
+  /** Main screen: this computer's mining or every managed device; "" until chosen. */
+  defaultView: "" | "mining" | "devices";
 }
 
 export interface CoinPoolChoice {
@@ -515,6 +520,226 @@ export const api = {
   saveCsv: (rangeSecs: number) => call<string>("save_csv", { rangeSecs }),
   deleteAllData: () => call<AppConfig>("delete_all_data"),
   dataDir: () => call<string>("data_dir"),
+};
+
+// ---------- devices managed from here (crates/erebor-core/src/controller.rs) ----------
+
+export type DeviceKind = "local_pc" | "remote_pc" | "server" | "gpu_rig" | "cpu_rig" | "asic";
+export type Conn = "online" | "offline" | "connecting" | "unreachable" | "unauthorized";
+export type MiningState = "idle" | "starting" | "mining" | "stopping" | "error" | "maintenance";
+
+/** Whether an action works on a device; `reason` is an error code when it doesn't. */
+export interface Capability {
+  supported: boolean;
+  reason: string | null;
+}
+
+export interface DeviceActions {
+  start: Capability;
+  stop: Capability;
+  restart: Capability;
+  configure: Capability;
+  setPool: Capability;
+  remove: Capability;
+  rename: Capability;
+}
+
+export interface DeviceRow {
+  id: string;
+  kind: DeviceKind;
+  name: string;
+  address: string;
+  group: number | null;
+  groupName: string | null;
+  tags: string[];
+  conn: Conn;
+  mining: MiningState;
+  error: string | null;
+  simulated: boolean;
+  hardware: string;
+  os: string | null;
+  version: string | null;
+  algo: string | null;
+  coin: string | null;
+  pool: string | null;
+  hashrate: number | null;
+  tempC: number | null;
+  powerW: number | null;
+  powerMeasured: boolean;
+  revenueDay: number | null;
+  costDay: number | null;
+  netDay: number | null;
+  currency: string;
+  accepted: number;
+  rejected: number;
+  lastSeen: number | null;
+  gateway: string | null;
+  actions: DeviceActions;
+}
+
+export interface FleetOverview {
+  total: number;
+  online: number;
+  offline: number;
+  mining: number;
+  simulated: number;
+  powerW: number;
+  powerMeasuredW: number;
+  powerDevices: number;
+  /** Summed per algorithm only: hashrates of different algorithms never add up. */
+  hashrate: { algo: string; hashrate: number; devices: number }[];
+  money: { currency: string; revenueDay: number | null; costDay: number | null; netDay: number | null }[];
+}
+
+export interface DeviceGroup {
+  id: number;
+  name: string;
+  energyPrice: number | null;
+}
+
+export interface FleetList {
+  overview: FleetOverview;
+  devices: DeviceRow[];
+  groups: DeviceGroup[];
+  /** This installation's certificate fingerprint (short form). */
+  identity: string;
+}
+
+export interface AsicPoolSpec {
+  url: string;
+  user: string;
+  password: string;
+}
+
+export interface MiningProfile {
+  id: number;
+  name: string;
+  /** Partial configuration merged into each computer's. */
+  config: Record<string, unknown>;
+  asic: AsicPoolSpec | null;
+  algo: string | null;
+  start: boolean;
+}
+
+export interface OpResult {
+  id: string;
+  name: string;
+  state: "completed" | "failed" | "skipped" | "rolled_back";
+  error: string | null;
+}
+
+export interface FleetEvent {
+  id: number;
+  ts: number;
+  deviceId: string | null;
+  deviceName: string | null;
+  level: "info" | "warning" | "error";
+  code: string;
+  detail: string | null;
+}
+
+export interface FleetSettings {
+  currency: string;
+  energyPrice: number | null;
+  maxTempC: number;
+  asicMaxTempC: number;
+  hashrateDropPercent: number;
+  powerRisePercent: number;
+  rejectedPercent: number;
+  cooldownMinutes: number;
+  retentionDays: number;
+  discovery: boolean;
+}
+
+export interface FleetHistory {
+  bucketSecs: number;
+  points: { ts: number; powerW: number | null; tempMax: number | null; revenueDay: number | null; costDay: number | null }[];
+  hashrate: Record<string, { ts: number; hashrate: number }[]>;
+}
+
+export interface FoundAgent {
+  found: { address: string; id: string; name: string; version: string; fingerprint: string; pairing: boolean };
+  paired: boolean;
+}
+
+export interface AsicPool {
+  index: number;
+  url: string;
+  user: string;
+  status: string;
+  active: boolean;
+  priority: number;
+  accepted: number;
+  rejected: number;
+}
+
+export interface AsicStatus {
+  id: string;
+  host: string;
+  port: number;
+  name: string;
+  vendor: "antminer" | "whatsminer" | "cgminer";
+  model: string | null;
+  firmware: string | null;
+  apiVersion: string | null;
+  simulated: boolean;
+  online: boolean;
+  error: string | null;
+  algo: string | null;
+  hashrate: number | null;
+  hashrateAvg: number | null;
+  accepted: number;
+  rejected: number;
+  hardwareErrors: number;
+  uptimeSecs: number | null;
+  boards: { index: number; hashrate: number | null; tempC: number | null; chipTempC: number | null; chips: number | null }[];
+  fansRpm: number[];
+  tempMaxC: number | null;
+  powerW: number | null;
+  pools: AsicPool[];
+}
+
+export const fleet = {
+  list: () => call<FleetList>("fleet_list"),
+  refresh: () => call<void>("fleet_refresh"),
+  discover: () => call<FoundAgent[]>("fleet_discover"),
+  addAgent: (address: string, code: string, kind?: DeviceKind) =>
+    call<unknown>("fleet_add_agent", { address, code, kind }),
+  addAsic: (host: string, port: number | null, name: string | null, via: string | null) =>
+    call<unknown>("fleet_add_asic", { host, port, name, via }),
+  scan: (cidr: string, via: string | null) =>
+    call<{ host: string; port: number }[]>("fleet_scan", { cidr, via }),
+  remove: (id: string) => call<void>("fleet_remove", { id }),
+  rename: (id: string, name: string) => call<void>("fleet_rename", { id, name }),
+  setKind: (id: string, kind: DeviceKind) => call<void>("fleet_set_kind", { id, kind }),
+  setPrice: (id: string, price: number | null) => call<void>("fleet_set_price", { id, price }),
+  mining: (ids: string[], action: "start" | "stop" | "restart") =>
+    call<OpResult[]>("fleet_mining", { ids, action }),
+  applyProfile: (ids: string[], profileId: number) =>
+    call<OpResult[]>("fleet_apply", { ids, profileId: String(profileId) }),
+  /** An unsaved profile (change pool, wallet…), checked and applied the same way. */
+  applyPatch: (ids: string[], profile: Omit<MiningProfile, "id">) =>
+    call<OpResult[]>("fleet_apply", { ids, profile: { id: 0, ...profile } }),
+  assignGroup: (ids: string[], group: number | null) =>
+    call<number>("fleet_assign_group", { ids, group }),
+  tag: (ids: string[], tags: string[], remove = false) =>
+    call<void>("fleet_tag", { ids, tags, remove }),
+  saveGroup: (group: DeviceGroup) => call<DeviceGroup>("fleet_save_group", { group }),
+  deleteGroup: (id: number) => call<void>("fleet_delete_group", { id }),
+  profiles: () => call<MiningProfile[]>("fleet_profiles"),
+  saveProfile: (profile: MiningProfile) => call<MiningProfile>("fleet_save_profile", { profile }),
+  deleteProfile: (id: number) => call<void>("fleet_delete_profile", { id }),
+  config: (id: string) => call<AppConfig>("fleet_config", { id }),
+  setConfig: (id: string, config: AppConfig) => call<unknown>("fleet_set_config", { id, config }),
+  query: <T>(id: string, cmd: "logs" | "coins" | "stats" | "miners" | "telemetry" | "asic" | "audit", args?: unknown) =>
+    call<T>("fleet_query", { id, cmd, args }),
+  history: (id: string | null, rangeSecs: number) =>
+    call<FleetHistory>("fleet_history", { id, rangeSecs }),
+  events: (sinceId = 0, limit = 200) => call<FleetEvent[]>("fleet_events", { sinceId, limit }),
+  settings: () => call<FleetSettings>("fleet_settings"),
+  setSettings: (settings: FleetSettings) => call<FleetSettings>("fleet_set_settings", { settings }),
+  exportAll: (secrets = false) => call<unknown>("fleet_export", { secrets }),
+  importAll: (data: unknown) => call<{ added: number }>("fleet_import", { data }),
 };
 
 /** Normalise any thrown command error into a string code/message. */

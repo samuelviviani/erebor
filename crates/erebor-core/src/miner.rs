@@ -76,6 +76,8 @@ pub struct LaunchSpec {
     pub priority: u8,
     /// Power limit for each GPU (W), restored by the miner when it exits.
     pub gpu_power_limit_w: Option<u32>,
+    /// Share of the graphics card (100: full). GPU miners lower their load below 100.
+    pub gpu_percent: u8,
 }
 
 #[derive(Debug, Clone, Serialize)]

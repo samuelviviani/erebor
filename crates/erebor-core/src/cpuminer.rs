@@ -126,6 +126,7 @@ mod tests {
             threads_percent: 50,
             priority: 1,
             gpu_power_limit_w: None,
+            gpu_percent: 100,
         };
         let a = args(&spec, 40123);
         let at = |k: &str| a[a.iter().position(|x| x == k).unwrap() + 1].clone();

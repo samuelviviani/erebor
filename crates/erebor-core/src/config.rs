@@ -67,6 +67,11 @@ pub struct Performance {
     /// Power limit for each NVIDIA GPU while mining (W), passed to the miner. It needs
     /// administrator rights; the driver keeps it within the card's own range.
     pub gpu_power_limit_w: Option<u32>,
+    /// Graphics card mode, apart from the processor's: people who work on the PC lower it.
+    /// Performance (full load) by default, as before this setting existed.
+    pub gpu_preset: Preset,
+    /// Used only with `gpu_preset` Custom (5..=100).
+    pub custom_gpu_percent: u8,
 }
 
 impl Default for Performance {
@@ -76,6 +81,8 @@ impl Default for Performance {
             custom_threads_percent: 50,
             idle_minutes: None,
             gpu_power_limit_w: None,
+            gpu_preset: Preset::Performance,
+            custom_gpu_percent: 100,
         }
     }
 }
@@ -88,6 +95,16 @@ impl Performance {
             Preset::Balanced => (50, 1),
             Preset::Performance => (100, 2),
             Preset::Custom => (self.custom_threads_percent.clamp(1, 100), 1),
+        }
+    }
+
+    /// Share of the graphics card to use, percent (100: the miner's own full load).
+    pub fn gpu_percent(&self) -> u8 {
+        match self.gpu_preset {
+            Preset::Eco => 25,
+            Preset::Balanced => 50,
+            Preset::Performance => 100,
+            Preset::Custom => self.custom_gpu_percent.clamp(5, 100),
         }
     }
 }
@@ -332,6 +349,9 @@ pub struct AppConfig {
     /// Extra share of mining time given to the project on top of the fee (0 to
     /// `devfee::MAX_DONATION_PERCENT`). Off by default, only the user turns it on.
     pub donation_percent: f64,
+    /// The app's main screen: "mining" (this computer) or "devices" (every device managed
+    /// from here). Empty until chosen at first start. Both stay usable either way.
+    pub default_view: String,
 }
 
 /// Where a coin with an own wallet is mined.
@@ -387,6 +407,7 @@ impl Default for AppConfig {
             auto_update_miners: true,
             notify: Notify::default(),
             donation_percent: 0.0,
+            default_view: String::new(),
         }
     }
 }
@@ -430,6 +451,9 @@ impl AppConfig {
     pub fn validate(&self) -> Result<(), String> {
         if !(0.0..=crate::devfee::MAX_DONATION_PERCENT).contains(&self.donation_percent) {
             return Err("donationPercent: invalid value".into());
+        }
+        if !matches!(self.default_view.as_str(), "" | "mining" | "devices") {
+            return Err("defaultView: invalid value".into());
         }
         if !self.wallet.is_empty() {
             wallet::validate_payout(&self.wallet).map_err(|e| format!("wallet: {e:?}"))?;

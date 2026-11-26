@@ -204,6 +204,8 @@ pub fn call(e: &Shared, cmd: &str, args: &Value) -> R {
             let g = lock(e);
             ok(fleet::Snapshot::new(&g.status(), g.config()))
         }
+        "telemetry" => ok(fleet::telemetry(e)),
+        "market" => ok(lock(e).status().market),
         "device_info" => fleet::report(&mut lock(e)).map(|r| json!(r)).map_err(err),
         "set_device_name" => {
             let name: String = arg(args, "name")?;

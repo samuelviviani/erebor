@@ -40,10 +40,11 @@ You rarely need these: commands that need the agent (`start`, the dashboard, `wa
 | Authentication | on every connection the server checks that the client's UID (`SO_PEERCRED` on Linux, `getpeereid` on macOS) is its own; the client checks the server the same way (`agent_untrusted` otherwise) |
 | Protocol | v1: one JSON line per request and one per reply. `{"v":1,"cmd":"get_status","args":{}}` → `{"ok":…}` or `{"err":"code"}` |
 | Commands | those of `erebor_core::rpc::call` (the same as the app), plus `agent_info` (answers any protocol version, to diagnose mismatches) and `shutdown` (agent only) |
-| Network | none: no TCP port, only the local socket |
+| Network | none for the local socket; remote control is a separate, opt-in TLS listener (below) |
 
 Windows: the named-pipe transport is not implemented (`ipc_unsupported_platform`); there the
-desktop app runs the engine itself. The protocol is transport-agnostic (`ipc::handle` takes
+desktop app runs the engine itself, and a stand-alone agent is managed over the remote
+protocol only. The protocol is transport-agnostic (`ipc::handle` takes
 and returns lines), so a pipe adapter only has to move bytes.
 
 ## Who serves the socket
@@ -83,3 +84,39 @@ command. On macOS: a LaunchAgent with `KeepAlive.SuccessfulExit=false`.
 
 `<data dir>/agent.log` (background start) or the journal (service). The miner's log is in
 `erebor logs`, `erebor monitor` and the `get_logs` command.
+
+## Remote control (other computers)
+
+Off by default. `erebor-agent init` (or `erebor agent init`) creates the agent's TLS
+certificate and listens on `0.0.0.0:7420` from the next start; `erebor-agent pair` shows a
+one-time code a controller (Erebor Desktop, `erebor devices add`) uses to pair. Mining stays
+local: controllers only watch and send commands from an explicit list, so mining continues
+when they are closed, off or unreachable, and the agent reconnects to nobody (controllers
+reconnect to it).
+
+```bash
+erebor-agent init [--listen ADDR] [--no-discovery]   # then restart the agent
+erebor-agent pair | status | controllers | revoke NAME | rotate-key | disable
+erebor-agent asic add IP [--port 4028] [--name N] | asic remove IP | asic list   # gateway
+```
+
+The same commands exist as `erebor agent init|pair|controllers|revoke|disable`. The
+release binary `erebor` behaves as `erebor-agent` when started through a link with that
+name (the installers create it).
+
+Files in `<data dir>/remote/`: `cert.der`/`key.der` (0600), `config.json`,
+`controllers.json`, `pairing.json` (while a code is active), `audit.log`.
+Details: [Devices](DEVICES.md) · [Protocol](PROTOCOL.md) · [ASICs](ASIC.md).
+
+## As a system service
+
+- Linux (systemd, dedicated user, journald): [AGENT-LINUX.md](AGENT-LINUX.md)
+- Windows (scheduled task as LOCAL SERVICE): [AGENT-WINDOWS.md](AGENT-WINDOWS.md)
+
+### macOS
+
+`sh scripts/install-agent.sh` installs the binary in `~/.local/bin` and a LaunchAgent
+([`packaging/macos/org.erebor.agent.plist`](../packaging/macos/org.erebor.agent.plist),
+restarted after a crash, log in `~/Library/Logs/erebor-agent.log`), using the desktop app's
+data folder. GPU mining on macOS is limited to what the miners support (CPU coins).
+`sh scripts/install-agent.sh --uninstall` removes it.

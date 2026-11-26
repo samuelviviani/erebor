@@ -1,5 +1,7 @@
 import {
   Banknote,
+  Boxes,
+  Upload,
   ChevronRight,
   Download,
   FileSpreadsheet,
@@ -23,6 +25,7 @@ import {
   compact,
   Group,
   Item,
+  NumberField,
   TextField,
   type Props,
 } from "../components/rows";
@@ -34,9 +37,9 @@ import {
   Segmented,
   Switch as Sw,
 } from "../components/ui";
-import { api, errorText, inApp, local, type AppConfig } from "../lib/api";
+import { api, errorText, fleet, inApp, local, type AppConfig, type FleetSettings } from "../lib/api";
 import { translateError, useT } from "../lib/i18n";
-import { useApp } from "../lib/store";
+import { useApp, useLocalMining } from "../lib/store";
 
 /**
  * The app itself, as one page of grouped rows: general, this PC, notifications, data.
@@ -46,6 +49,8 @@ export default function Settings() {
   const t = useT();
   const { config, saveConfig, toast, info } = useApp();
   const c = config!;
+  // Only other devices managed from here: nothing about mining on this computer.
+  const local = useLocalMining();
 
   const save = async (next: AppConfig) => {
     try {
@@ -83,6 +88,7 @@ export default function Settings() {
               ]}
             />
           </Item>
+          {local && (
           <Item icon={<Banknote />} tone="green" label={t("settings.currency")}>
             <Segmented
               label={t("settings.currency")}
@@ -96,8 +102,13 @@ export default function Settings() {
               ]}
             />
           </Item>
+          )}
         </Group>
 
+        <DevicesGroup c={c} save={save} />
+
+        {local && (
+          <>
         <Group title={t("settings.group.pc")}>
           <WorkerName c={c} save={save} />
           <StartupRows c={c} save={save} />
@@ -167,6 +178,8 @@ export default function Settings() {
             <MinerTools />
           </div>
         </details>
+          </>
+        )}
 
         <p className="px-1 text-xs leading-relaxed text-faint">
           {t("settings.privacy.desc")} {t("settings.licenses.desc")}
@@ -382,3 +395,100 @@ function NotifyGroup({ c, save }: Props) {
   );
 }
 
+
+/**
+ * Device management: which screen opens first, prices and retention for the device
+ * statistics, LAN discovery, export and import of the device list.
+ */
+function DevicesGroup({ c, save }: Props) {
+  const t = useT();
+  const { toast, fleet: data, setPage, setSetupLocal } = useApp();
+  const local = useLocalMining();
+  const [s, setS] = useState<FleetSettings | null>(null);
+  useEffect(() => {
+    fleet.settings().then(setS).catch(() => {});
+  }, []);
+  const set = async (next: FleetSettings) => {
+    try {
+      setS(await fleet.setSettings(next));
+    } catch (e) {
+      toast("error", translateError(c.language, errorText(e)));
+    }
+  };
+  const exportAll = async () => {
+    try {
+      const v = await fleet.exportAll(false);
+      const url = URL.createObjectURL(new Blob([JSON.stringify(v, null, 2)], { type: "application/json" }));
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "erebor-devices.json";
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      toast("error", translateError(c.language, errorText(e)));
+    }
+  };
+  const importFile = async (f: File | undefined) => {
+    if (!f) return;
+    try {
+      const r = await fleet.importAll(JSON.parse(await f.text()));
+      toast("info", t("fleet.import.done", { n: r.added }));
+    } catch (e) {
+      toast("error", translateError(c.language, errorText(e)));
+    }
+  };
+  return (
+    <Group title={t("settings.group.devices")}>
+      <Item icon={<Boxes />} tone="teal" label={t("settings.mainScreen")} hint={t("settings.mainScreen.hint")}>
+        <Segmented
+          label={t("settings.mainScreen")}
+          value={c.defaultView === "devices" ? "devices" : "mining"}
+          onChange={(defaultView) => {
+            save({ ...c, defaultView });
+            if (defaultView === "devices") setPage("devices");
+          }}
+          options={[
+            { value: "mining", label: t("nav.dashboard") },
+            { value: "devices", label: t("nav.devices") },
+          ]}
+        />
+      </Item>
+      {!local && (
+        <Item icon={<Play />} tone="green" label={t("fleet.local.title")} hint={t("fleet.local.body")}>
+          <Button size="sm" onClick={() => setSetupLocal(true)}>
+            {t("fleet.local.setup")}
+          </Button>
+        </Item>
+      )}
+      {s && (
+        <>
+          <Item label={t("fleet.settings.currency")} hint={t("fleet.settings.currency.hint")}>
+            <Segmented label={t("fleet.settings.currency")} value={s.currency} onChange={(currency) => set({ ...s, currency })} options={[{ value: "EUR", label: "€ EUR" }, { value: "USD", label: "$ USD" }]} />
+          </Item>
+          <Item label={t("fleet.settings.price")} hint={t("fleet.settings.price.hint")}>
+            <NumberField label={t("fleet.settings.price")} value={s.energyPrice} suffix={`${s.currency}/kWh`} placeholder="—" onCommit={(v) => set({ ...s, energyPrice: v == null ? null : Math.max(0, v) })} />
+          </Item>
+          <Item label={t("fleet.settings.retention")} hint={t("fleet.settings.retention.hint")}>
+            <NumberField label={t("fleet.settings.retention")} value={s.retentionDays} suffix={t("fleet.settings.days")} onCommit={(v) => v != null && set({ ...s, retentionDays: Math.min(3650, Math.max(1, Math.round(v))) })} />
+          </Item>
+          <Item label={t("fleet.settings.discovery")} hint={t("fleet.settings.discovery.hint")}>
+            <Sw label={t("fleet.settings.discovery")} checked={s.discovery} onChange={(discovery) => set({ ...s, discovery })} />
+          </Item>
+        </>
+      )}
+      <Item label={t("fleet.settings.backup")} hint={t("fleet.settings.backup.hint", { fp: data?.identity ?? "—" })}>
+        <div className="flex gap-2">
+          <Button size="sm" onClick={exportAll}>
+            <Download /> {t("fleet.settings.export")}
+          </Button>
+          <label className="inline-flex">
+            <input type="file" accept="application/json,.json" className="sr-only" onChange={(e) => importFile(e.target.files?.[0])} />
+            <span className="inline-flex h-8 cursor-pointer items-center gap-2 rounded-full border border-line-strong bg-surface-2 px-3 text-xs font-medium hover:bg-surface-3">
+              <Upload className="size-3.5" /> {t("fleet.settings.import")}
+            </span>
+          </label>
+        </div>
+      </Item>
+    </Group>
+  );
+}

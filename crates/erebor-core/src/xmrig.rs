@@ -465,6 +465,7 @@ mod tests {
             threads_percent: 50,
             priority: 1,
             gpu_power_limit_w: None,
+            gpu_percent: 100,
         }
     }
 

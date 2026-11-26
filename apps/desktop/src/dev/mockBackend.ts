@@ -2,6 +2,7 @@
 // Tauri command contract in src-tauri/src/main.rs. Every value here is fake and
 // the status is always flagged `demo: true`.
 import { mockIPC } from "@tauri-apps/api/mocks";
+import { mockFleet } from "./mockFleet";
 import type {
   AppConfig,
   AppInfo,
@@ -42,6 +43,8 @@ export function defaultConfig(): AppConfig {
     performance: {
       preset: "balanced",
       customThreadsPercent: 50,
+      gpuPreset: "performance",
+      customGpuPercent: 100,
       idleMinutes: null,
       gpuPowerLimitW: null,
     },
@@ -84,6 +87,7 @@ export function defaultConfig(): AppConfig {
     defenderAllowed: false,
     notify: { telegramToken: "", telegramChat: "" },
     donationPercent: 0,
+    defaultView: "",
   };
 }
 
@@ -187,7 +191,8 @@ export interface MockState {
   installing: "xmrig" | "srbminer";
 }
 
-export function installMockBackend(initial?: Partial<AppConfig>): MockState {
+export function installMockBackend(initial?: Partial<AppConfig>, opts: { devices?: boolean } = {}): MockState {
+  const fleetCall = mockFleet(!!opts.devices);
   const st: MockState = {
     config: { ...defaultConfig(), ...initial },
     running: false,
@@ -403,6 +408,7 @@ export function installMockBackend(initial?: Partial<AppConfig>): MockState {
     if (ipc === "set_login_item") return null;
     st.calls.push(cmd);
     const a = (args ?? {}) as Record<string, unknown>;
+    if (cmd.startsWith("fleet_")) return fleetCall(cmd, a);
     switch (cmd) {
       case "app_info":
         return info;

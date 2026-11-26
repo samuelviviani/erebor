@@ -1,4 +1,8 @@
 import {
+  Bell,
+  Boxes,
+  Layers,
+  SlidersHorizontal,
   CircleCheck,
   CircleX,
   Coins,
@@ -15,7 +19,7 @@ import {
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { useT } from "../lib/i18n";
-import { useApp, useResolvedTheme, type Page } from "../lib/store";
+import { useApp, useLocalMining, useResolvedTheme, type Page } from "../lib/store";
 import { Guide } from "./Guide";
 import { Updater } from "./Updater";
 import { StatusBar } from "./MinerStatus";
@@ -27,8 +31,26 @@ const NAV: { page: Page; icon: LucideIcon }[] = [
   { page: "energy", icon: Zap },
   { page: "computer", icon: Cpu },
 ];
-/** Height + gap of one nav item, for the sliding highlight. */
+/** Device management, after a divider: shown once it is in use. */
+const NAV_FLEET: { page: Page; icon: LucideIcon }[] = [
+  { page: "devices", icon: Boxes },
+  { page: "groups", icon: Layers },
+  { page: "profiles", icon: SlidersHorizontal },
+  { page: "alerts", icon: Bell },
+];
+/** Height + gap of one nav item, for the sliding highlight; the divider adds `DIVIDER`. */
 const STEP = 44;
+const DIVIDER = 12;
+
+/**
+ * The sections in the sidebar: this computer's mining unless only other devices are
+ * managed, device management once chosen or used.
+ */
+function useNav() {
+  const local = useLocalMining();
+  const fleet = useApp((s) => s.config?.defaultView === "devices" || (s.fleet?.devices.length ?? 0) > 1);
+  return [...(local ? NAV : []), ...(fleet ? NAV_FLEET : [])];
+}
 
 export function Logo({ className }: { className?: string }) {
   // Cream ink on the dark theme, navy ink on the light one (brand/erebor-mark-*.svg).
@@ -108,7 +130,11 @@ function Sidebar() {
       /* per-viewer convenience only */
     }
   };
-  const idx = NAV.findIndex((n) => n.page === page);
+  const nav = useNav();
+  const current = page === "device" ? "devices" : page;
+  const idx = nav.findIndex((n) => n.page === current);
+  // The divider sits between this computer's sections and device management, when both show.
+  const divider = nav.length > NAV.length && nav[0] === NAV[0] ? NAV.length : -1;
 
   return (
     <nav
@@ -152,17 +178,22 @@ function Sidebar() {
               "pointer-events-none absolute top-0 h-10 rounded-xl border border-line bg-nav-active shadow-[0_1px_2px_rgb(0_0_0/0.08)] transition-transform duration-400 ease-[var(--ease)]",
               collapsed ? "left-1/2 -ml-5 w-10" : "inset-x-3",
             )}
-            style={{ transform: `translateY(${idx * STEP}px)` }}
+            style={{ transform: `translateY(${idx * STEP + (divider >= 0 && idx >= divider ? DIVIDER : 0)}px)` }}
           />
         )}
-        {NAV.map(({ page: p, icon }, i) => (
+        {nav.map(({ page: p, icon }, i) => (
           <li key={p} className="relative">
+            {i === divider && (
+              <div aria-hidden className="flex h-3 items-center px-3">
+                <span className="h-px w-full bg-line" />
+              </div>
+            )}
             <NavButton
               p={p}
               icon={icon}
-              on={page === p}
+              on={current === p}
               collapsed={collapsed}
-              hint={`${MOD}${i + 1}`}
+              hint={i < 9 ? `${MOD}${i + 1}` : ""}
               onClick={() => setPage(p)}
             />
           </li>
@@ -211,19 +242,20 @@ function Sidebar() {
 /** ⌘1…5 open the sections, ⌘, the settings (Ctrl on Windows and Linux). */
 function useShortcuts() {
   const setPage = useApp((s) => s.setPage);
+  const nav = useNav();
   useEffect(() => {
     const on = (e: KeyboardEvent) => {
       if (!(IS_MAC ? e.metaKey : e.ctrlKey) || e.altKey || e.shiftKey) return;
       const n = Number(e.key);
       const target =
-        e.key === "," ? "settings" : n >= 1 && n <= NAV.length ? NAV[n - 1].page : null;
+        e.key === "," ? "settings" : n >= 1 && n <= nav.length ? nav[n - 1].page : null;
       if (!target) return;
       e.preventDefault();
       setPage(target);
     };
     window.addEventListener("keydown", on);
     return () => window.removeEventListener("keydown", on);
-  }, [setPage]);
+  }, [setPage, nav]);
 }
 
 const TOAST_ICON = {
@@ -324,6 +356,7 @@ export function Layout({ children }: { children: ReactNode }) {
   const demo = useApp((s) => s.status?.demo);
   const exitDemo = useApp((s) => s.exitDemo);
   const page = useApp((s) => s.page);
+  const local = useLocalMining();
   useShortcuts();
   return (
     <div className="shell flex h-full overflow-hidden">
@@ -339,7 +372,8 @@ export function Layout({ children }: { children: ReactNode }) {
             className="mx-auto flex max-w-5xl items-center gap-3 px-6 md:px-10"
           >
             <div className="min-w-0 flex-1">
-              <StatusBar control={page !== "dashboard"} />
+              {/* This computer's mining state: only when it mines (or is set up to). */}
+              {local && <StatusBar control={page !== "dashboard"} />}
             </div>
             {demo && (
               // Short line; the full sentence is the tooltip and the accessible name.
@@ -369,7 +403,8 @@ export function Layout({ children }: { children: ReactNode }) {
         </div>
       </main>
       <Toasts />
-      <Guide />
+      {/* The beginner tour is about mining on this computer. */}
+      {local && <Guide />}
     </div>
   );
 }

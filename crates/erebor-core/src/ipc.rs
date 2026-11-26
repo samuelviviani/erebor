@@ -297,7 +297,19 @@ pub struct Outcome {
 /// Run a mining command and verify the state actually changed: success is reported
 /// only when the engine ends up in the expected state.
 pub fn control(data_dir: &Path, action: Action) -> Result<Outcome, Value> {
-    let before = snapshot(data_dir)?;
+    control_via(&|cmd, args| call(data_dir, cmd, args), action)
+}
+
+/// `control` over any transport (the local socket, the engine in-process, a remote agent).
+pub fn control_via(
+    call: &dyn Fn(&str, &Value) -> Result<Value, Value>,
+    action: Action,
+) -> Result<Outcome, Value> {
+    let snapshot = |_: ()| -> Result<Snapshot, Value> {
+        serde_json::from_value(call("snapshot", &Value::Null)?)
+            .map_err(|_| "agent_bad_response".into())
+    };
+    let before = snapshot(())?;
     let same = |snapshot| {
         Ok(Outcome {
             changed: false,
@@ -322,13 +334,13 @@ pub fn control(data_dir: &Path, action: Action) -> Result<Outcome, Value> {
         Action::Resume => ("resume_mining", "running"),
         Action::Restart => {
             if before.is_active() {
-                call(data_dir, "stop_mining", &Value::Null)?;
+                call("stop_mining", &Value::Null)?;
             }
             ("start_mining", "running")
         }
     };
-    call(data_dir, cmd, &Value::Null)?;
-    let after = snapshot(data_dir)?;
+    call(cmd, &Value::Null)?;
+    let after = snapshot(())?;
     if after.state != expect {
         return Err(after
             .error

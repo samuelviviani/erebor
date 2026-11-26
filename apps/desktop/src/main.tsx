@@ -15,6 +15,8 @@ async function boot() {
     const cfg = q.get("cfg");
     installMockBackend(
       demo ? { onboardingCompleted: true, demoMode: true, ...(cfg ? JSON.parse(cfg) : {}) } : undefined,
+      // Simulated remote devices and ASICs in the device list: in demo mode, or ?devices.
+      { devices: demo || q.has("devices") },
     );
     // ?page=energy opens a section directly (no tour), for screenshots.
     const page = q.get("page");

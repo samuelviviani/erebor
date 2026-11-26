@@ -1,0 +1,40 @@
+# Erebor Agent as a system service (installed by scripts/install-agent.sh).
+#   sudo systemctl enable --now erebor-agent
+#   journalctl -u erebor-agent -f
+# Runs as its own unprivileged user; state in /var/lib/erebor-agent. It never starts
+# mining by itself unless startOnLaunch is set in its configuration.
+[Unit]
+Description=Erebor Agent (mining and remote management)
+Documentation=https://github.com/samuelviviani/erebor/blob/main/docs/AGENT-LINUX.md
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=erebor-agent
+Group=erebor-agent
+# Read GPU sensors and drive the cards (nvidia-smi, /dev/dri, /dev/nvidia*).
+SupplementaryGroups=video render
+Environment=EREBOR_DATA_DIR=/var/lib/erebor-agent
+StateDirectory=erebor-agent
+StateDirectoryMode=0700
+ExecStart=/usr/local/bin/erebor-agent start
+Restart=on-failure
+RestartSec=10
+# Logs go to journald (stdout/stderr).
+StandardOutput=journal
+StandardError=journal
+# Hardening: no new privileges, read-only system, private /tmp.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+
+[Install]
+WantedBy=multi-user.target

@@ -13,6 +13,11 @@ Erebor is local-first and collects no data.
   - **GitHub**: downloads of the pinned miners, the GPU hashrate table and Erebor's own updates;
   - the miners' **developer-fee servers**: XMRig donates 1% of time; SRBMiner-MULTI and lolMiner
     keep their own fee per algorithm.
+- **Device management** (only if you use it) stays between your own devices: the app or CLI
+  connects directly to your agents and ASICs on your network or VPN. Agents send their
+  telemetry (hostname, addresses, hardware, mining state, sensors) only to controllers you
+  paired. A search for agents sends one broadcast on the local network (can be turned off).
+  Nothing goes through an Erebor server; there is none.
 - Demo mode makes no network requests for mining or market data.
 - The website is static, with no cookies or analytics.
 

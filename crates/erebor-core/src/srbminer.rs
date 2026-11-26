@@ -40,6 +40,11 @@ pub fn args(spec: &LaunchSpec, api_port: u16) -> Vec<String> {
     ]
     .iter()
     .map(|s| s.to_string())
+    .chain(
+        gpu_intensity(spec.gpu_percent)
+            .into_iter()
+            .flat_map(|i| ["--gpu-intensity".to_string(), i.to_string()]),
+    )
     .chain(spec.gpu_power_limit_w.into_iter().flat_map(|w| {
         // Absolute watts for every GPU; the reset restores stock power on exit.
         [
@@ -49,6 +54,13 @@ pub fn args(spec: &LaunchSpec, api_port: u16) -> Vec<String> {
         ]
     }))
     .collect()
+}
+
+/// SRBMiner's `--gpu-intensity` (1..=31, `--help` of 3.8.8) for a share below 100%:
+/// smaller GPU batches leave room for the desktop. `None` at 100%: the miner's own tuning.
+// ponytail: linear share → intensity; tune per algorithm if users report it off.
+fn gpu_intensity(percent: u8) -> Option<u8> {
+    (percent < 100).then(|| ((percent as u32 * 31 + 50) / 100).clamp(1, 31) as u8)
 }
 
 fn num(v: Option<&Value>) -> Option<f64> {
@@ -273,6 +285,7 @@ mod tests {
             threads_percent: 50,
             priority: 1,
             gpu_power_limit_w: None,
+            gpu_percent: 100,
         };
         let a = args(&spec, 40123);
         assert_eq!(a[0], "--disable-cpu");
@@ -288,13 +301,26 @@ mod tests {
         let limited = args(
             &LaunchSpec {
                 gpu_power_limit_w: Some(150),
-                ..spec
+                ..spec.clone()
             },
             40123,
         );
         let at = |k: &str| limited[limited.iter().position(|x| x == k).unwrap() + 1].clone();
         assert_eq!(at("--gpu-plimit"), "150");
         assert!(limited.contains(&"--gpu-reset-oc".to_string()));
+        // A lower share means a lower intensity; full share leaves the miner's tuning.
+        let light = args(
+            &LaunchSpec {
+                gpu_percent: 25,
+                ..spec.clone()
+            },
+            40123,
+        );
+        let at = |k: &str| light[light.iter().position(|x| x == k).unwrap() + 1].clone();
+        assert_eq!(at("--gpu-intensity"), "8");
+        assert_eq!(gpu_intensity(50), Some(16));
+        assert_eq!(gpu_intensity(5), Some(2));
+        assert_eq!(gpu_intensity(100), None);
     }
 
     #[test]

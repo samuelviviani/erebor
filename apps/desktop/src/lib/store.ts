@@ -1,8 +1,29 @@
 import { useEffect, useState } from "react";
 import { create } from "zustand";
-import { api, errorText, type AppConfig, type AppInfo, type Status } from "./api";
+import { api, errorText, fleet, type AppConfig, type AppInfo, type FleetList, type Status } from "./api";
 
-export type Page = "dashboard" | "coins" | "energy" | "computer" | "settings";
+export type Page =
+  | "dashboard"
+  | "coins"
+  | "energy"
+  | "computer"
+  | "settings"
+  | "devices"
+  | "device"
+  | "groups"
+  | "profiles"
+  | "alerts";
+
+/**
+ * This computer's mining sections (Home, coins, energy, computer) make sense unless the
+ * app is used only to manage other devices and mining here was never set up.
+ */
+export function useLocalMining() {
+  return useApp((s) => s.config?.defaultView !== "devices" || !!s.config?.onboardingCompleted);
+}
+
+/** Pages of device management (the rest is this computer's mining). */
+export const FLEET_PAGES: Page[] = ["devices", "device", "groups", "profiles", "alerts"];
 
 /** One reading of the live sensors, for the Computer charts. */
 export interface Sample {
@@ -43,6 +64,15 @@ interface AppStore {
   guide: boolean;
   setGuide: (open: boolean) => void;
   setPage: (p: Page) => void;
+  /** Device shown by the "device" page. */
+  deviceId: string | null;
+  openDevice: (id: string) => void;
+  /** Device-management mode: the user asked to set this computer up for mining. */
+  setupLocal: boolean;
+  setSetupLocal: (on: boolean) => void;
+  /** Every managed device, refreshed while a device page is open. */
+  fleet: FleetList | null;
+  refreshFleet: () => Promise<void>;
   init: () => Promise<void>;
   refreshStatus: () => Promise<void>;
   /** Persist a modified config; returns the saved config or throws an error string. */
@@ -77,10 +107,24 @@ export const useApp = create<AppStore>((set, get) => ({
   guide: false,
   setGuide: (guide) => set({ guide }),
   setPage: (page) => set({ page }),
+  deviceId: null,
+  setupLocal: false,
+  setSetupLocal: (setupLocal) => set({ setupLocal }),
+  openDevice: (deviceId) => set({ deviceId, page: "device" }),
+  fleet: null,
+  refreshFleet: async () => {
+    try {
+      set({ fleet: await fleet.list() });
+    } catch {
+      // Device management unavailable: the pages say so; local mining is unaffected.
+    }
+  },
   init: async () => {
     try {
       const [info, config] = await Promise.all([api.appInfo(), api.getConfig()]);
-      set({ info, config, loadError: null });
+      // Device management as the main screen: open on it.
+      set({ info, config, loadError: null, ...(config.defaultView === "devices" && get().page === "dashboard" ? { page: "devices" as Page } : {}) });
+      get().refreshFleet();
       await get().refreshStatus();
     } catch (e) {
       set({ loadError: errorText(e) });
@@ -116,6 +160,8 @@ export const useApp = create<AppStore>((set, get) => ({
       if (active && prev?.demoMode === next.demoMode && !(["wallet", "coin", "pool", "performance"] as const).every(same)) set({ restartUntil: Date.now() + 30_000 });
       const saved = await api.updateConfig(next);
       set({ config: saved });
+      // Demo mode has its own (simulated) device list.
+      if (prev?.demoMode !== saved.demoMode) get().refreshFleet();
       await get().refreshStatus(); // status (e.g. start blockers) depends on config
       return saved;
     } catch (e) {

@@ -11,9 +11,13 @@
 //! replaced (by itself, `erebor update` or a reinstall) it restarts in place on the new
 //! one, so service managers keep tracking the same process.
 
+pub mod cli;
+
 use erebor_core::engine::{self, Engine};
 use erebor_core::ipc;
-use std::path::PathBuf;
+use erebor_core::remote;
+use serde_json::{json, Value};
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
@@ -101,6 +105,122 @@ mod self_update {
     }
 }
 
+// ---------- remote control setup, shared by `erebor-agent` and `erebor agent` ----------
+
+/// Turn remote control on: create this agent's certificate and listen on `listen`
+/// (default 0.0.0.0:7420). Takes effect when the agent (re)starts.
+pub fn init(dir: &Path, listen: Option<String>, discovery: bool) -> Result<Value, String> {
+    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    let id = remote::Identity::load_or_create(dir)?;
+    let mut cfg = remote::RemoteConfig::load(dir);
+    cfg.enabled = true;
+    cfg.discovery = discovery;
+    if let Some(l) = listen {
+        cfg.listen = if l.contains(':') {
+            l
+        } else {
+            format!("{l}:{}", remote::PORT)
+        };
+    }
+    cfg.save(dir)?;
+    Ok(
+        json!({"enabled": true, "listen": cfg.listen, "discovery": cfg.discovery,
+        "fingerprint": remote::short_fp(&id.fingerprint), "fingerprintFull": id.fingerprint}),
+    )
+}
+
+pub fn disable(dir: &Path) -> Result<Value, String> {
+    let mut cfg = remote::RemoteConfig::load(dir);
+    cfg.enabled = false;
+    cfg.save(dir)?;
+    Ok(json!({"enabled": false}))
+}
+
+/// A one-time pairing code for a controller (10 minutes, single use).
+pub fn pair(dir: &Path) -> Result<Value, String> {
+    let cfg = remote::RemoteConfig::load(dir);
+    if !cfg.enabled {
+        return Err("remote_disabled".into());
+    }
+    let id = remote::Identity::load_or_create(dir)?;
+    let p = remote::start_pairing(dir)?;
+    let port = cfg
+        .listen
+        .parse::<std::net::SocketAddr>()
+        .map(|a| a.port())
+        .unwrap_or(remote::PORT);
+    Ok(json!({
+        "code": remote::format_code(&p.code),
+        "expiresAt": p.expires_at,
+        "expiresInSecs": remote::PAIRING_TTL_SECS,
+        "addresses": erebor_core::fleet::primary_address().into_iter().map(|a| format!("{a}:{port}")).collect::<Vec<_>>(),
+        "fingerprint": remote::short_fp(&id.fingerprint),
+    }))
+}
+
+pub fn remote_status(dir: &Path) -> Value {
+    let cfg = remote::RemoteConfig::load(dir);
+    let fp = remote::Identity::load_or_create(dir)
+        .map(|i| remote::short_fp(&i.fingerprint))
+        .ok();
+    json!({
+        "enabled": cfg.enabled, "listen": cfg.listen, "discovery": cfg.discovery,
+        "fingerprint": fp, "controllers": controllers(dir),
+        "pairingActive": remote::pending_pairing(dir).is_some(),
+        "asics": cfg.asics,
+        "agentRunning": ipc::call(dir, "agent_info", &Value::Null).is_ok()
+            || (cfg.enabled && cfg.listen.parse::<std::net::SocketAddr>().is_ok_and(|a| {
+                let a = if a.ip().is_unspecified() { std::net::SocketAddr::new([127, 0, 0, 1].into(), a.port()) } else { a };
+                std::net::TcpStream::connect_timeout(&a, std::time::Duration::from_millis(300)).is_ok()
+            })),
+    })
+}
+
+pub fn controllers(dir: &Path) -> Value {
+    json!(remote::controllers(dir)
+        .iter()
+        .map(|c| json!({"name": c.name, "fingerprint": remote::short_fp(&c.fingerprint), "pairedAt": c.paired_at}))
+        .collect::<Vec<_>>())
+}
+
+pub fn revoke(dir: &Path, who: &str) -> Result<Value, String> {
+    let c = remote::revoke(dir, who)?;
+    Ok(json!({"revoked": c.name, "fingerprint": remote::short_fp(&c.fingerprint)}))
+}
+
+/// ASICs this agent watches as a gateway (`erebor-agent asic add|remove|list`).
+pub fn asic_add(dir: &Path, host: &str, port: u16, name: &str) -> Result<Value, String> {
+    let e = erebor_core::asic::AsicEntry {
+        host: host.into(),
+        port: if port == 0 {
+            erebor_core::asic::API_PORT
+        } else {
+            port
+        },
+        name: name.into(),
+    };
+    erebor_core::asic::validate_entry(&e)?;
+    let mut cfg = remote::RemoteConfig::load(dir);
+    if cfg.asics.iter().any(|x| x.id() == e.id()) {
+        return Err("asic_exists".into());
+    }
+    cfg.asics.push(e.clone());
+    cfg.save(dir)?;
+    Ok(json!(erebor_core::asic::read(&e)))
+}
+
+pub fn asic_remove(dir: &Path, id_or_host: &str) -> Result<Value, String> {
+    let mut cfg = remote::RemoteConfig::load(dir);
+    let n = cfg.asics.len();
+    cfg.asics
+        .retain(|x| x.id() != id_or_host && x.host != id_or_host);
+    if cfg.asics.len() == n {
+        return Err("asic_not_found".into());
+    }
+    cfg.save(dir)?;
+    Ok(Value::Null)
+}
+
 /// `run` with the stop channel supplied by the caller (tests).
 fn run_until(data_dir: PathBuf, tx: Sender<()>, rx: Receiver<()>) -> Result<(), String> {
     // The data-folder lock makes a second agent (or an open desktop app) fail here,
@@ -118,13 +238,43 @@ fn run_until(data_dir: PathBuf, tx: Sender<()>, rx: Receiver<()>) -> Result<(), 
     let start = engine.config().start_on_launch || resume;
     let engine = Arc::new(Mutex::new(engine));
     engine::spawn_loops(engine.clone());
-    let _ipc = ipc::serve(ipc::Host::new(engine.clone(), "agent", Some(tx)))?;
+    // Windows has no local socket yet: there the agent is reached over the remote
+    // protocol only (`erebor-agent init`).
+    let _ipc = match ipc::serve(ipc::Host::new(engine.clone(), "agent", Some(tx))) {
+        Ok(s) => Some(s),
+        Err(e) if e == "ipc_unsupported_platform" => None,
+        Err(e) => return Err(e),
+    };
     println!(
         "erebor-agent {} ready · pid {} · socket {}",
         env!("CARGO_PKG_VERSION"),
         std::process::id(),
-        ipc::socket_path(&data_dir).display()
+        if _ipc.is_some() {
+            ipc::socket_path(&data_dir).display().to_string()
+        } else {
+            "none on this platform".into()
+        }
     );
+    // Remote control only when turned on (`erebor-agent init`). If it can't listen, mining
+    // still works locally: report and go on.
+    let cfg = remote::RemoteConfig::load(&data_dir);
+    let _remote = cfg
+        .enabled
+        .then(|| match remote::server::serve(engine.clone(), &cfg) {
+            Ok(s) => {
+                println!(
+                    "remote control on {} · TLS · fingerprint {} · {} controller(s) paired",
+                    s.addr,
+                    remote::short_fp(&s.ctx.identity.fingerprint),
+                    remote::controllers(&data_dir).len()
+                );
+                Some(s)
+            }
+            Err(e) => {
+                eprintln!("remote control off: {e}");
+                None
+            }
+        });
     if start {
         match engine
             .lock()

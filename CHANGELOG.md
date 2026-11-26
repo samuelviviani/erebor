@@ -4,6 +4,20 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions: [Sem
 
 ## [Unreleased]
 
+### Added
+- Device management: Erebor Desktop and the CLI manage other computers, servers, GPU/CPU rigs and ASICs next to this one. First start asks "Start mining" or "Manage devices" (both stay available; Settings → Devices switches the main screen).
+- Remote control for `erebor-agent` (opt-in, `erebor-agent init`): TLS 1.3 with mutually pinned certificates, pairing with a one-time 10-minute code (`erebor-agent pair`), revocation, key rotation, audit log, rate limiting, timestamped requests, LAN discovery that can be turned off. Mining stays on each device when the controller is closed.
+- Devices dashboard: totals, hashrate per algorithm (never summed across algorithms), power, estimated revenue, electricity and net per day, 1 h/24 h/7 d/30 d history, search, filters, grouping, table or cards, multi-select with confirmed bulk actions and per-device results; device page with configuration, log and operations history.
+- Groups (with their own electricity price), tags, mining profiles applied to devices, groups or everything after a compatibility check, with rollback when mining doesn't start.
+- ASICs: CGMiner/BMMiner (Antminer) and btminer (WhatsMiner, read-only) adapters with capability detection; pool change via wallet.worker; agent as ASIC gateway; explicit private-subnet scan. Unverified on physical hardware.
+- Alerts with thresholds, deduplication and cooldown; statistics compacted after two days and deleted after the retention.
+- CLI: `erebor devices`, `groups`, `profiles`, `mining … --device/--group/--all`, `agent init|pair|controllers|revoke|disable`, `sim`; exit code 4 for partial failures.
+- Demo mode also shows device management, filled with simulated devices, a week of history and alerts, in a registry of its own (never mixed with real devices).
+- Managing only other devices hides this computer's mining sections until mining here is set up (Settings → Devices).
+- `erebor sim`: simulated agents, rigs, ASICs (hot, read-only, broken), a gateway and an offline agent in one command.
+- Agent installers: `scripts/install-agent.sh` (Linux systemd service with its own user, macOS LaunchAgent) and `scripts/install-agent.ps1` (Windows scheduled task as LOCAL SERVICE); the release `erebor` binary acts as `erebor-agent` through a link; Windows CLI binary in releases.
+- Graphics card modes: Eco, Balanced, Performance or a custom share on Home also when mining with the GPU, separate from the processor's mode, for people who work on the PC while it mines. SRBMiner lowers `--gpu-intensity`; lolMiner has one lighter level (`--screen`). Default stays full power.
+
 ## [0.1.7] - 2026-11-25
 
 ### Added

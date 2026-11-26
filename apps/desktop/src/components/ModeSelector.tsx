@@ -35,6 +35,7 @@ export function ModeSelector({
   onChange,
   onCustom,
   labelledBy,
+  unit = "CPU",
 }: {
   value: Preset;
   customPercent: number;
@@ -44,6 +45,8 @@ export function ModeSelector({
   /** Custom share chosen on the meter (sets the preset to "custom" too). */
   onCustom?: (percent: number) => void;
   labelledBy: string;
+  /** What the share is of, next to the percentage. */
+  unit?: string;
 }) {
   const t = useT();
   const refs = useRef<(HTMLButtonElement | null)[]>([]);
@@ -85,7 +88,7 @@ export function ModeSelector({
         <div className="mb-2 flex items-baseline justify-between">
           <span className="text-sm font-semibold transition-colors duration-300" style={{ color }}>{t(`hw.mode.${shown}`)}</span>
           <span className="num text-xs text-muted">
-            <span className="text-base font-semibold transition-colors duration-300" style={{ color }}>{share}%</span> CPU
+            <span className="text-base font-semibold transition-colors duration-300" style={{ color }}>{share}%</span> {unit}
           </span>
         </div>
         <div

@@ -27,6 +27,14 @@ pub fn args(spec: &LaunchSpec, api_port: u16) -> Vec<String> {
     ]
     .iter()
     .map(|s| s.to_string())
+    // lolMiner has no intensity: below full share, its single-thread mode for PCs in use
+    // (`--screen -1`, all GPUs) is the one lighter level it offers.
+    .chain(
+        (spec.gpu_percent < 100)
+            .then(|| ["--screen".to_string(), "-1".to_string()])
+            .into_iter()
+            .flatten(),
+    )
     // Same value for every NVIDIA card; lolMiner resets it on exit.
     .chain(
         spec.gpu_power_limit_w
@@ -115,6 +123,7 @@ mod tests {
             threads_percent: 50,
             priority: 1,
             gpu_power_limit_w: None,
+            gpu_percent: 100,
         };
         let a = args(&spec, 40123);
         let at = |k: &str| a[a.iter().position(|x| x == k).unwrap() + 1].clone();
@@ -122,6 +131,16 @@ mod tests {
         assert_eq!(at("--user"), "krxABC123/PC");
         assert_eq!(at("--apihost"), "127.0.0.1");
         assert_eq!(at("--apiport"), "40123");
+        assert!(!a.contains(&"--screen".to_string()));
+        let light = args(
+            &LaunchSpec {
+                gpu_percent: 50,
+                ..spec
+            },
+            40123,
+        );
+        let at = |k: &str| light[light.iter().position(|x| x == k).unwrap() + 1].clone();
+        assert_eq!(at("--screen"), "-1");
     }
 
     #[test]

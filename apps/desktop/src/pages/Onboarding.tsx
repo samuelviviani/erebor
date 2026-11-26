@@ -1,6 +1,7 @@
 import {
   ArrowLeft,
   ArrowRight,
+  Boxes,
   Check,
   Compass,
   Cpu,
@@ -41,8 +42,10 @@ type Step = (typeof STEPS)[number];
 
 export default function Onboarding() {
   const t = useT();
-  const { config, saveConfig, setConfig, toast, info, status, refreshStatus } =
+  const { config, saveConfig, setConfig, toast, info, status, refreshStatus, setPage, setupLocal, setSetupLocal } =
     useApp();
+  // First choice: mine here, or manage devices (no mining setup needed for that).
+  const [use, setUse] = useState<"mining" | "devices">(config!.defaultView === "devices" ? "devices" : "mining");
   const [draft, setDraft] = useState<AppConfig>(config!);
   const [step, setStep] = useState<Step>("welcome");
   const [hw, setHw] = useState<HardwareInfo | null>(null);
@@ -152,10 +155,24 @@ export default function Onboarding() {
     ready: false,
   };
 
+  const openDevices = async () => {
+    setSaving(true);
+    try {
+      await saveConfig({ ...draft, defaultView: "devices" });
+      setSetupLocal(false);
+      setPage("devices");
+    } catch (e) {
+      toast("error", translateError(lang, errorText(e)));
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const finish = async (start: boolean) => {
     setSaving(true);
     try {
-      await saveConfig({ ...draft, onboardingCompleted: true });
+      await saveConfig({ ...draft, onboardingCompleted: true, defaultView: draft.defaultView || "mining" });
+      setSetupLocal(false);
       if (start) {
         await api.startMining();
         await refreshStatus();
@@ -263,6 +280,38 @@ export default function Onboarding() {
                 title={t("onb.welcome.title")}
                 sub={t("onb.welcome.body")}
               >
+                {/* How Erebor is used: only decides this setup and the main screen;
+                    both stay available, switchable in Settings. */}
+                {!setupLocal && (
+                  <div role="radiogroup" aria-label={t("onb.use.label")} className="grid gap-3 sm:grid-cols-2">
+                    {(
+                      [
+                        ["mining", Cpu, "onb.use.mining"],
+                        ["devices", Boxes, "onb.use.devices"],
+                      ] as const
+                    ).map(([value, Icon, key]) => (
+                      <button
+                        key={value}
+                        type="button"
+                        role="radio"
+                        aria-checked={use === value}
+                        onClick={() => setUse(value)}
+                        className={cx(
+                          "press rounded-2xl border p-4 text-left transition-colors",
+                          use === value ? "border-accent bg-accent-soft" : "border-line hover:bg-surface-2",
+                        )}
+                      >
+                        <Icon className={cx("size-5", use === value ? "text-accent" : "text-faint")} aria-hidden />
+                        <span className="mt-2 block text-base font-medium">{t(`${key}.title`)}</span>
+                        <span className="mt-1 block text-sm leading-relaxed text-muted">{t(`${key}.body`)}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {use === "devices" && !setupLocal ? (
+                  <p className="text-sm leading-relaxed text-muted">{t("onb.use.devices.next")}</p>
+                ) : (
+                <>
                 {/* What Erebor takes off your hands: plain rows, a coloured glyph each,
                     the same visual language as Settings. */}
                 <ul className="divide-y divide-line border-y border-line">
@@ -294,6 +343,8 @@ export default function Onboarding() {
                   <Zap className="mt-0.5 size-3.5 shrink-0 text-warn" />
                   {t("onb.welcome.energy")}
                 </p>
+                </>
+                )}
               </Section>
             )}
 
@@ -457,6 +508,13 @@ export default function Onboarding() {
             )}
 
             <div className="mt-8 flex items-center justify-between gap-2">
+              {setupLocal && idx === 0 ? (
+                // Came from device management: back there without setting up mining.
+                <Button variant="ghost" onClick={() => setSetupLocal(false)}>
+                  <ArrowLeft className="size-4" />
+                  {t("onb.use.backToDevices")}
+                </Button>
+              ) : (
               <Button
                 variant="ghost"
                 onClick={() =>
@@ -470,7 +528,15 @@ export default function Onboarding() {
                 <ArrowLeft className="size-4" />
                 {t("onb.back")}
               </Button>
+              )}
               <div className="flex gap-2">
+                {step === "welcome" && use === "devices" && !setupLocal ? (
+                  <Button variant="primary" className="px-5" loading={saving} onClick={openDevices}>
+                    {t("onb.use.openDevices")}
+                    <ArrowRight className="size-4" />
+                  </Button>
+                ) : (
+                <>
                 {step === "welcome" && (
                   <Button
                     variant="ghost"
@@ -492,6 +558,8 @@ export default function Onboarding() {
                     {t("onb.next")}
                     <ArrowRight className="size-4" />
                   </Button>
+                )}
+                </>
                 )}
               </div>
             </div>

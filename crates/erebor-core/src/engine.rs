@@ -1442,6 +1442,7 @@ impl Engine {
             threads_percent,
             priority,
             gpu_power_limit_w: self.config.performance.gpu_power_limit_w,
+            gpu_percent: self.config.performance.gpu_percent(),
         }
     }
 

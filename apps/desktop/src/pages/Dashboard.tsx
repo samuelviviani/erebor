@@ -110,14 +110,14 @@ export default function Dashboard() {
   const mined = status?.mined ?? [];
 
   const setCustom = (v: number) =>
+    setPerformance({ preset: "custom", customThreadsPercent: v });
+  // The graphics card has its own mode: lowering it keeps the PC smooth while you work.
+  const gpuPreset = config?.performance.gpuPreset ?? "performance";
+  const setPerformance = (p: Partial<NonNullable<typeof config>["performance"]>) =>
     config &&
     saveConfig({
       ...config,
-      performance: {
-        ...config.performance,
-        preset: "custom",
-        customThreadsPercent: v,
-      },
+      performance: { ...config.performance, ...p },
     }).catch((e) => toast("error", translateError(lang, String(e))));
 
   return (
@@ -285,10 +285,23 @@ export default function Dashboard() {
             <Explain term="mode" align="left" />
           </h2>
           {coin?.device === "gpu" ? (
-            // GPU miners run with the CPU disabled and no preset: a CPU share would be a lie.
-            <p className="panel px-5 py-4 text-sm leading-relaxed text-muted">
-              {t("home.mode.gpuNote")}
-            </p>
+            // GPU miners run with the CPU disabled: the share here is the graphics card's.
+            <>
+              <ModeSelector
+                labelledBy="q-mode"
+                withCustom
+                unit="GPU"
+                value={gpuPreset}
+                customPercent={config?.performance.customGpuPercent ?? 100}
+                onChange={(gpuPreset) => setPerformance({ gpuPreset })}
+                onCustom={(v) =>
+                  setPerformance({ gpuPreset: "custom", customGpuPercent: v })
+                }
+              />
+              <p className="mt-3 px-1 text-xs leading-relaxed text-faint">
+                {t(`home.mode.gpu.${gpuPreset}.desc`)}
+              </p>
+            </>
           ) : (
             <>
               <ModeSelector

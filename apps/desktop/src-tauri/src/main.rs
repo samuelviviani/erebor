@@ -8,9 +8,11 @@
 //! that register Erebor to start at login).
 
 use erebor_core::autostart::{self, Kind, APP_LABEL};
+use erebor_core::controller::LocalCall;
 use erebor_core::engine::{self, Engine};
 use erebor_core::ipc;
 use erebor_core::rpc::{self, Shared};
+use erebor_core::sim::Hub;
 use serde_json::Value;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -28,6 +30,8 @@ struct AppState {
     backend: Backend,
     /// While we own the engine, `erebor` (CLI/TUI) controls it through this socket.
     _ipc: Option<ipc::Server>,
+    /// Devices managed from here (this PC included); in demo mode a simulated set.
+    fleet: Hub,
 }
 
 type R<T> = Result<T, Value>;
@@ -154,6 +158,9 @@ async fn call(s: State<'_, Arc<AppState>>, cmd: String, args: Option<Value>) -> 
     let st = s.inner().clone();
     blocking(move || {
         let args = args.unwrap_or(Value::Null);
+        if cmd.starts_with("fleet_") {
+            return st.fleet.call(&cmd, &args);
+        }
         match &st.backend {
             Backend::Local(e) => rpc::call(e, &cmd, &args),
             Backend::Agent(dir) => ipc::call(dir, &cmd, &args),
@@ -218,7 +225,23 @@ fn main() {
                 Backend::Local(e) => ipc::serve(ipc::Host::new(e.clone(), "desktop", None)).ok(),
                 _ => None,
             };
-            let st = Arc::new(AppState { backend, _ipc: ipc });
+            // This PC in the device list, through the same backend as the rest of the app.
+            let local: LocalCall = match &backend {
+                Backend::Local(e) => {
+                    let e = e.clone();
+                    Arc::new(move |c, a| rpc::call(&e, c, a))
+                }
+                Backend::Agent(d) => {
+                    let d = d.clone();
+                    Arc::new(move |c, a| ipc::call(&d, c, a))
+                }
+            };
+            let fleet = Hub::new(&dir, local);
+            let st = Arc::new(AppState {
+                backend,
+                _ipc: ipc,
+                fleet,
+            });
             app.manage(st.clone());
             // Like a chat app: closing the window keeps Erebor (and mining) running in
             // the tray; "Quit" there exits. Without a tray (Linux without an indicator

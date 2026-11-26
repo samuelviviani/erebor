@@ -21,7 +21,7 @@
 | `crates/erebor-agent` | Library + `erebor-agent` binary: owns the engine, serves the socket, handles signals and self-update |
 | `crates/erebor-cli` | The `erebor` binary (clap): commands, guided setup, `doctor`; embeds the agent and the TUI |
 | `crates/erebor-tui` | Terminal dashboard (ratatui/crossterm) |
-| `apps/desktop` | Tauri 2 app; owns the engine and serves the socket, or connects to a running agent |
+| `apps/desktop` | Tauri 2 app; owns the engine and serves the socket, or connects to a running agent; runs the device controller |
 | `apps/website` | Public website (Next.js static export) |
 
 Principles:
@@ -129,3 +129,33 @@ statistics go to a separate database (`erebor-demo.db`).
 The data folder (Tauri `app_data_dir`, shared by app, CLI and agent): `config.json`,
 `erebor.db`, `erebor-demo.db`, `device.json`, `miners/<miner>-<version>/`, `run/` (miner
 configs), `miner.pid`, `engine.lock`, `agent.sock`, `agent.log`.
+
+## Multi-device
+
+```text
+ Desktop app ─┐                                     ┌─ erebor-agent (PC/server/rig) ── engine ── miners
+ erebor CLI  ─┼─ controller (Fleet) ── TLS 7420 ────┤
+              │   controller.db, remote/ identity    └─ erebor-agent (gateway) ── CGMiner API ── ASICs
+              └─ this PC (in-process engine / local agent)      direct ── CGMiner API 4028 ── ASICs
+```
+
+| Module | Role |
+|---|---|
+| `remote` | Protocol v1: identity (self-signed cert), pinned TLS 1.3 both ways, pairing proofs, trust list, audit log, line framing |
+| `remote::server` | Agent side: allowed commands (dispatches to `rpc::call` and `ipc::control_via`), event stream, ASIC gateway, discovery, rate limiting |
+| `remote::client` | Controller side: `Link` (pinned connection), `pair`, `discover` |
+| `controller` | `Fleet`: device registry (SQLite `controller.db`, versioned migrations, foreign keys), live state, streams with backoff, ASIC polling, alerts, samples/retention, groups, tags, profiles, bulk operations, export/import |
+| `asic` / `asic_sim` | CGMiner/BMMiner/btminer adapters with capability detection; simulators |
+| `fleet` | Shared models: device identity, `Snapshot`, `Telemetry` |
+
+Choices: std threads like the rest of the core (no async runtime): one stream thread per
+agent (256 KiB stack), bulk operations with 8 workers, ASIC reads in parallel. JSON lines
+over TLS instead of HTTP/WebSocket: one framing for requests and events, documented in
+[PROTOCOL.md](PROTOCOL.md) with the REST equivalents. The controller lives in whichever
+process asks (desktop app with background work; the CLI one-shot), sharing the same
+database and certificate.
+
+Measured (`load_many_devices`, release build, Apple M-series): 200 simulated ASICs polled
+over TCP in ~55 ms, table + totals for 200 devices in ~1 ms; 720 000 samples (500 devices ×
+24 h) compacted to ~24 000 rows / 3.5 MB; a 30-day fleet history query ~2 s on that raw data.
+Agent idle: ~10 MB RSS, ~0% CPU.

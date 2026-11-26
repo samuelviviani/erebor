@@ -171,13 +171,20 @@ Shared with the desktop app: `~/.local/share/org.erebor.desktop` (Linux),
 | `erebor demo on\|off` | Demo mode | ✓ |
 | `erebor miner install [xmrig\|srbminer\|lolminer\|cpuminer]` | Download and verify the pinned miner | ✓ |
 | `erebor device show` / `device name <NAME>` | This computer's name and id | ✓ |
+| `erebor devices [list\|status\|inspect\|logs\|discover\|add\|remove\|rename\|tag\|events\|export\|import]` | Other computers, servers, rigs and ASICs ([DEVICES.md](DEVICES.md)) | ✓ |
+| `erebor mining start\|stop\|restart\|status --device D \| --group G \| --all` | Mining on managed devices, one result per device | ✓ |
+| `erebor groups [list\|create\|delete\|assign]` | Device groups | ✓ |
+| `erebor profiles [list\|show\|create\|apply\|delete]` | Mining profiles | ✓ |
+| `erebor agent init\|pair\|controllers\|revoke\|disable` | Remote control of this computer's agent | ✓ |
+| `erebor sim [--pair]` | Simulated infrastructure for testing ([SIMULATION.md](SIMULATION.md)) | ✓ |
 
 Every command appears in `erebor --help`: none is hidden.
 
 Useful settings: `performance.preset` (`eco`, `balanced`, `performance`, `custom`) and
 `performance.customThreadsPercent`, `performance.idleMinutes` (mine only after N minutes
 without input; `null` = always), `performance.gpuPowerLimitW` (W per GPU, needs admin rights;
-`null` = untouched); `pool.worker`; `safety.maxTempC`, `safety.autoRestart`;
+`null` = untouched), `performance.gpuPreset` (same values, graphics card only; default
+`performance`) and `performance.customGpuPercent`; `pool.worker`; `safety.maxTempC`, `safety.autoRestart`;
 `energy.pricePerKwh` (outside the bands), `energy.bands` (JSON list of
 `{"startMinute","endMinute","days","price"}` from your bill), `energy.heatingMonths` (12
 booleans, January first), `energy.heatingCreditPercent`, `energy.solar.*` (`enabled`, `url`,
@@ -199,6 +206,7 @@ and `--data-dir` are global: they go before or after the subcommand.
 | 1 | Command failed (engine error, validation, `doctor` with blocking problems) |
 | 2 | Wrong usage (invalid arguments) |
 | 3 | Agent unreachable |
+| 4 | An operation on several devices failed on some of them (results per device) |
 
 ## JSON output
 

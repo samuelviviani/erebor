@@ -3,12 +3,18 @@ import { Layout, Logo } from "./components/Layout";
 import { Button } from "./components/ui";
 import { alertText } from "./lib/alerts";
 import { translateError, useT } from "./lib/i18n";
-import { useApp, useResolvedTheme } from "./lib/store";
+import { fleet } from "./lib/api";
+import { useApp, useLocalMining, useResolvedTheme } from "./lib/store";
+import Alerts, { eventText } from "./pages/Alerts";
 import Coins from "./pages/Coins";
 import Computer from "./pages/Computer";
 import Dashboard from "./pages/Dashboard";
+import DeviceDetail from "./pages/DeviceDetail";
+import Devices from "./pages/Devices";
 import Energy from "./pages/Energy";
+import Groups from "./pages/Groups";
 import Onboarding from "./pages/Onboarding";
+import Profiles from "./pages/Profiles";
 import Settings from "./pages/Settings";
 
 const PAGES = {
@@ -17,10 +23,17 @@ const PAGES = {
   energy: Energy,
   computer: Computer,
   settings: Settings,
+  devices: Devices,
+  device: DeviceDetail,
+  groups: Groups,
+  profiles: Profiles,
+  alerts: Alerts,
 };
+/** This computer's mining pages: they need its setup (onboarding) first. */
+const LOCAL_PAGES = ["dashboard", "coins", "energy", "computer"];
 
 export default function App() {
-  const { init, refreshStatus, config, page, status, loadError, toast } =
+  const { init, refreshStatus, config, page, status, loadError, toast, setupLocal } =
     useApp();
   const lastAlert = useRef<number | null>(null);
   const theme = useResolvedTheme();
@@ -56,6 +69,15 @@ export default function App() {
     lastAlert.current = maxId;
   }, [status, config?.language, toast]);
 
+  const localOn = useLocalMining();
+  const setPage = useApp((s) => s.setPage);
+  // This computer's pages aren't shown when only other devices are managed.
+  useEffect(() => {
+    if (!localOn && LOCAL_PAGES.includes(page)) setPage("devices");
+  }, [localOn, page, setPage]);
+  const fleetOn = useApp((s) => s.config?.defaultView === "devices" || (s.fleet?.devices.length ?? 0) > 1);
+  useFleetAlerts(fleetOn);
+
   if (loadError) return <Unreachable error={loadError} />;
   if (!config) {
     return (
@@ -64,8 +86,11 @@ export default function App() {
       </div>
     );
   }
-  if (!config.onboardingCompleted) return <Onboarding />;
-  const Page = PAGES[page];
+  // Managing devices needs no mining setup here; this computer's pages ask for it.
+  const devicesFirst = config.defaultView === "devices";
+  if (!config.onboardingCompleted && (!devicesFirst || setupLocal)) return <Onboarding />;
+  // Only other devices are managed: this computer's mining pages aren't there.
+  const Page = !localOn && LOCAL_PAGES.includes(page) ? Devices : PAGES[page];
   return (
     <Layout>
       <Suspense fallback={<div className="skeleton h-8 w-40" />}>
@@ -90,4 +115,32 @@ function Unreachable({ error }: { error: string }) {
       </div>
     </div>
   );
+}
+
+/** New device warnings and errors as notifications (the first read sets the baseline). */
+function useFleetAlerts(on: boolean) {
+  const t = useT();
+  const lang = useApp((s) => s.config?.language ?? "en");
+  const toast = useApp((s) => s.toast);
+  const last = useRef<number | null>(null);
+  useEffect(() => {
+    if (!on) return;
+    const poll = async () => {
+      try {
+        const ev = await fleet.events(last.current ?? 0, 50);
+        const max = Math.max(last.current ?? 0, ...ev.map((e) => e.id));
+        if (last.current != null) {
+          for (const e of ev.filter((e) => e.level !== "info" && e.id > last.current!).reverse()) {
+            toast(e.level, `${e.deviceName ?? ""}: ${eventText(t, lang, e)}`);
+          }
+        }
+        last.current = max;
+      } catch {
+        // Device management unavailable: nothing to report.
+      }
+    };
+    poll();
+    const id = setInterval(poll, 5000);
+    return () => clearInterval(id);
+  }, [on, lang]);
 }

@@ -1,8 +1,11 @@
 //! Erebor core library. Independent from the GUI so it can be tested headless.
 
+pub mod asic;
+pub mod asic_sim;
 pub mod autostart;
 pub mod coins;
 pub mod config;
+pub mod controller;
 pub mod cpuminer;
 pub mod devfee;
 pub mod earnings;
@@ -16,7 +19,9 @@ pub mod lolminer;
 pub mod miner;
 pub mod notify;
 pub mod pools;
+pub mod remote;
 pub mod rpc;
+pub mod sim;
 pub mod srbminer;
 pub mod store;
 pub mod update;

@@ -29,6 +29,12 @@ Download `Erebor_<version>_universal.dmg` and drag Erebor to Applications. The a
 notarised by Apple yet, so macOS may ask for confirmation the first time you open it. GPU
 mining is not available on macOS.
 
+## Agent for other computers
+
+To manage a computer, server or rig from Erebor Desktop: [Linux](docs/AGENT-LINUX.md) ·
+[Windows](docs/AGENT-WINDOWS.md) · [macOS](docs/AGENT.md#macos), then pair it
+([Devices](docs/DEVICES.md)).
+
 ## Miners
 
 On first run Erebor downloads the pinned official release of each miner it needs from GitHub

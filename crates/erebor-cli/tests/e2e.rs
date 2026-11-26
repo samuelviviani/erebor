@@ -265,3 +265,140 @@ fn first_run_hint() {
     let o = erebor(d.path(), &["status"]);
     assert!(String::from_utf8_lossy(&o.stderr).contains("erebor onboard"));
 }
+
+/// Two real processes: an agent with remote control on (its own data folder, demo
+/// miner) and the CLI as controller (another folder). Pairing through the agent's own
+/// command, remote mining, groups and profiles, revocation; exit codes along the way.
+#[test]
+fn cli_manages_a_remote_agent() {
+    let (a, c) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let (adir, cdir) = (a.path(), c.path());
+    std::fs::write(adir.join("config.json"), r#"{"demoMode":true}"#).unwrap();
+    // Free port for the agent.
+    let port = std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
+    let addr = format!("127.0.0.1:{port}");
+    let (code, v) = json(
+        adir,
+        &["agent", "init", "--listen", &addr, "--no-discovery"],
+    );
+    assert_eq!((code, v["enabled"].as_bool()), (0, Some(true)));
+    let _agent = Guard(
+        Command::new(env!("CARGO_BIN_EXE_erebor"))
+            .args(["agent", "start", "--foreground"])
+            .env("EREBOR_DATA_DIR", adir)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .unwrap(),
+    );
+    let t = Instant::now();
+    while std::net::TcpStream::connect(&addr).is_err() {
+        assert!(
+            t.elapsed() < Duration::from_secs(15),
+            "agent did not listen"
+        );
+        std::thread::sleep(Duration::from_millis(100));
+    }
+
+    // Wrong code refused, the real one pairs once.
+    let (code, v) = json(adir, &["agent", "pair"]);
+    assert_eq!(code, 0);
+    let pair_code = v["code"].as_str().unwrap().to_string();
+    let (code, v) = json(cdir, &["devices", "add", &addr, "--code", "0000-0000-0000"]);
+    assert_eq!((code, v["error"].as_str()), (1, Some("pairing_failed")));
+    let (code, v) = json(
+        cdir,
+        &[
+            "devices", "add", &addr, "--code", &pair_code, "--kind", "gpu-rig",
+        ],
+    );
+    assert_eq!(code, 0, "{v}");
+    let id = v["id"].as_str().unwrap().to_string();
+    assert_eq!(
+        erebor(cdir, &["devices", "rename", &id, "rig-01"])
+            .status
+            .code(),
+        Some(0)
+    );
+
+    // Remote mining, verified per device; unknown device is a usage failure.
+    let (code, v) = json(cdir, &["mining", "start", "--device", "rig-01"]);
+    assert_eq!(
+        (code, v[0]["state"].as_str()),
+        (0, Some("completed")),
+        "{v}"
+    );
+    let (code, v) = json(cdir, &["mining", "status", "--device", "rig-01"]);
+    assert_eq!(
+        (code, v[0]["mining"].as_str(), v[0]["simulated"].as_bool()),
+        (0, Some("mining"), Some(true))
+    );
+    assert_eq!(json(cdir, &["mining", "stop", "--device", "nope"]).0, 1);
+
+    // Groups and a profile applied to the group.
+    assert_eq!(
+        erebor(
+            cdir,
+            &["groups", "create", "GPU rigs", "--energy-price", "0.3"]
+        )
+        .status
+        .code(),
+        Some(0)
+    );
+    assert_eq!(
+        erebor(cdir, &["groups", "assign", "GPU rigs", "rig-01"])
+            .status
+            .code(),
+        Some(0)
+    );
+    assert_eq!(
+        erebor(
+            cdir,
+            &["profiles", "create", "eco", "--preset", "eco", "--worker", "{device}"]
+        )
+        .status
+        .code(),
+        Some(0)
+    );
+    let (code, v) = json(cdir, &["profiles", "apply", "eco", "--group", "GPU rigs"]);
+    assert_eq!(
+        (code, v[0]["state"].as_str()),
+        (0, Some("completed")),
+        "{v}"
+    );
+    let (_, v) = json(adir, &["config", "get", "pool.worker"]);
+    assert_eq!(v["value"].as_str().or(v.as_str()), Some("rig01"), "{v}");
+
+    // The controller is just a CLI: nothing keeps running, the agent keeps mining.
+    let (_, s) = json(adir, &["status"]);
+    assert_eq!(s["state"], "running");
+
+    // Revoked on the agent: the controller sees it, mining commands fail with exit 4.
+    let (code, _) = json(
+        adir,
+        &[
+            "agent",
+            "revoke",
+            json(adir, &["agent", "controllers"]).1[0]["name"]
+                .as_str()
+                .unwrap(),
+        ],
+    );
+    assert_eq!(code, 0);
+    let (_, v) = json(cdir, &["mining", "status", "--all"]);
+    assert_eq!(
+        v.as_array()
+            .unwrap()
+            .iter()
+            .find(|d| d["id"] == id.as_str())
+            .unwrap()["conn"],
+        "unauthorized"
+    );
+    let o = erebor(cdir, &["mining", "stop", "--device", "rig-01"]);
+    assert_eq!(o.status.code(), Some(4));
+    let _ = erebor(adir, &["agent", "stop"]);
+}

@@ -9,8 +9,8 @@
 
 ### Mining, without the maze.
 
-An **open-source**, **local-first** mining manager for your own computer.<br>
-It picks the coin, runs verified miners and shows what it really earns.
+An **open-source**, **local-first**, **non-custodial** mining manager.<br>
+It mines on your computer, and manages your other PCs, servers, rigs and ASICs from one dashboard.
 
 [![Release](https://img.shields.io/github/v/release/samuelviviani/erebor?style=flat-square&color=E6A93C&label=release)](https://github.com/samuelviviani/erebor/releases/latest)
 [![CI](https://img.shields.io/github/actions/workflow/status/samuelviviani/erebor/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/samuelviviani/erebor/actions/workflows/ci.yml)
@@ -117,6 +117,24 @@ erebor demo on                # try it with a simulated miner
 ```
 
 The CLI, the dashboard and the desktop app drive **the same engine**: one miner, one state.
+
+### Many devices
+
+Install the agent on each computer or server, pair it with a one-time code, and manage
+everything from Erebor Desktop or the CLI: no account, no cloud, no open router ports
+(LAN or any VPN). ASICs are read through their own API, directly or through a gateway
+agent.
+
+```bash
+sh scripts/install-agent.sh                         # on the other computer (Linux/macOS)
+sudo -u erebor-agent erebor-agent pair              # shows a 10-minute code
+erebor devices add 192.168.1.20 --code XXXX-XXXX-XXXX   # here (or Devices → Add device)
+erebor mining start --group "GPU rigs"
+erebor sim --pair                                   # try it all with simulated devices
+```
+
+Guides: [Devices](docs/DEVICES.md) · [Agent on Linux](docs/AGENT-LINUX.md) ·
+[on Windows](docs/AGENT-WINDOWS.md) · [ASICs](docs/ASIC.md) · [Protocol](docs/PROTOCOL.md)
 It updates itself like the app, from signed GitHub releases (or `erebor update`).
 Guides: [CLI](docs/CLI.md) · [Agent](docs/AGENT.md) · [TUI](docs/TUI.md)
 
@@ -126,6 +144,8 @@ Guides: [CLI](docs/CLI.md) · [Agent](docs/AGENT.md) · [TUI](docs/TUI.md)
 flowchart LR
     GUI["Desktop app<br/>Tauri + React"] --> CORE
     CLI["CLI / TUI<br/>erebor"] -- local socket --> AGENT["Agent"]
+    GUI -- TLS, paired --> RAGENT["Agents on other PCs / rigs"]
+    GUI -- CGMiner API --> ASIC["ASICs (direct or via a gateway agent)"]
     AGENT --> CORE
     CORE["erebor-core"] --> MINERS["XMRig · SRBMiner · lolMiner · cpuminer-opt"]
     MINERS -- stratum --> POOL["Kryptex pool"]
@@ -134,7 +154,7 @@ flowchart LR
 
 | Path | Contents |
 |---|---|
-| `crates/erebor-core` | Rust library: miners, coin choice, earnings, pool, hardware, SQLite, local IPC |
+| `crates/erebor-core` | Rust library: miners, coin choice, earnings, pool, hardware, SQLite, local IPC, remote protocol, device controller, ASIC adapters |
 | `crates/erebor-agent` | Agent: owns the engine and the miners, local socket, optional user service |
 | `crates/erebor-cli` | `erebor` CLI: status, doctor, mining, wallet, pool, hardware, agent |
 | `crates/erebor-tui` | Terminal dashboard (`erebor monitor`) |
@@ -161,6 +181,8 @@ Full guide in [DEVELOPMENT.md](DEVELOPMENT.md). Pull requests are welcome: pleas
 | | |
 |---|---|
 | [Architecture](docs/ARCHITECTURE.md) | [CLI](docs/CLI.md) · [Agent](docs/AGENT.md) · [TUI](docs/TUI.md) |
+| [Devices](docs/DEVICES.md) · [Protocol](docs/PROTOCOL.md) | [Agent on Linux](docs/AGENT-LINUX.md) · [on Windows](docs/AGENT-WINDOWS.md) |
+| [ASICs and gateway](docs/ASIC.md) | [Simulation](docs/SIMULATION.md) |
 | [Installation](INSTALLATION.md) | [Pools](docs/POOLS.md) |
 | [Development](DEVELOPMENT.md) | [Release](docs/RELEASE.md) · [Changelog](CHANGELOG.md) |
 | [Security](SECURITY.md) · [Privacy](PRIVACY.md) | [Third-party notices](THIRD_PARTY_NOTICES.md) |

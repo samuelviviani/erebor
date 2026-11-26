@@ -59,6 +59,10 @@ for t in aarch64 x86_64; do
   done
 done
 
+# Windows CLI/agent (scripts/install-agent.ps1 installs it as erebor-agent.exe).
+cargo xwin build --release --locked -p erebor-cli --target x86_64-pc-windows-msvc
+cp target/x86_64-pc-windows-msvc/release/erebor.exe "$OUT/erebor-windows-x86_64.exe"
+
 # latest.json: read by the desktop updater, and by the CLI for "version" and (since 0.1.6)
 # its own signatures ("cli").
 APP="Erebor_${V}_universal.app.tar.gz"

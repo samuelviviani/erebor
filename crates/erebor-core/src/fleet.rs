@@ -15,7 +15,7 @@ use std::path::Path;
 const SCHEMA_VERSION: u32 = 1;
 
 /// This computer's identity: a random id and a name. Kept in `device.json`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Device {
     /// Random, generated once; never derived from hardware serials or the user.
@@ -259,6 +259,147 @@ pub fn report(e: &mut Engine) -> Result<DeviceReport, String> {
         hardware: e.detect_hardware(),
         snapshot: Snapshot::new(&e.status(), e.config()),
     })
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(default, rename_all = "camelCase")]
+pub struct GpuTelemetry {
+    pub name: String,
+    pub vendor: String,
+    pub vram_mb: Option<u64>,
+    pub mem_used_mb: Option<u64>,
+    pub util_percent: Option<f32>,
+    pub temp_c: Option<f32>,
+    /// Not read on any platform yet: always `null` (unsupported), never estimated.
+    pub hotspot_c: Option<f32>,
+    pub fan_percent: Option<f32>,
+    pub core_clock_mhz: Option<u32>,
+    pub mem_clock_mhz: Option<u32>,
+    pub power_w: Option<f64>,
+    /// This card's share of the miner's hashrate (H/s).
+    pub hashrate: Option<f64>,
+}
+
+/// Everything an agent reports about its computer, for the remote protocol
+/// (`telemetry`, and the `subscribe` stream). Unavailable values are `null`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(default, rename_all = "camelCase")]
+pub struct Telemetry {
+    pub schema: u32,
+    pub ts: i64,
+    pub device: Device,
+    pub hostname: String,
+    pub os: String,
+    pub arch: String,
+    pub agent_version: String,
+    pub addresses: Vec<String>,
+    pub system_uptime_secs: Option<u64>,
+    pub cpu_model: String,
+    pub cpu_usage: Option<f32>,
+    pub mem_used_bytes: Option<u64>,
+    pub mem_total_bytes: Option<u64>,
+    pub gpus: Vec<GpuTelemetry>,
+    pub snapshot: Snapshot,
+    /// Demo miner: simulated values, never real mining.
+    pub simulated: bool,
+    /// Latest warnings and errors (codes, as in the app's alerts).
+    pub recent_errors: Vec<String>,
+}
+
+static HW: std::sync::Mutex<Option<(std::time::Instant, HardwareInfo)>> =
+    std::sync::Mutex::new(None);
+
+/// Hardware detection runs external tools (nvidia-smi, …): reuse the result for 10 minutes.
+pub fn hardware_cached(e: &crate::rpc::Shared, refresh: bool) -> HardwareInfo {
+    let mut c = HW.lock().unwrap_or_else(|p| p.into_inner());
+    match &*c {
+        Some((t, h)) if !refresh && t.elapsed() < std::time::Duration::from_secs(600) => h.clone(),
+        _ => {
+            let h = e
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .detect_hardware();
+            *c = Some((std::time::Instant::now(), h.clone()));
+            h
+        }
+    }
+}
+
+/// Telemetry of the engine in this process.
+pub fn telemetry(e: &crate::rpc::Shared) -> Telemetry {
+    let hw = hardware_cached(e, false);
+    let g = e.lock().unwrap_or_else(|p| p.into_inner());
+    Telemetry::new(
+        &g.status(),
+        g.config(),
+        device(g.data_dir()).unwrap_or_default(),
+        &hw,
+    )
+}
+
+/// The address other computers reach this one at (the one used for outgoing traffic).
+/// No packet is sent: connecting a UDP socket only picks the route.
+pub fn primary_address() -> Option<String> {
+    let s = std::net::UdpSocket::bind("0.0.0.0:0").ok()?;
+    s.connect("192.0.2.1:9").ok()?;
+    Some(s.local_addr().ok()?.ip().to_string())
+}
+
+impl Telemetry {
+    pub fn new(s: &Status, c: &AppConfig, device: Device, hw: &HardwareInfo) -> Self {
+        let h = &s.hardware;
+        Self {
+            schema: SCHEMA_VERSION,
+            ts: crate::now_unix(),
+            device,
+            hostname: crate::rpc::hostname(),
+            os: format!("{} {}", hw.os_name, hw.os_version)
+                .trim()
+                .to_string(),
+            arch: hw.arch.clone(),
+            agent_version: env!("CARGO_PKG_VERSION").into(),
+            addresses: primary_address().into_iter().collect(),
+            system_uptime_secs: Some(sysinfo::System::uptime()).filter(|u| *u > 0),
+            cpu_model: hw.cpu_brand.clone(),
+            cpu_usage: Some(h.cpu_usage),
+            mem_used_bytes: Some(h.mem_used_bytes).filter(|m| *m > 0),
+            mem_total_bytes: Some(h.mem_total_bytes).filter(|m| *m > 0),
+            gpus: h
+                .gpus
+                .iter()
+                .enumerate()
+                .map(|(i, g)| GpuTelemetry {
+                    name: g.name.clone(),
+                    vendor: g.vendor.clone(),
+                    vram_mb: g
+                        .mem_total_mb
+                        .or_else(|| hw.gpus.get(i).and_then(|x| x.vram_mb)),
+                    mem_used_mb: g.mem_used_mb,
+                    util_percent: g.util_percent,
+                    temp_c: g.temp_c,
+                    hotspot_c: None,
+                    fan_percent: g.fan_percent,
+                    core_clock_mhz: None,
+                    mem_clock_mhz: None,
+                    power_w: g.power_w,
+                    hashrate: s.gpus.get(i).and_then(|r| r.hashrate),
+                })
+                .collect(),
+            snapshot: Snapshot::new(s, c),
+            simulated: s.demo,
+            recent_errors: s
+                .alerts
+                .iter()
+                .rev()
+                .filter(|a| a.level != crate::engine::Level::Info)
+                .take(5)
+                .map(|a| match &a.detail {
+                    Some(d) => format!("{}: {d}", a.code),
+                    None => a.code.clone(),
+                })
+                .collect(),
+        }
+    }
 }
 
 #[cfg(test)]

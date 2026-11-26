@@ -5,7 +5,9 @@
 //! Exit codes: 0 ok · 1 command failed · 2 usage error · 3 agent not reachable.
 
 mod doctor;
+mod fleet;
 mod onboard;
+mod sim;
 mod ui;
 
 use anstream::{eprint, eprintln, println};
@@ -127,6 +129,35 @@ enum Cmd {
         #[command(subcommand)]
         cmd: DeviceCmd,
     },
+    /// Other computers, servers, rigs and ASICs managed from here (pairing, state,
+    /// logs, export). Without a subcommand: the list.
+    Devices {
+        #[command(subcommand)]
+        cmd: Option<fleet::DevicesCmd>,
+    },
+    /// Device groups ("GPU rigs", "ASIC farm", …).
+    Groups {
+        #[command(subcommand)]
+        cmd: Option<fleet::GroupsCmd>,
+    },
+    /// Reusable mining setups applied to many devices at once.
+    Profiles {
+        #[command(subcommand)]
+        cmd: Option<fleet::ProfilesCmd>,
+    },
+    /// Run a simulated infrastructure (demo agents, ASIC simulators) to try device
+    /// management without hardware. Nothing mines. Ctrl-C stops it.
+    Sim {
+        /// Pair everything into this computer's device list (removed again on exit).
+        #[arg(long)]
+        pair: bool,
+        /// Keep the simulated devices in the list after exit.
+        #[arg(long)]
+        keep: bool,
+        /// First of the local ports used (agents +1…, ASICs +101…).
+        #[arg(long, default_value_t = 17420)]
+        base_port: u16,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -148,18 +179,20 @@ enum CoinsCmd {
     Set { coin: String },
 }
 
-#[derive(Subcommand, Debug, Clone, Copy)]
+#[derive(Subcommand, Debug, Clone)]
 enum MiningCmd {
-    /// Start mining.
-    Start,
+    /// Start mining (this computer, or --device/--group/--all).
+    Start(#[command(flatten)] fleet::Target),
     /// Stop mining.
-    Stop,
-    /// Pause mining (the miner stays loaded; resume is instant).
+    Stop(#[command(flatten)] fleet::Target),
+    /// Pause mining (the miner stays loaded; resume is instant). This computer only.
     Pause,
-    /// Resume paused mining.
+    /// Resume paused mining. This computer only.
     Resume,
     /// Stop and start again.
-    Restart,
+    Restart(#[command(flatten)] fleet::Target),
+    /// Mining state of this computer, or of --device/--group/--all.
+    Status(#[command(flatten)] fleet::Target),
 }
 
 #[derive(Subcommand, Debug)]
@@ -210,6 +243,23 @@ enum AgentCmd {
     InstallService,
     /// Remove the login service.
     UninstallService,
+    /// Accept paired controllers over the network (TLS, port 7420). Applies at next start.
+    Init {
+        /// Address to listen on (default 0.0.0.0:7420; a VPN address limits it to the VPN).
+        #[arg(long)]
+        listen: Option<String>,
+        /// Don't answer LAN discovery.
+        #[arg(long)]
+        no_discovery: bool,
+    },
+    /// Show a one-time pairing code for a controller (10 minutes).
+    Pair,
+    /// Controllers allowed to manage this computer.
+    Controllers,
+    /// Remove a controller's access (name or fingerprint).
+    Revoke { who: String },
+    /// Stop accepting remote controllers (at next start).
+    Disable,
 }
 
 #[derive(Subcommand, Debug)]
@@ -270,6 +320,14 @@ fn fail<T>(code: &str) -> Result<T, Fail> {
 }
 
 fn main() {
+    // Release packages install `erebor-agent` as a link to this binary.
+    if std::env::args_os()
+        .next()
+        .and_then(|a| PathBuf::from(a).file_stem().map(|s| s == "erebor-agent"))
+        == Some(true)
+    {
+        return erebor_agent::cli::cli(std::env::args().skip(1));
+    }
     let cli = Cli::parse();
     let json = cli.json;
     let dir = cli
@@ -347,11 +405,11 @@ fn run(cli: Cli, dir: &Path) -> Result<(), Fail> {
         ensure_agent(dir, json)?;
     }
     match cmd {
-        Cmd::Start => mining(dir, MiningCmd::Start, json),
+        Cmd::Start => mining(dir, MiningCmd::Start(Default::default()), json),
         Cmd::Service { state } => service(dir, state, json),
         Cmd::Power { level } => power(dir, level, json),
         Cmd::Update => update(dir, json),
-        Cmd::Stop => mining(dir, MiningCmd::Stop, json),
+        Cmd::Stop => mining(dir, MiningCmd::Stop(Default::default()), json),
         Cmd::Onboard(o) => onboard::run(dir, o, json),
         Cmd::Status => status(dir, json),
         Cmd::Doctor { offline } => {
@@ -404,6 +462,14 @@ fn run(cli: Cli, dir: &Path) -> Result<(), Fail> {
         Cmd::Logs { follow } => logs(dir, follow, json),
         Cmd::Export { days } => export(dir, i64::from(days) * 86_400),
         Cmd::Agent { cmd } => agent(dir, cmd, json),
+        Cmd::Devices { cmd } => fleet::devices(dir, cmd, json),
+        Cmd::Groups { cmd } => fleet::groups(dir, cmd, json),
+        Cmd::Profiles { cmd } => fleet::profiles(dir, cmd, json),
+        Cmd::Sim {
+            pair,
+            keep,
+            base_port,
+        } => sim::run(dir, pair, keep, base_port, json),
         Cmd::Demo { state } => {
             let mut c = load_config_live(dir)?;
             c.demo_mode = state == OnOff::On;
@@ -468,6 +534,13 @@ fn run(cli: Cli, dir: &Path) -> Result<(), Fail> {
 /// Commands that change or watch the engine: Erebor starts in the background for them.
 /// Read-only ones (status, doctor, lists) never start anything.
 fn needs_engine(cmd: &Cmd) -> bool {
+    // Mining on other devices goes to their agents, not to this computer's engine.
+    if let Cmd::Mining {
+        action: MiningCmd::Start(t) | MiningCmd::Restart(t),
+    } = cmd
+    {
+        return !t.is_set();
+    }
     matches!(
         cmd,
         Cmd::Start
@@ -485,9 +558,6 @@ fn needs_engine(cmd: &Cmd) -> bool {
             }
             | Cmd::Pools {
                 cmd: PoolsCmd::Set { .. }
-            }
-            | Cmd::Mining {
-                action: MiningCmd::Start | MiningCmd::Restart
             }
     )
 }
@@ -627,12 +697,22 @@ fn status(dir: &Path, json: bool) -> Result<(), Fail> {
 }
 
 fn mining(dir: &Path, cmd: MiningCmd, json: bool) -> Result<(), Fail> {
+    // Other devices: through the controller, one result per device.
+    match &cmd {
+        MiningCmd::Start(t) if t.is_set() => return fleet::mining(dir, "start", t, json),
+        MiningCmd::Stop(t) if t.is_set() => return fleet::mining(dir, "stop", t, json),
+        MiningCmd::Restart(t) if t.is_set() => return fleet::mining(dir, "restart", t, json),
+        MiningCmd::Status(t) if t.is_set() => return fleet::mining(dir, "status", t, json),
+        MiningCmd::Status(_) => return status(dir, json),
+        _ => {}
+    }
     let action = match cmd {
-        MiningCmd::Start => Action::Start,
-        MiningCmd::Stop => Action::Stop,
+        MiningCmd::Start(_) => Action::Start,
+        MiningCmd::Stop(_) => Action::Stop,
         MiningCmd::Pause => Action::Pause,
         MiningCmd::Resume => Action::Resume,
-        MiningCmd::Restart => Action::Restart,
+        MiningCmd::Restart(_) => Action::Restart,
+        MiningCmd::Status(_) => unreachable!(),
     };
     let o = match ipc::control(dir, action) {
         // Nothing runs in the background, so nothing is mining.
@@ -1075,6 +1155,88 @@ fn agent(dir: &Path, cmd: AgentCmd, json: bool) -> Result<(), Fail> {
         AgentCmd::UninstallService => {
             autostart::uninstall(autostart::AGENT_LABEL, autostart::Kind::Service)?;
             println!("Login service removed.");
+            Ok(())
+        }
+        AgentCmd::Init {
+            listen,
+            no_discovery,
+        } => {
+            let v = erebor_agent::init(dir, listen, !no_discovery)?;
+            if json {
+                print_json(&v);
+            } else {
+                println!(
+                    "{}",
+                    ui::ok(format!(
+                        "Remote control on: {} (TLS).",
+                        v["listen"].as_str().unwrap_or("")
+                    ))
+                );
+                println!("Fingerprint: {}", v["fingerprint"].as_str().unwrap_or(""));
+                println!(
+                    "Restart the agent to apply it, then: {}",
+                    ui::paint("erebor agent pair", ui::CMD)
+                );
+            }
+            Ok(())
+        }
+        AgentCmd::Pair => {
+            let v = erebor_agent::pair(dir)?;
+            if json {
+                print_json(&v);
+            } else {
+                println!(
+                    "Pairing code: {}",
+                    ui::paint(v["code"].as_str().unwrap_or(""), ui::BRAND)
+                );
+                println!(
+                    "Valid 10 minutes, once. Addresses: {}",
+                    v["addresses"]
+                        .as_array()
+                        .map(|a| a
+                            .iter()
+                            .filter_map(|x| x.as_str())
+                            .collect::<Vec<_>>()
+                            .join(", "))
+                        .unwrap_or_default()
+                );
+                println!("Fingerprint: {}", v["fingerprint"].as_str().unwrap_or(""));
+            }
+            Ok(())
+        }
+        AgentCmd::Controllers => {
+            let v = erebor_agent::controllers(dir);
+            if json {
+                print_json(&v);
+            } else {
+                for c in v.as_array().into_iter().flatten() {
+                    println!(
+                        "{}  {}",
+                        c["fingerprint"].as_str().unwrap_or(""),
+                        c["name"].as_str().unwrap_or("")
+                    );
+                }
+            }
+            Ok(())
+        }
+        AgentCmd::Revoke { who } => {
+            let v = erebor_agent::revoke(dir, &who)?;
+            if json {
+                print_json(&v);
+            } else {
+                println!(
+                    "{}",
+                    ui::ok(format!(
+                        "Access removed: {}",
+                        v["revoked"].as_str().unwrap_or("")
+                    ))
+                );
+            }
+            Ok(())
+        }
+        AgentCmd::Disable => {
+            erebor_agent::disable(dir)?;
+            println!("Remote control off from the next agent start.");
             Ok(())
         }
     }

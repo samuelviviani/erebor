@@ -1,25 +1,22 @@
-//! erebor-agent [--data-dir DIR]
-//! Same as `erebor agent start --foreground`, for service managers and development.
+//! erebor-agent — the background service that mines on this computer and, once set up,
+//! lets paired controllers (Erebor Desktop, `erebor devices`) watch and control it.
+//!
+//!   erebor-agent [start]                 run in the foreground (what services run)
+//!   erebor-agent init [--listen ADDR] [--no-discovery]
+//!                                        turn remote control on (TLS, port 7420)
+//!   erebor-agent pair                    show a one-time pairing code (10 minutes)
+//!   erebor-agent status                  remote setup, paired controllers, running?
+//!   erebor-agent controllers             paired controllers
+//!   erebor-agent revoke NAME|FINGERPRINT remove a controller's access
+//!   erebor-agent rotate-key              new certificate (every controller pairs again)
+//!   erebor-agent disable                 stop accepting remote controllers
+//!   erebor-agent asic add IP [--port N] [--name NAME] | asic remove IP | asic list
+//!                                        ASICs this agent watches as a gateway
+//!
+//! Options: --data-dir DIR (or EREBOR_DATA_DIR), --json, --version.
+//! Changes to the remote setup apply when the agent (re)starts; pairing codes and
+//! revocations apply at once.
 
 fn main() {
-    let mut args = std::env::args().skip(1);
-    let mut dir = std::env::var_os("EREBOR_DATA_DIR")
-        .map(Into::into)
-        .unwrap_or_else(erebor_core::default_data_dir);
-    while let Some(a) = args.next() {
-        match (a.as_str(), args.next()) {
-            ("--data-dir", Some(d)) => dir = d.into(),
-            ("--version" | "-V", _) => {
-                return println!("erebor-agent {}", env!("CARGO_PKG_VERSION"))
-            }
-            _ => {
-                eprintln!("usage: erebor-agent [--data-dir DIR]");
-                std::process::exit(2);
-            }
-        }
-    }
-    if let Err(e) = erebor_agent::run(dir) {
-        eprintln!("erebor-agent: {e}");
-        std::process::exit(1);
-    }
+    erebor_agent::cli::cli(std::env::args().skip(1));
 }
