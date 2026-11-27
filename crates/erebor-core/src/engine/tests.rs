@@ -520,7 +520,7 @@ fn own_wallets_go_to_the_chosen_pool_and_fail_over() {
     assert_eq!(t.url, "asia-kas.2miners.com:2020");
     assert!(t.user.starts_with(&format!("{kas}.")));
     // No fee to the user's wallet, whatever the build's project destinations.
-    assert_no_user_fee(&e, &kas);
+    assert_no_user_fee(&e, kas);
     // Three minutes without a pool connection: the backup takes over.
     e.stats = Some(MinerStats::default());
     e.offline_since = Instant::now().checked_sub(FAILOVER_AFTER);
