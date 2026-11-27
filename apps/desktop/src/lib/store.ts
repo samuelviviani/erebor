@@ -1,18 +1,17 @@
 import { useEffect, useState } from "react";
 import { create } from "zustand";
-import { api, errorText, fleet, type AppConfig, type AppInfo, type FleetList, type Status } from "./api";
+import { api, errorText, fleet, type AppConfig, type AppInfo, type FleetEvent, type FleetList, type Status } from "./api";
 
 export type Page =
   | "dashboard"
+  | "stats"
   | "coins"
   | "energy"
   | "computer"
   | "settings"
   | "devices"
   | "device"
-  | "groups"
-  | "profiles"
-  | "alerts";
+  | "notifications";
 
 /**
  * This computer's mining sections (Home, coins, energy, computer) make sense unless the
@@ -21,9 +20,6 @@ export type Page =
 export function useLocalMining() {
   return useApp((s) => s.config?.defaultView !== "devices" || !!s.config?.onboardingCompleted);
 }
-
-/** Pages of device management (the rest is this computer's mining). */
-export const FLEET_PAGES: Page[] = ["devices", "device", "groups", "profiles", "alerts"];
 
 /** One reading of the live sensors, for the Computer charts. */
 export interface Sample {
@@ -73,6 +69,11 @@ interface AppStore {
   /** Every managed device, refreshed while a device page is open. */
   fleet: FleetList | null;
   refreshFleet: () => Promise<void>;
+  /** Recent device events, newest first (polled by the app while devices are managed). */
+  events: FleetEvent[];
+  /** Notifications up to this time (unix s) have been seen; remembered per viewer. */
+  seenTs: number;
+  markSeen: () => void;
   init: () => Promise<void>;
   refreshStatus: () => Promise<void>;
   /** Persist a modified config; returns the saved config or throws an error string. */
@@ -83,6 +84,14 @@ interface AppStore {
   dismissToast: (id: number) => void;
   /** Pause auto-dismiss while the pointer is on the notifications. */
   holdToasts: (hold: boolean) => void;
+}
+
+function readSeen() {
+  try {
+    return Number(localStorage.getItem("erebor.notificationsSeen")) || 0;
+  } catch {
+    return 0;
+  }
 }
 
 let toastSeq = 0;
@@ -112,6 +121,17 @@ export const useApp = create<AppStore>((set, get) => ({
   setSetupLocal: (setupLocal) => set({ setupLocal }),
   openDevice: (deviceId) => set({ deviceId, page: "device" }),
   fleet: null,
+  events: [],
+  seenTs: readSeen(),
+  markSeen: () => {
+    const seenTs = Math.floor(Date.now() / 1000);
+    set({ seenTs });
+    try {
+      localStorage.setItem("erebor.notificationsSeen", String(seenTs));
+    } catch {
+      /* per-viewer convenience only */
+    }
+  },
   refreshFleet: async () => {
     try {
       set({ fleet: await fleet.list() });

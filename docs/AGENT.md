@@ -42,10 +42,11 @@ You rarely need these: commands that need the agent (`start`, the dashboard, `wa
 | Commands | those of `erebor_core::rpc::call` (the same as the app), plus `agent_info` (answers any protocol version, to diagnose mismatches) and `shutdown` (agent only) |
 | Network | none for the local socket; remote control is a separate, opt-in TLS listener (below) |
 
-Windows: the named-pipe transport is not implemented (`ipc_unsupported_platform`); there the
-desktop app runs the engine itself, and a stand-alone agent is managed over the remote
-protocol only. The protocol is transport-agnostic (`ipc::handle` takes
-and returns lines), so a pipe adapter only has to move bytes.
+Windows: no Unix sockets, so the owner listens on 127.0.0.1 (a free port, never another
+interface) and writes the port and a random 256-bit token to `agent.port` in the data folder,
+which only the Windows user (and administrators) can read. A client sends the token as its
+first line; without it the connection is closed. The desktop app, `erebor` and the TUI then
+share one engine exactly as on Linux and macOS.
 
 ## Who serves the socket
 

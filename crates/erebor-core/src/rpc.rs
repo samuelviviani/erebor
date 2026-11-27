@@ -2,20 +2,16 @@
 //! both transports: Tauri IPC (desktop app) and the local socket (`erebor` CLI, see `ipc`).
 
 use crate::config::{self, AppConfig};
-use crate::engine::{self, Engine};
+use crate::engine::{self, lock, Engine};
 use crate::miner::MinerKind;
 use crate::{devfee, fleet, install, pools, wallet, xmrig};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use serde_json::{json, Value};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex};
 
 pub type Shared = Arc<Mutex<Engine>>;
 type R = Result<Value, Value>;
-
-fn lock(e: &Shared) -> MutexGuard<'_, Engine> {
-    e.lock().unwrap_or_else(|p| p.into_inner())
-}
 
 fn ok<T: Serialize>(v: T) -> R {
     serde_json::to_value(v).map_err(|e| Value::String(e.to_string()))
@@ -215,7 +211,11 @@ pub fn call(e: &Shared, cmd: &str, args: &Value) -> R {
         "get_logs" => ok(lock(e).logs()),
         "get_stats" => {
             let range: i64 = arg(args, "rangeSecs")?;
-            lock(e).stats_report(range).map(|v| json!(v)).map_err(err)
+            let to: Option<i64> = arg(args, "to")?;
+            lock(e)
+                .stats_report(range, to)
+                .map(|v| json!(v))
+                .map_err(err)
         }
         "export_config" => ok(lock(e).export_config()),
         "export_csv" => {

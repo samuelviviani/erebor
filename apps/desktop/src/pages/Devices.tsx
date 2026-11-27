@@ -1,9 +1,11 @@
 import { ArrowDown, ArrowUp, LayoutGrid, Play, Plus, RotateCcw, Rows3, Search, Square, Tag, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { AddDevice } from "../components/AddDevice";
-import { ConnBadge, DeviceIcon, HistoryChart, kindLabel, MiningBadge, ResultsModal, SimBadge, Stat, useAgo, useFleetPolling, useLang } from "../components/fleet";
+import { ConnBadge, DeviceIcon, HistoryChart, kindLabel, MiningBadge, ResultsModal, SimBadge, useAgo, useFleetPolling, useLang, watts } from "../components/fleet";
 import { PageTitle } from "../components/Layout";
-import { Button, compactInput, ConfirmDialog, cx, Empty, Notice, Segmented } from "../components/ui";
+import { Button, compactInput, ConfirmDialog, cx, Empty, Segmented } from "../components/ui";
+import Groups from "./Groups";
+import Profiles from "./Profiles";
 import { errorText, fleet, type DeviceRow, type MiningProfile, type OpResult } from "../lib/api";
 import { hashrate, money } from "../lib/format";
 import { translateError, useT } from "../lib/i18n";
@@ -17,8 +19,8 @@ const ROW_H = 60;
 const problem = (d: DeviceRow) => d.conn !== "online" || d.mining === "error" || !!d.error;
 
 /**
- * Every device managed from here, this computer included: totals, history, then a table
- * with search, filters, grouping and actions on a selection.
+ * Every device managed from here, this computer included: history, then a table with
+ * search, filters, grouping and actions on a selection. Groups and profiles are tabs here.
  */
 export default function Devices() {
   const t = useT();
@@ -26,6 +28,7 @@ export default function Devices() {
   useFleetPolling();
   const { fleet: data, openDevice, refreshFleet, toast } = useApp();
   const [adding, setAdding] = useState(false);
+  const [tab, setTab] = useState<"list" | "groups" | "profiles">("list");
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
   const [groupFilter, setGroupFilter] = useState<string>("");
@@ -127,7 +130,18 @@ export default function Devices() {
   }
   const o = data.overview;
   const m = o.money[0];
-  const fmtMoney = (v: number | null | undefined) => (v == null || !m ? "—" : money(v, m.currency, lang));
+  const fmtMoney = (v: number | null | undefined) => (v == null || !m ? undefined : money(v, m.currency, lang));
+  const temps = rows.flatMap((r) => (r.tempC != null && r.conn === "online" ? [r.tempC] : []));
+  // The chart tabs show what the devices report now; the chart, what was recorded.
+  const live: Record<string, string | undefined> = {
+    power: o.powerDevices ? watts(o.powerW) : undefined,
+    revenue: fmtMoney(m?.revenueDay),
+    cost: fmtMoney(m?.costDay),
+    net: fmtMoney(m?.netDay),
+    temp: temps.length ? `${Math.round(Math.max(...temps))} °C` : undefined,
+    ...Object.fromEntries(o.hashrate.map((x) => [`hash:${x.algo}`, hashrate(x.hashrate)])),
+  };
+  const counts = { all: o.total, online: o.online, offline: o.offline, mining: o.mining, problems: rows.filter(problem).length };
 
   return (
     <div>
@@ -142,43 +156,33 @@ export default function Devices() {
         {t("nav.devices")}
       </PageTitle>
 
-      {o.simulated > 0 && (
-        <div className="mb-6">
-          <Notice tone="warn">{t("fleet.simulated.notice", { n: o.simulated })}</Notice>
-        </div>
-      )}
-
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Stat label={t("fleet.total")} value={o.total} />
-        <Stat label={t("fleet.online")} value={o.online} tone={o.online ? "text-go" : undefined} sub={o.offline ? t("fleet.offlineN", { n: o.offline }) : undefined} />
-        <Stat label={t("fleet.miningN")} value={o.mining} />
-        <Stat label={t("fleet.power")} value={o.powerDevices ? `${Math.round(o.powerW)} W` : "—"} sub={o.powerDevices ? t("fleet.measuredW", { w: Math.round(o.powerMeasuredW) }) : undefined} />
-        <Stat label={t("fleet.revenueDay")} value={fmtMoney(m?.revenueDay)} sub={t("fleet.estimate")} />
-        <Stat label={t("fleet.costDay")} value={fmtMoney(m?.costDay)} sub={t("fleet.estimate")} />
-        <Stat label={t("fleet.netDay")} value={fmtMoney(m?.netDay)} tone={m?.netDay != null ? (m.netDay >= 0 ? "text-go" : "text-danger") : undefined} sub={t("fleet.estimate")} />
-        <Stat
-          label={t("fleet.hashrateByAlgo")}
-          value={
-            o.hashrate.length ? (
-              <span className="block space-y-0.5 text-sm">
-                {o.hashrate.map((h) => (
-                  <span key={h.algo} className="flex justify-between gap-2">
-                    <span className="text-faint">{h.algo}</span>
-                    {hashrate(h.hashrate)}
-                  </span>
-                ))}
-              </span>
-            ) : (
-              "—"
-            )
-          }
+      <div className="-mt-3 mb-6 flex flex-wrap items-center justify-between gap-3">
+        <Segmented
+          label={t("nav.devices")}
+          value={tab}
+          onChange={setTab}
+          options={[
+            { value: "list", label: t("fleet.tab.list") },
+            { value: "groups", label: t("nav.groups") },
+            { value: "profiles", label: t("nav.profiles") },
+          ]}
         />
+        {o.simulated > 0 && (
+          <span className="inline-flex items-center gap-1.5 text-xs text-faint" title={t("fleet.simulated.notice", { n: o.simulated })}>
+            <SimBadge /> {t("fleet.simulated.short", { n: o.simulated })}
+          </span>
+        )}
       </div>
-      {o.money.length > 1 && <p className="mt-2 text-xs text-faint">{t("fleet.manyCurrencies", { list: o.money.map((x) => x.currency).join(", ") })}</p>}
 
-      <div className="mt-6">
-        <HistoryChart id={null} />
-      </div>
+      {tab === "groups" ? (
+        <Groups />
+      ) : tab === "profiles" ? (
+        <Profiles />
+      ) : (
+        <>
+
+      {o.money.length > 1 && <p className="mb-2 text-xs text-faint">{t("fleet.manyCurrencies", { list: o.money.map((x) => x.currency).join(", ") })}</p>}
+      <HistoryChart id={null} live={live} />
 
       <div className="mt-8 flex flex-wrap items-center gap-2">
         <label className="relative min-w-48 flex-1">
@@ -221,7 +225,7 @@ export default function Devices() {
           label={t("fleet.filter")}
           value={filter}
           onChange={setFilter}
-          options={(["all", "online", "offline", "mining", "problems"] as const).map((f) => ({ value: f, label: t(`fleet.filter.${f}`) }))}
+          options={(["all", "online", "offline", "mining", "problems"] as const).map((f) => ({ value: f, label: `${t(`fleet.filter.${f}`)} ${counts[f]}` }))}
         />
       </div>
 
@@ -337,6 +341,9 @@ export default function Devices() {
           </div>
         )}
       </div>
+
+        </>
+      )}
 
       <AddDevice open={adding} onClose={() => setAdding(false)} />
       <ResultsModal results={results} onClose={() => setResults(null)} />

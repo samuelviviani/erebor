@@ -1,7 +1,6 @@
 import { Pencil, Plus, Send, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { ResultsModal, useFleetPolling, useLang } from "../components/fleet";
-import { PageTitle } from "../components/Layout";
 import { Button, compactInput, ConfirmDialog, cx, Empty, Field, inputClass, Modal, Toggle } from "../components/ui";
 import { api, errorText, fleet, type MiningProfile, type OpResult, type PoolInfo } from "../lib/api";
 import { translateError, useT } from "../lib/i18n";
@@ -9,7 +8,7 @@ import { useApp } from "../lib/store";
 
 const EMPTY: MiningProfile = { id: 0, name: "", config: {}, asic: null, algo: null, start: false };
 
-/** Reusable setups: saved once, applied to a device, a selection, a group or everything. */
+/** Devices tab: reusable setups, saved once, applied to a device, a selection, a group or everything. */
 export default function Profiles() {
   const t = useT();
   const lang = useLang();
@@ -27,16 +26,12 @@ export default function Profiles() {
   const err = (e: unknown) => toast("error", translateError(lang, errorText(e).split(":")[0]));
   return (
     <div className="max-w-3xl">
-      <PageTitle
-        sub={t("fleet.profiles.sub")}
-        action={
-          <Button variant="primary" onClick={() => setEdit(EMPTY)}>
-            <Plus /> {t("fleet.profiles.new")}
-          </Button>
-        }
-      >
-        {t("nav.profiles")}
-      </PageTitle>
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-4">
+        <p className="max-w-xl text-sm leading-relaxed text-muted">{t("fleet.profiles.sub")}</p>
+        <Button variant="primary" onClick={() => setEdit(EMPTY)}>
+          <Plus /> {t("fleet.profiles.new")}
+        </Button>
+      </div>
       {list.length === 0 ? (
         <Empty>{t("fleet.profiles.empty")}</Empty>
       ) : (

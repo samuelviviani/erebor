@@ -143,6 +143,138 @@ fn tray(app: &tauri::App, st: Arc<AppState>) -> tauri::Result<()> {
     Ok(())
 }
 
+/// System notifications for problems (warnings and errors) on this PC and on the other
+/// devices, also while the window sits in the tray, plus the monthly summary. While the
+/// window is in front the app's own toasts say the same, so nothing is sent. Not in demo
+/// mode, nor in the user's quiet hours. Device problems also go to Telegram when it is set
+/// up (this PC's own are sent by its engine).
+fn notifier(app: tauri::AppHandle, st: Arc<AppState>, data_dir: PathBuf) {
+    use erebor_core::config::Notify;
+    use erebor_core::{controller::LOCAL_ID, notify};
+    use tauri_plugin_notification::NotificationExt;
+    std::thread::spawn(move || {
+        // The first read sets the baseline: nothing from before the launch is repeated.
+        let (mut last_alert, mut last_event) = (None::<u64>, None::<i64>);
+        let problem = |v: &Value| matches!(v["level"].as_str(), Some("warning" | "error"));
+        loop {
+            std::thread::sleep(std::time::Duration::from_secs(5));
+            let status = rpc_call(&st, "get_status", Value::Null).unwrap_or_default();
+            if status["demo"] == true {
+                (last_alert, last_event) = (None, None);
+                continue;
+            }
+            let config = rpc_call(&st, "get_config", Value::Null).unwrap_or_default();
+            let lang = config["language"].as_str().unwrap_or("en");
+            let n: Notify = serde_json::from_value(config["notify"].clone()).unwrap_or_default();
+            let silent = notify::quiet_now(&n);
+            let in_front = app.get_webview_window("main").is_some_and(|w| {
+                w.is_visible().unwrap_or(false) && w.is_focused().unwrap_or(false)
+            });
+            let show = |title: String, body: String| {
+                if n.desktop && !silent && !in_front {
+                    let _ = app.notification().builder().title(title).body(body).show();
+                }
+            };
+
+            let alerts = status["alerts"].as_array().cloned().unwrap_or_default();
+            let max = alerts.iter().filter_map(|a| a["id"].as_u64()).max();
+            if let Some(last) = last_alert {
+                for a in alerts
+                    .iter()
+                    .filter(|a| a["id"].as_u64() > Some(last) && problem(a))
+                {
+                    let code = a["code"].as_str().unwrap_or_default();
+                    show(
+                        "Erebor".into(),
+                        notify::text(lang, code, a["detail"].as_str()),
+                    );
+                }
+            }
+            last_alert = max.max(last_alert).or(Some(0));
+
+            // Not a repeat of anything on screen: shown even with the window in front.
+            let summary = |title: String, body: String| {
+                if n.desktop {
+                    let _ = app.notification().builder().title(title).body(body).show();
+                }
+            };
+            monthly_summary(&st, &data_dir, &config, lang, &n, silent, &summary);
+
+            // Other devices; this PC's own alerts already came from its engine above.
+            let since = last_event.unwrap_or(0);
+            let Ok(events) = st.fleet.call(
+                "fleet_events",
+                &serde_json::json!({"sinceId": since, "limit": 50}),
+            ) else {
+                continue;
+            };
+            let events = events.as_array().cloned().unwrap_or_default();
+            if last_event.is_some() {
+                for e in events
+                    .iter()
+                    .rev()
+                    .filter(|e| problem(e) && e["deviceId"] != LOCAL_ID)
+                {
+                    let name = e["deviceName"].as_str().unwrap_or_default();
+                    let code = e["code"].as_str().unwrap_or_default();
+                    let (title, body) = (
+                        format!("Erebor · {name}"),
+                        notify::device_text(lang, code, e["detail"].as_str()),
+                    );
+                    if notify::has_telegram(&n) && !silent {
+                        let (n, title, body) = (n.clone(), title.clone(), body.clone());
+                        std::thread::spawn(move || notify::send(&n, &title, &body));
+                    }
+                    show(title, body);
+                }
+            }
+            last_event = Some(
+                events
+                    .iter()
+                    .filter_map(|e| e["id"].as_i64())
+                    .fold(since, i64::max),
+            );
+        }
+    });
+}
+
+/// Once a month, the first time Erebor runs in it: what last month mined, what the
+/// electricity cost and what is left (system notification and Telegram). Remembered in
+/// `<data dir>/summary-month`, so it is sent once even across restarts.
+fn monthly_summary(
+    st: &AppState,
+    data_dir: &std::path::Path,
+    config: &Value,
+    lang: &str,
+    n: &erebor_core::config::Notify,
+    silent: bool,
+    show: &dyn Fn(String, String),
+) {
+    use erebor_core::notify;
+    if !n.monthly_summary || silent {
+        return;
+    }
+    let (label, name, from, to) = notify::last_month(lang);
+    let marker = data_dir.join("summary-month");
+    if std::fs::read_to_string(&marker).is_ok_and(|m| m.trim() == label) {
+        return;
+    }
+    let args = serde_json::json!({"rangeSecs": to - from, "to": to});
+    let Ok(report) = rpc_call(st, "get_stats", args) else {
+        return;
+    };
+    let _ = std::fs::write(&marker, &label);
+    let currency = config["energy"]["currency"].as_str().unwrap_or("EUR");
+    if let Some(body) = notify::month_summary(lang, &name, &report["earnings"], currency) {
+        if notify::has_telegram(n) {
+            let n = n.clone();
+            let body = body.clone();
+            std::thread::spawn(move || notify::send(&n, "Erebor", &body));
+        }
+        show("Erebor".into(), body);
+    }
+}
+
 /// Same format as the app (`hashrate` in src/lib/format.ts).
 fn hashrate(h: f64) -> String {
     for (unit, div) in [("TH/s", 1e12), ("GH/s", 1e9), ("MH/s", 1e6), ("kH/s", 1e3)] {
@@ -243,6 +375,7 @@ fn main() {
                 fleet,
             });
             app.manage(st.clone());
+            notifier(app.handle().clone(), st.clone(), dir.clone());
             // Like a chat app: closing the window keeps Erebor (and mining) running in
             // the tray; "Quit" there exits. Without a tray (Linux without an indicator
             // service) closing still quits, so nothing is left running out of sight.

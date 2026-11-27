@@ -50,7 +50,8 @@ More: [CLI](CLI.md) · [Agent](AGENT.md) · [TUI](TUI.md)
 └───────────────────────────────┬──────────────────────────────┘
                                 │
 ┌──────────────────── crates/erebor-core ──────────────────────┐
-│ engine    lifecycle, coin choice, sessions, samples, safety, jobs
+│ engine/   mod (state, types) · lifecycle · coin_choice · tick  │
+│           (sampling, safety, holds) · settings · views · jobs  │
 │ miner     MinerKind, MinerAdapter trait, DemoMiner            │
 │ xmrig · srbminer · lolminer · cpuminer   one adapter per miner│
 │ coins     catalog, market data, benchmarks, profitability     │
@@ -64,6 +65,7 @@ More: [CLI](CLI.md) · [Agent](AGENT.md) · [TUI](TUI.md)
 │ wallet    address validation (Kryptex, Monero, Bitcoin, …)    │
 │ config    JSON config, validation, atomic writes              │
 │ autostart start at login (LaunchAgent / XDG / Run key)        │
+│ notify    texts for system notifications and Telegram         │
 └───────────────────────────────────────────────────────────────┘
 ```
 
@@ -84,6 +86,9 @@ More: [CLI](CLI.md) · [Agent](AGENT.md) · [TUI](TUI.md)
 - **Reliable stop.** Stopping kills the child process without relying on its API. The PID is
   written to `miner.pid`, so an orphaned miner is killed on the next start after a crash.
 - **Polling.** The UI calls `get_status` every 2 s: simpler than events and good enough.
+- **System notifications** come from the Tauri shell (`notifier` in `src-tauri/src/main.rs`),
+  not the webview: it polls the engine's alerts and the controller's events every 5 s, so
+  they work while the window is hidden in the tray.
 
 ### Coin choice
 
@@ -144,7 +149,7 @@ configs), `miner.pid`, `engine.lock`, `agent.sock`, `agent.log`.
 | `remote` | Protocol v1: identity (self-signed cert), pinned TLS 1.3 both ways, pairing proofs, trust list, audit log, line framing |
 | `remote::server` | Agent side: allowed commands (dispatches to `rpc::call` and `ipc::control_via`), event stream, ASIC gateway, discovery, rate limiting |
 | `remote::client` | Controller side: `Link` (pinned connection), `pair`, `discover` |
-| `controller` | `Fleet`: device registry (SQLite `controller.db`, versioned migrations, foreign keys), live state, streams with backoff, ASIC polling, alerts, samples/retention, groups, tags, profiles, bulk operations, export/import |
+| `controller/` | `Fleet` (`mod.rs`), split by job: `registry` (devices, groups, tags, profiles, export/import), `live` (connections, streams, ASIC polling), `rows` (table and totals), `ops` (bulk operations, profiles), `history` (samples, events, alerts), `commands` (`fleet_*` dispatcher). SQLite `controller.db` with versioned migrations and foreign keys |
 | `asic` / `asic_sim` | CGMiner/BMMiner/btminer adapters with capability detection; simulators |
 | `fleet` | Shared models: device identity, `Snapshot`, `Telemetry` |
 

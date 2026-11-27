@@ -44,7 +44,7 @@ Erebor is an open-source, local-first, non-custodial mining manager: it mines on
 - Languages: English (default) and Italian.
 - Erebor keeps 2% of mining time as its fee, shown in the app and on the website.
 - ASIC-territory coins (SHA-256, Scrypt on CPU) are mineable but never auto-picked.
-- Roadmap (not built): energy-price / solar-driven mining, idle-only mining, code signing, GPU power limit (opt-in, lower only), CSV export, winter heating mode.
+- Built since the first roadmap: energy-price / solar-driven mining, idle-only mining, GPU power limit (opt-in, lower only), CSV export, winter heating mode, system notifications. Not built: code signing (macOS notarization, Windows Authenticode), Windows local socket (CLI/TUI ↔ app).
 
 ## Brand Commitments
 

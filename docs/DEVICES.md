@@ -126,7 +126,8 @@ the threshold (computers 85 °C, ASICs 90 °C by default), hashrate below its re
 (30%), power above it (50%), rejected shares (5%), pool not connected, agent update
 available, plus the alerts each agent raises itself. Each alert fires once per device and
 then waits for the cooldown (30 min); thresholds are on the Alerts page. New warnings
-appear as notifications while the app is open; the history stays on the Alerts page.
+and errors appear in the app and as system notifications (also while Erebor sits in the
+tray); the history stays on the Alerts page.
 
 ## Non-custodial
 

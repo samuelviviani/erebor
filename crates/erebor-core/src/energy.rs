@@ -6,6 +6,60 @@ use crate::config::{Energy, Solar};
 use serde_json::Value;
 use std::time::Duration;
 
+/// Bidding zones whose day-ahead prices Energy-Charts publishes (checked by hand).
+pub const PRICE_ZONES: &[&str] = &[
+    "DE-LU",
+    "AT",
+    "FR",
+    "ES",
+    "PL",
+    "CZ",
+    "DK2",
+    "SE4",
+    "NO1",
+    "IT-North",
+    "IT-Centre-North",
+    "IT-Centre-South",
+    "IT-Sardinia",
+];
+
+/// Today's (and, once published, tomorrow's) market prices of `zone`, in €/kWh:
+/// `(start unix time, price)`. Free, no key: Energy-Charts (CC BY 4.0, Bundesnetzagentur
+/// | SMARD.de). It rate-limits, so the engine asks at most once an hour.
+pub fn fetch_spot_prices(zone: &str) -> Result<Vec<(i64, f64)>, String> {
+    let url = format!("https://api.energy-charts.info/price?bzn={zone}");
+    let v: Value = ureq::AgentBuilder::new()
+        .timeout(Duration::from_secs(15))
+        .build()
+        .get(&url)
+        .call()
+        .map_err(|e| e.to_string())?
+        .into_json()
+        .map_err(|e| e.to_string())?;
+    let ts = v["unix_seconds"].as_array().ok_or("bad_response")?;
+    let pr = v["price"].as_array().ok_or("bad_response")?;
+    let per_kwh = if v["unit"].as_str().unwrap_or_default().contains("MWh") {
+        1000.0
+    } else {
+        1.0
+    };
+    Ok(ts
+        .iter()
+        .zip(pr)
+        .filter_map(|(t, p)| Some((t.as_i64()?, p.as_f64()? / per_kwh)))
+        .collect())
+}
+
+/// The market price at `now`: the last slot that started at most an hour before.
+pub fn spot_at(prices: &[(i64, f64)], now: i64) -> Option<f64> {
+    prices
+        .iter()
+        .rev()
+        .find(|(t, _)| *t <= now)
+        .filter(|(t, _)| now - t < 3600)
+        .map(|(_, p)| *p)
+}
+
 /// Grid price at this time: the first band that covers it, else the base price.
 pub fn grid_price(e: &Energy, weekday: usize, minute: u16) -> Option<f64> {
     e.bands
@@ -137,5 +191,19 @@ mod tests {
         assert_eq!(field(&shelly, "total_act_power"), Some(-80.0));
         assert_eq!(field(&ha, "missing"), None);
         assert_eq!(field(&json!({"state": "unavailable"}), "state"), None);
+    }
+
+    #[test]
+    fn spot_price_is_the_current_slot() {
+        let p = [(1000, 0.10), (1900, 0.20), (2800, -0.01)];
+        assert_eq!(spot_at(&p, 999), None);
+        assert_eq!(spot_at(&p, 1900), Some(0.20));
+        assert_eq!(spot_at(&p, 2799), Some(0.20));
+        assert_eq!(spot_at(&p, 2800 + 3599), Some(-0.01));
+        assert_eq!(
+            spot_at(&p, 2800 + 3600),
+            None,
+            "stale: no data for this hour"
+        );
     }
 }

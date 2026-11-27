@@ -1,6 +1,7 @@
 // Typed wrappers over Tauri commands. Types mirror the serde structs in
 // crates/erebor-core (camelCase). Keep both sides in sync.
 import { invoke } from "@tauri-apps/api/core";
+import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
 import { openUrl } from "@tauri-apps/plugin-opener";
 
 export type Preset = "eco" | "balanced" | "performance" | "custom";
@@ -177,6 +178,13 @@ export interface Thermostat {
 export interface Notify {
   telegramToken: string;
   telegramChat: string;
+  /** System notifications from the desktop app. */
+  desktop: boolean;
+  /** No notification between `quietStart` and `quietEnd` (minutes from midnight). */
+  quiet: boolean;
+  quietStart: number;
+  quietEnd: number;
+  monthlySummary: boolean;
 }
 
 export interface AppInfo {
@@ -507,8 +515,9 @@ export const api = {
   resumeMining: () => call<void>("resume_mining"),
   getStatus: () => call<Status>("get_status"),
   getLogs: () => call<string[]>("get_logs"),
-  getStats: (rangeSecs: number) =>
-    call<StatsReport>("get_stats", { rangeSecs }),
+  /** Statistics for the `rangeSecs` before `to` (unix seconds; default now). */
+  getStats: (rangeSecs: number, to?: number) =>
+    call<StatsReport>("get_stats", { rangeSecs, to: to ?? null }),
   exportConfig: () => call<string>("export_config"),
   /** Before an app update restarts Erebor: mining resumes in the new version. */
   prepareUpdate: () => call<void>("prepare_update"),
@@ -741,6 +750,12 @@ export const fleet = {
   exportAll: (secrets = false) => call<unknown>("fleet_export", { secrets }),
   importAll: (data: unknown) => call<{ added: number }>("fleet_import", { data }),
 };
+
+/** A system notification from the window (test button, updater); asks permission once. */
+export async function systemNotify(title: string, body: string) {
+  if (!(await isPermissionGranted()) && (await requestPermission()) !== "granted") throw "notify_denied";
+  sendNotification({ title, body });
+}
 
 /** Normalise any thrown command error into a string code/message. */
 export function errorText(e: unknown): string {

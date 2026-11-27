@@ -141,13 +141,13 @@ test("settings hold the app and, folded away, the advanced miner tools; energy a
   // One price, no rules: every half hour is the same, so there is no day plan to show.
   expect(screen.queryByRole("img", { name: "Today" })).not.toBeInTheDocument();
 
-  fireEvent.click(screen.getByRole("button", { name: "Computer" }));
+  fireEvent.click(screen.getByRole("button", { name: "This computer" }));
   expect(await screen.findByText("GPU power limit")).toBeInTheDocument();
   expect(screen.queryByText("Monero pool")).not.toBeInTheDocument();
 });
 
 test("today's plan uses the engine's window rule: Monday = 0, windows cross midnight", async () => {
-  const { inWindow, gridPrice } = await import("./pages/Energy");
+  const { inWindow, gridPrice } = await import("./components/DayPlan");
   const all = Array(7).fill(true);
   const monOnly = [true, false, false, false, false, false, false];
   // 22:00–06:00 started on Monday: Monday 23:00 and Tuesday 05:00 are in, Tuesday 07:00 is not.
@@ -347,8 +347,8 @@ test("home sums the computer up in four numbers; the live charts are on Computer
   expect(
     screen.getByRole("navigation", { name: "Erebor" }),
   ).not.toHaveTextContent("Mining inactive");
-  // The link on Home (the last "Computer" button: the sidebar comes first).
-  fireEvent.click(screen.getAllByRole("button", { name: "Computer" }).at(-1)!);
+  // The link on Home (the last "This computer" button: the sidebar comes first).
+  fireEvent.click(screen.getAllByRole("button", { name: "This computer" }).at(-1)!);
   expect(await screen.findByText("Demo GPU")).toBeInTheDocument();
   expect(await screen.findByText(/6\.7 \/ 12 GB/)).toBeInTheDocument();
   // Live charts fill in as readings arrive (one every 2 s).
@@ -489,16 +489,11 @@ test("mode: changing it while mining applies at once, no confirmation", async ()
   expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
 });
 
-test("onboarding: the flag switch changes the language at once", async () => {
+test("onboarding: English, no language switch", async () => {
   installMockBackend();
   render(<App />);
   await screen.findByText("Mine from your computer without becoming an expert");
-  fireEvent.click(screen.getByRole("radio", { name: "Italiano" }));
-  expect(
-    await screen.findByText(
-      "Minare dal tuo computer, senza diventare un esperto",
-    ),
-  ).toBeInTheDocument();
+  expect(screen.queryByRole("radio", { name: "Italiano" })).not.toBeInTheDocument();
 });
 
 test("home: the coin in the title is a menu — automatic first, mineable coins, then all coins", async () => {

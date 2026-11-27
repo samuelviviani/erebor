@@ -1,10 +1,9 @@
 import { Boxes, CircleCheck, CircleMinus, CircleX, Cpu, Gpu, HardDrive, Monitor, Server, Undo2 } from "lucide-react";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { fleet, type Capability, type Conn, type DeviceKind, type DeviceRow, type FleetHistory, type MiningState, type OpResult } from "../lib/api";
 import { hashrate, money } from "../lib/format";
 import { translateError, useT } from "../lib/i18n";
 import { useApp } from "../lib/store";
-import { Spark } from "./Spark";
 import { Badge, Button, cx, Modal, Segmented } from "./ui";
 
 export const KIND_ICON: Record<DeviceKind, typeof Cpu> = {
@@ -121,8 +120,16 @@ export const RANGES = [
   { secs: 2592000, key: "30d" },
 ] as const;
 
-/** Power, money and hashrate (one line per algorithm) over a chosen range. */
-export function HistoryChart({ id }: { id: string | null }) {
+export type Metric = { key: string; label: string; ts: number[]; values: (number | null)[]; fmt: (v: number) => string; now?: string };
+
+export const watts = (w: number) => (Math.abs(w) >= 10_000 ? `${(w / 1000).toFixed(1)} kW` : `${Math.round(w)} W`);
+
+/**
+ * History as one chart driven by tabs: each tab is a figure (its current value) and picks
+ * what the chart shows. `live` overrides a tab's figure with the current reading (keyed
+ * power, revenue, cost, net, temp, or `hash:<algo>`); otherwise the last bucket is shown.
+ */
+export function HistoryChart({ id, live = {} }: { id: string | null; live?: Record<string, string | undefined> }) {
   const t = useT();
   const lang = useLang();
   const [range, setRange] = useState<(typeof RANGES)[number]["key"]>("24h");
@@ -138,44 +145,189 @@ export function HistoryChart({ id }: { id: string | null }) {
       clearInterval(i);
     };
   }, [id, secs]);
-  const pts = h?.points ?? [];
-  const last = <T,>(f: (p: (typeof pts)[number]) => T | null) => [...pts].reverse().map(f).find((v) => v != null) ?? null;
-  const algos = useMemo(() => Object.entries(h?.hashrate ?? {}), [h]);
   const currency = useApp((s) => s.fleet?.overview.money[0]?.currency ?? "EUR");
+  const metrics = useMemo((): Metric[] => {
+    const pts = h?.points ?? [];
+    const ts = pts.map((p) => p.ts);
+    const eur = (v: number) => money(v, currency, lang);
+    return [
+      { key: "power", label: t("fleet.power"), ts, values: pts.map((p) => p.powerW), fmt: watts },
+      { key: "net", label: t("fleet.netDay"), ts, values: pts.map((p) => (p.revenueDay != null && p.costDay != null ? p.revenueDay - p.costDay : null)), fmt: eur },
+      { key: "revenue", label: t("fleet.revenueDay"), ts, values: pts.map((p) => p.revenueDay), fmt: eur },
+      { key: "cost", label: t("fleet.costDay"), ts, values: pts.map((p) => p.costDay), fmt: eur },
+      { key: "temp", label: t("fleet.tempMax"), ts, values: pts.map((p) => p.tempMax), fmt: (v: number) => `${Math.round(v)} °C` },
+      ...Object.entries(h?.hashrate ?? {}).map(([algo, s]) => ({ key: `hash:${algo}`, label: `${t("fleet.hashrate")} · ${algo}`, ts: s.map((x) => x.ts), values: s.map((x) => x.hashrate), fmt: hashrate })),
+    ].map((m) => {
+      const last = [...m.values].reverse().find((v) => v != null);
+      return { ...m, now: live[m.key] ?? (last != null ? m.fmt(last) : undefined) };
+    });
+  }, [h, currency, lang, t, live]);
   return (
-    <section className="panel p-5">
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-base font-semibold text-fg">{t("fleet.analytics")}</h2>
-        <Segmented size="sm" label={t("fleet.range")} value={range} onChange={setRange} options={RANGES.map((r) => ({ value: r.key, label: t(`fleet.range.${r.key}`) }))} />
+    <ChartPanel
+      metrics={metrics}
+      label={t("fleet.analytics")}
+      long={secs > 86_400}
+      controls={<Segmented size="sm" label={t("fleet.range")} value={range} onChange={setRange} options={RANGES.map((r) => ({ value: r.key, label: t(`fleet.range.${r.key}`) }))} />}
+      note={t("fleet.estimates")}
+    />
+  );
+}
+
+/**
+ * Figures as tabs over one chart: each tab shows a figure, the chosen one is charted.
+ * Tabs with no figure and no data are left out.
+ */
+export function ChartPanel({ metrics, label, long, controls, note }: { metrics: Metric[]; label: string; long: boolean; controls?: ReactNode; note?: ReactNode }) {
+  const t = useT();
+  const [pick, setPick] = useState(metrics[0]?.key);
+  const shown = metrics.filter((m) => m.now != null || m.values.some((v) => v != null));
+  const cur = shown.find((m) => m.key === pick) ?? shown[0];
+  return (
+    <section className="panel overflow-hidden">
+      <div role="tablist" aria-label={label} className={cx("grid grid-cols-2 border-b border-line sm:grid-cols-3", shown.length > 4 ? "lg:grid-cols-6" : "lg:grid-cols-4")}>
+        {shown.map((m) => (
+          <button
+            key={m.key}
+            type="button"
+            role="tab"
+            aria-selected={m === cur}
+            onClick={() => setPick(m.key)}
+            className={cx("relative min-w-0 px-4 py-3 text-left transition-colors", m === cur ? "bg-surface-2/70" : "hover:bg-surface-2/40")}
+          >
+            <span className="block truncate text-xs text-faint">{m.label}</span>
+            <span className="num mt-0.5 block truncate text-base font-semibold tracking-tight text-fg">{m.now ?? "—"}</span>
+            {m === cur && <span aria-hidden className="absolute inset-x-4 bottom-0 h-0.5 rounded-full bg-accent" />}
+          </button>
+        ))}
       </div>
-      {pts.length < 2 ? (
-        <p className="py-6 text-center text-sm text-faint">{t("fleet.analytics.empty")}</p>
-      ) : (
-        <div className="grid gap-6 sm:grid-cols-2">
-          <Series label={t("fleet.power")} value={last((p) => p.powerW) != null ? `${Math.round(last((p) => p.powerW)!)} W` : "—"} values={pts.map((p) => p.powerW)} tone="text-perf" />
-          <Series label={t("fleet.revenueDay")} value={last((p) => p.revenueDay) != null ? money(last((p) => p.revenueDay)!, currency, lang) : "—"} values={pts.map((p) => p.revenueDay)} tone="text-go" />
-          <Series label={t("fleet.costDay")} value={last((p) => p.costDay) != null ? money(last((p) => p.costDay)!, currency, lang) : "—"} values={pts.map((p) => p.costDay)} tone="text-stop" />
-          <Series label={t("fleet.tempMax")} value={last((p) => p.tempMax) != null ? `${Math.round(last((p) => p.tempMax)!)} °C` : "—"} values={pts.map((p) => p.tempMax)} tone="text-warn" />
-          {algos.map(([algo, s]) => (
-            <Series key={algo} label={`${t("fleet.hashrate")} · ${algo}`} value={hashrate(s[s.length - 1]?.hashrate)} values={s.map((x) => x.hashrate)} tone="text-accent" />
-          ))}
+      <div className="p-5">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-sm font-semibold text-fg">{cur?.label ?? label}</h2>
+          {controls}
         </div>
-      )}
-      <p className="mt-4 text-xs text-faint">{t("fleet.estimates")}</p>
+        {!cur || cur.values.filter((v) => v != null).length < 2 ? (
+          <p className="flex h-[200px] items-center justify-center text-center text-sm text-faint">{t("fleet.analytics.empty")}</p>
+        ) : (
+          <TrendChart key={cur.key} ts={cur.ts} values={cur.values} fmt={cur.fmt} label={cur.label} long={long} />
+        )}
+        {note && <p className="mt-3 text-xs text-faint">{note}</p>}
+      </div>
     </section>
   );
 }
 
-function Series({ label, value, values, tone }: { label: string; value: string; values: (number | null)[]; tone: string }) {
+const CH = 200;
+const PAD = { l: 56, r: 8, t: 8, b: 22 };
+
+/** 1, 2 or 5 times a power of ten: round axis steps. */
+export function niceStep(raw: number) {
+  const p = 10 ** Math.floor(Math.log10(raw));
+  const f = raw / p;
+  return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 5 ? 5 : 10) * p;
+}
+
+/**
+ * Line over time with a light wash, round y ticks, time labels, and a crosshair that
+ * snaps to the nearest reading (pointer or arrow keys). Plain SVG, measured width.
+ */
+function TrendChart({ ts, values, fmt, label, long }: { ts: number[]; values: (number | null)[]; fmt: (v: number) => string; label: string; long: boolean }) {
+  const lang = useLang();
+  const ref = useRef<HTMLDivElement>(null);
+  const [w, setW] = useState(640);
+  const [hover, setHover] = useState<number | null>(null);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(([e]) => setW(e.contentRect.width));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  const nums = values.filter((v): v is number => v != null);
+  const step = niceStep((Math.max(...nums, 0) - Math.min(...nums, 0)) / 3 || 1);
+  const top = Math.ceil(Math.max(...nums, 0) / step) * step || step;
+  const bot = Math.floor(Math.min(...nums, 0) / step) * step;
+  const ticks: number[] = [];
+  for (let v = bot; v <= top + step / 2; v += step) ticks.push(v);
+  const [t0, t1] = [ts[0], ts[ts.length - 1]];
+  const x = (t: number) => PAD.l + ((t - t0) / (t1 - t0 || 1)) * (w - PAD.l - PAD.r);
+  const y = (v: number) => PAD.t + (1 - (v - bot) / (top - bot)) * (CH - PAD.t - PAD.b);
+  // Contiguous runs: a gap in the data is a gap in the line.
+  const runs: [number, number][][] = [[]];
+  values.forEach((v, i) => (v == null ? runs[runs.length - 1].length && runs.push([]) : runs[runs.length - 1].push([x(ts[i]), y(v)])));
+  const line = runs.filter((r) => r.length).map((r) => `M${r.map((p) => p.join(",")).join("L")}`).join("");
+  const base = y(Math.max(bot, 0));
+  const area = runs.filter((r) => r.length > 1).map((r) => `M${r[0][0]},${base}L${r.map((p) => p.join(",")).join("L")}L${r[r.length - 1][0]},${base}Z`).join("");
+  const when = (s: number, o: Intl.DateTimeFormatOptions) => new Date(s * 1000).toLocaleString(lang, o);
+  const xFmt: Intl.DateTimeFormatOptions = long ? { day: "numeric", month: "short" } : { hour: "2-digit", minute: "2-digit" };
+  const xTicks = [0, 1, 2, 3, 4].map((k) => t0 + ((t1 - t0) * k) / 4);
+  const nearest = (px: number) => {
+    let best: number | null = null;
+    values.forEach((v, i) => {
+      if (v != null && (best == null || Math.abs(x(ts[i]) - px) < Math.abs(x(ts[best]) - px))) best = i;
+    });
+    return best;
+  };
+  const step1 = (d: number) => {
+    let i = hover ?? (d > 0 ? -1 : values.length);
+    do i += d;
+    while (i >= 0 && i < values.length && values[i] == null);
+    if (i >= 0 && i < values.length) setHover(i);
+  };
+  const hv = hover != null ? values[hover] : null;
   return (
-    <div className="min-w-0">
-      <div className="flex items-baseline justify-between gap-2">
-        <span className="truncate text-xs text-faint">{label}</span>
-        <span className="num text-sm font-semibold">{value}</span>
-      </div>
-      <div className="mt-1.5">
-        <Spark values={values} tone={tone} label={label} />
-      </div>
+    <div
+      ref={ref}
+      className="relative outline-none focus-visible:ring-2 focus-visible:ring-accent/40 rounded-lg"
+      tabIndex={0}
+      aria-label={`${label}: ${fmt(nums[0])} → ${fmt(nums[nums.length - 1])}`}
+      onKeyDown={(e) => {
+        if (e.key === "ArrowRight" || e.key === "ArrowLeft") (e.preventDefault(), step1(e.key === "ArrowRight" ? 1 : -1));
+      }}
+      onBlur={() => setHover(null)}
+    >
+      <svg
+        width={w}
+        height={CH}
+        className="block touch-none select-none"
+        role="img"
+        aria-hidden
+        onPointerMove={(e) => setHover(nearest(e.clientX - e.currentTarget.getBoundingClientRect().left))}
+        onPointerLeave={() => setHover(null)}
+      >
+        {ticks.map((v) => (
+          <g key={v}>
+            <line x1={PAD.l} x2={w - PAD.r} y1={y(v)} y2={y(v)} stroke="var(--border)" />
+            <text x={PAD.l - 8} y={y(v)} dy="0.32em" textAnchor="end" className="num fill-faint text-2xs">
+              {fmt(v)}
+            </text>
+          </g>
+        ))}
+        {xTicks.map((s, k) => (
+          <text key={k} x={x(s)} y={CH - 4} textAnchor={k === 0 ? "start" : k === 4 ? "end" : "middle"} className="num fill-faint text-2xs">
+            {when(s, xFmt)}
+          </text>
+        ))}
+        <g className="text-accent">
+          <path d={area} fill="currentColor" opacity={0.1} />
+          <path d={line} fill="none" stroke="currentColor" strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
+          {hover != null && hv != null && (
+            <>
+              <line x1={x(ts[hover])} x2={x(ts[hover])} y1={PAD.t} y2={CH - PAD.b} stroke="var(--border-strong)" />
+              <circle cx={x(ts[hover])} cy={y(hv)} r={4} fill="currentColor" stroke="var(--surface)" strokeWidth={2} />
+            </>
+          )}
+        </g>
+      </svg>
+      {hover != null && hv != null && (
+        <div
+          role="status"
+          className="pointer-events-none absolute top-0 -translate-x-1/2 rounded-xl border border-line bg-surface px-3 py-1.5 text-center shadow-[var(--shadow-lg)]"
+          style={{ left: Math.min(Math.max(x(ts[hover]), PAD.l + 50), w - 60) }}
+        >
+          <div className="num text-sm font-semibold text-fg">{fmt(hv)}</div>
+          <div className="num text-2xs text-faint">{when(ts[hover], { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</div>
+        </div>
+      )}
     </div>
   );
 }

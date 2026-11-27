@@ -8,9 +8,10 @@
 //! `shutdown`, which only make sense locally.
 //!
 //! Transport: a Unix domain socket `agent.sock` in the data folder, mode 0600 in a
-//! 0700 folder, and every connection's peer UID must equal ours. Never a TCP port.
-//! Windows: not implemented yet — `serve`/`call` return `ipc_unsupported_platform`;
-//! a named-pipe transport only has to move the same lines through `handle`.
+//! 0700 folder, and every connection's peer UID must equal ours.
+//! Windows: a loopback TCP port (127.0.0.1 only) written with a random token to
+//! `agent.port` in the data folder, which only this Windows user can read (%APPDATA%);
+//! a client sends the token as its first line. Same request/reply lines after that.
 
 use crate::fleet::Snapshot;
 use crate::rpc::{self, Shared};
@@ -48,6 +49,9 @@ impl From<Result<Value, Value>> for Reply {
 /// `<data dir>/agent.sock`; for very long data-folder paths (a socket path holds
 /// ~104 bytes) a name derived from the folder in the per-user runtime/temp folder.
 pub fn socket_path(data_dir: &Path) -> PathBuf {
+    if cfg!(windows) {
+        return data_dir.join("agent.port");
+    }
     let p = data_dir.join("agent.sock");
     if p.as_os_str().len() < 100 {
         return p;
@@ -257,17 +261,133 @@ mod unix {
     }
 }
 
-#[cfg(not(unix))]
-pub struct Server;
+#[cfg(windows)]
+pub use tcp::{call, serve, Server};
 
-#[cfg(not(unix))]
-pub fn serve(_: Host) -> Result<Server, String> {
-    Err("ipc_unsupported_platform".into())
-}
+/// Windows transport (compiled everywhere in tests, so it is tested on every platform).
+#[cfg(any(windows, test))]
+mod tcp {
+    use super::*;
+    use std::io::{BufRead, BufReader, Read, Write};
+    use std::net::{Ipv4Addr, TcpListener, TcpStream};
+    use std::sync::Arc;
+    use std::time::Duration;
 
-#[cfg(not(unix))]
-pub fn call(_: &Path, _: &str, _: &Value) -> Result<Value, Value> {
-    Err("ipc_unsupported_platform".into())
+    const MAX_REQUEST: u64 = 1 << 20;
+
+    /// A listening port; dropping it removes `agent.port`.
+    pub struct Server {
+        path: PathBuf,
+    }
+
+    impl Drop for Server {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_file(&self.path);
+        }
+    }
+
+    pub(super) fn port_file(data_dir: &Path) -> PathBuf {
+        data_dir.join("agent.port")
+    }
+
+    fn same(a: &str, b: &str) -> bool {
+        a.len() == b.len() && a.bytes().zip(b.bytes()).fold(0, |x, (p, q)| x | (p ^ q)) == 0
+    }
+
+    /// Serve the engine on 127.0.0.1 (a free port). Call only while holding the engine.
+    pub fn serve(host: Host) -> Result<Server, String> {
+        let dir = crate::engine::lock(&host.engine).data_dir().to_path_buf();
+        let listener =
+            TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).map_err(|e| format!("socket: {e}"))?;
+        let port = listener.local_addr().map_err(|e| e.to_string())?.port();
+        let token: String = (0..32)
+            .map(|_| format!("{:02x}", rand::random::<u8>()))
+            .collect();
+        let path = port_file(&dir);
+        std::fs::write(&path, format!("{port} {token}\n")).map_err(|e| e.to_string())?;
+        let host = Arc::new(host);
+        std::thread::spawn(move || {
+            for stream in listener.incoming().flatten() {
+                let (host, token) = (host.clone(), token.clone());
+                std::thread::spawn(move || serve_one(&host, &token, stream));
+            }
+        });
+        Ok(Server { path })
+    }
+
+    fn serve_one(host: &Host, token: &str, s: TcpStream) {
+        let _ = s.set_read_timeout(Some(Duration::from_secs(10)));
+        let mut r = BufReader::new((&s).take(MAX_REQUEST));
+        let (mut auth, mut line) = (String::new(), String::new());
+        // Only someone who can read our data folder knows the token.
+        if r.read_line(&mut auth).is_err() || !same(auth.trim(), token) {
+            return;
+        }
+        if r.read_line(&mut line).is_err() {
+            return;
+        }
+        let mut out = serde_json::to_vec(&handle(host, &line)).unwrap_or_default();
+        out.push(b'\n');
+        let _ = (&s).write_all(&out);
+    }
+
+    /// Run `cmd` on the engine owner for `data_dir`.
+    pub fn call(data_dir: &Path, cmd: &str, args: &Value) -> Result<Value, Value> {
+        let unreachable = || Value::from("agent_unreachable");
+        let info = std::fs::read_to_string(port_file(data_dir)).map_err(|_| unreachable())?;
+        let (port, token) = info.trim().split_once(' ').ok_or_else(unreachable)?;
+        let port: u16 = port.parse().map_err(|_| unreachable())?;
+        let mut s = TcpStream::connect((Ipv4Addr::LOCALHOST, port)).map_err(|_| unreachable())?;
+        let _ = s.set_read_timeout(Some(Duration::from_secs(60)));
+        let req = Request {
+            v: PROTOCOL_VERSION,
+            cmd: cmd.into(),
+            args: args.clone(),
+        };
+        let mut buf = format!("{token}\n").into_bytes();
+        buf.extend(serde_json::to_vec(&req).map_err(|e| Value::from(e.to_string()))?);
+        buf.push(b'\n');
+        s.write_all(&buf).map_err(|_| unreachable())?;
+        let mut line = String::new();
+        BufReader::new(s)
+            .read_line(&mut line)
+            .map_err(|_| Value::from("agent_bad_response"))?;
+        match serde_json::from_str::<Reply>(&line) {
+            Ok(Reply::Ok(v)) => Ok(v),
+            Ok(Reply::Err(e)) => Err(e),
+            Err(_) if line.is_empty() => Err(unreachable()),
+            Err(_) => Err("agent_bad_response".into()),
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use crate::engine::{self, Engine};
+        use std::sync::Mutex;
+
+        #[test]
+        fn loopback_transport_needs_the_token() {
+            let d = tempfile::tempdir().unwrap();
+            std::fs::write(d.path().join("config.json"), r#"{"demoMode":true}"#).unwrap();
+            let e = Engine::new(d.path().into(), engine::default_factory()).unwrap();
+            let s = serve(Host::new(Arc::new(Mutex::new(e)), "agent", None)).unwrap();
+            assert_eq!(
+                call(d.path(), "agent_info", &Value::Null).unwrap()["owner"],
+                "agent"
+            );
+            // A wrong token gets no answer.
+            let info = std::fs::read_to_string(port_file(d.path())).unwrap();
+            let port = info.split(' ').next().unwrap();
+            std::fs::write(port_file(d.path()), format!("{port} wrong\n")).unwrap();
+            assert_eq!(
+                call(d.path(), "agent_info", &Value::Null),
+                Err("agent_unreachable".into())
+            );
+            drop(s);
+            assert!(!port_file(d.path()).exists());
+        }
+    }
 }
 
 // ---------- client helpers shared by the CLI and the TUI ----------

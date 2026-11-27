@@ -85,7 +85,7 @@ export function defaultConfig(): AppConfig {
     autoUpdateMiners: true,
     startOnLaunch: false,
     defenderAllowed: false,
-    notify: { telegramToken: "", telegramChat: "" },
+    notify: { telegramToken: "", telegramChat: "", desktop: true, quiet: false, quietStart: 1380, quietEnd: 420, monthlySummary: true },
     donationPercent: 0,
     defaultView: "",
   };
@@ -347,8 +347,8 @@ export function installMockBackend(initial?: Partial<AppConfig>, opts: { devices
     };
   };
 
-  const stats = (range: number): StatsReport => {
-    const to = now();
+  const stats = (range: number, end?: number): StatsReport => {
+    const to = end ?? now();
     const series = Array.from({ length: 60 }, (_, i) => ({
       ts: to - range + (i * range) / 60,
       hashrate: 4100 + 150 * Math.sin(i / 5),
@@ -530,7 +530,7 @@ export function installMockBackend(initial?: Partial<AppConfig>, opts: { devices
       case "get_logs":
         return st.running ? ["[DEMO] simulated miner started"] : [];
       case "get_stats":
-        return stats(Number(a.rangeSecs));
+        return stats(Number(a.rangeSecs), a.to == null ? undefined : Number(a.to));
       case "coin_pools":
         return Object.fromEntries(
           COINS.map((c) => [

@@ -91,7 +91,7 @@ support.
 1. Add the vendor to `Vendor` and its detection in `detect()` (from `version`/`get_version`).
 2. Map its replies in `read()`; leave fields `None` when the device doesn't send them.
 3. Declare honest `capabilities()`: unsupported → `no("reason_code")`, and add the reason's
-   text to `apps/desktop/src/lib/i18n.ts` (`err.<code>`, English and Italian).
+   text to `apps/desktop/src/lib/i18n/` (`err.<code>`, English and Italian).
 4. Add the dialect to `asic_sim.rs` and tests in `asic.rs` (read, each supported action,
    refusals).
 5. Document the firmware versions it was written against, and mark it unverified until

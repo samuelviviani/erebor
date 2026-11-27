@@ -4,7 +4,10 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions: [Sem
 
 ## [Unreleased]
 
+## [0.1.8] - 2026-11-27
+
 ### Added
+- System notifications (macOS, Windows, Linux) for problems: miner crashed or not responding, overheating, hashrate drops, pool failover, and on other devices offline, not authorized, miner stopped, high temperature or power, rejected shares. Also while Erebor sits in the tray; not while its window is in front (the app shows them) or in demo mode.
 - Device management: Erebor Desktop and the CLI manage other computers, servers, GPU/CPU rigs and ASICs next to this one. First start asks "Start mining" or "Manage devices" (both stay available; Settings → Devices switches the main screen).
 - Remote control for `erebor-agent` (opt-in, `erebor-agent init`): TLS 1.3 with mutually pinned certificates, pairing with a one-time 10-minute code (`erebor-agent pair`), revocation, key rotation, audit log, rate limiting, timestamped requests, LAN discovery that can be turned off. Mining stays on each device when the controller is closed.
 - Devices dashboard: totals, hashrate per algorithm (never summed across algorithms), power, estimated revenue, electricity and net per day, 1 h/24 h/7 d/30 d history, search, filters, grouping, table or cards, multi-select with confirmed bulk actions and per-device results; device page with configuration, log and operations history.
@@ -16,7 +19,19 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions: [Sem
 - Managing only other devices hides this computer's mining sections until mining here is set up (Settings → Devices).
 - `erebor sim`: simulated agents, rigs, ASICs (hot, read-only, broken), a gateway and an offline agent in one command.
 - Agent installers: `scripts/install-agent.sh` (Linux systemd service with its own user, macOS LaunchAgent) and `scripts/install-agent.ps1` (Windows scheduled task as LOCAL SERVICE); the release `erebor` binary acts as `erebor-agent` through a link; Windows CLI binary in releases.
+- Code reorganised for easier changes: the engine, the device controller and the `erebor` CLI are split into one file per responsibility (`engine/`, `controller/`, CLI command modules), translations into `i18n/it.ts` and `i18n/en.ts`; `CLAUDE.md` maps where things live. No behaviour change.
 - Graphics card modes: Eco, Balanced, Performance or a custom share on Home also when mining with the GPU, separate from the processor's mode, for people who work on the PC while it mines. SRBMiner lowers `--gpu-intensity`; lolMiner has one lighter level (`--screen`). Default stays full power.
+- Notifications page in the sidebar (with an unread badge): this computer's problems and the other devices' alerts in one list, plus where they are sent (desktop notifications, quiet hours, monthly summary, Telegram, with a test that sends a real system notification) and, with devices, when they are raised.
+
+### Changed
+- Sidebar order: Home, Coins & wallets, This computer (was "Computer"), Energy, Devices, Earnings. Groups and mining profiles are tabs of Devices instead of separate sections.
+- Devices: one chart with axes and a hover readout, driven by tabs that show the current power, net, revenue, electricity, temperature and hashrate per algorithm (replaces the tiles and small charts); online/offline/mining/problem counts sit in the list filters.
+- Earnings: the period written as a sum (mined − electricity = net), running totals in the chart, sessions as a table.
+- First start: English, without the language switch (Settings still has it); the last step shows the choices with icons, lets you pick the mode and says when mining stops by itself.
+- The top bar moves the window from any empty spot (double click zooms), also on the first-start screens.
+
+### Fixed
+- Device history no longer drops at the end of every chart: the bucket still filling is left out.
 
 ## [0.1.7] - 2026-11-25
 

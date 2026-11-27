@@ -20,14 +20,19 @@ REPO=samuelviviani/erebor
 URL="https://github.com/$REPO/releases/download/v$V"
 OUT="$ROOT/target/release-$V"
 
-grep -q "\"version\": \"$V\"" "$ROOT/apps/desktop/src-tauri/tauri.conf.json" \
-  || { echo "tauri.conf.json is not at version $V"; exit 1; }
+for f in apps/desktop/src-tauri/tauri.conf.json apps/desktop/package.json apps/website/package.json; do
+  grep -q "\"version\": \"$V\"" "$ROOT/$f" || { echo "$f is not at version $V"; exit 1; }
+done
+grep -q "^version = \"$V\"" "$ROOT/Cargo.toml" || { echo "Cargo.toml is not at version $V"; exit 1; }
+grep -q "^## \[$V\]" "$ROOT/CHANGELOG.md" || { echo "CHANGELOG.md has no [$V] section"; exit 1; }
 [ -n "${EREBOR_DEV_FEE_BTC:-}${EREBOR_DEV_FEE_WALLET:-}" ] \
   || { echo "set EREBOR_DEV_FEE_BTC (bc1…) and/or EREBOR_DEV_FEE_WALLET (krx…)"; exit 1; }
 git -C "$ROOT" diff --quiet HEAD || { echo "commit and push first: the tag points at HEAD"; exit 1; }
 
 export PATH="$HOME/.cargo/bin:/opt/homebrew/opt/llvm/bin:/opt/homebrew/opt/lld/bin:$PATH"
 export EREBOR_REPO_URL="https://github.com/$REPO"
+# Same checks as CI (GitHub Actions is off for this account): nothing ships red.
+(cd "$ROOT" && pnpm check)
 export TAURI_SIGNING_PRIVATE_KEY="$(cat ~/.tauri/erebor.key)" TAURI_SIGNING_PRIVATE_KEY_PASSWORD=""
 
 cd "$ROOT/apps/desktop"

@@ -1,13 +1,8 @@
-import {
-  isPermissionGranted,
-  requestPermission,
-  sendNotification,
-} from "@tauri-apps/plugin-notification";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { Download, RefreshCw, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { api, inApp } from "../lib/api";
+import { api, inApp, systemNotify } from "../lib/api";
 import { useT } from "../lib/i18n";
 import { useApp } from "../lib/store";
 import { Button } from "./ui";
@@ -71,13 +66,7 @@ export function Updater() {
 
   const notify = async (version: string) => {
     try {
-      let ok = await isPermissionGranted();
-      if (!ok) ok = (await requestPermission()) === "granted";
-      if (ok)
-        sendNotification({
-          title: t("update.notify.title", { v: version }),
-          body: t("update.notify.body"),
-        });
+      await systemNotify(t("update.notify.title", { v: version }), t("update.notify.body"));
     } catch {
       // notifications unavailable: the card in the app is enough
     }

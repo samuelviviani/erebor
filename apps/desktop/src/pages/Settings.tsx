@@ -13,7 +13,6 @@ import {
   Moon,
   Play,
   RefreshCw,
-  Send,
   Sun,
   SunMoon,
   Trash2,
@@ -26,7 +25,6 @@ import {
   Group,
   Item,
   NumberField,
-  TextField,
   type Props,
 } from "../components/rows";
 import {
@@ -42,7 +40,8 @@ import { translateError, useT } from "../lib/i18n";
 import { useApp, useLocalMining } from "../lib/store";
 
 /**
- * The app itself, as one page of grouped rows: general, this PC, notifications, data.
+ * The app itself, as one page of grouped rows: general, this PC, data. Notifications
+ * have their own page.
  * Electricity rules live in Energy, the machine and miners in Computer.
  */
 export default function Settings() {
@@ -113,8 +112,6 @@ export default function Settings() {
           <WorkerName c={c} save={save} />
           <StartupRows c={c} save={save} />
         </Group>
-
-        <NotifyGroup c={c} save={save} />
 
         {/* Opt-in only: off until the user picks a share. Builds without a project
             wallet take no fee, so there is nothing to give to either. */}
@@ -347,51 +344,6 @@ function DataGroup({ c }: { c: AppConfig }) {
         onCancel={() => setConfirm(false)}
       />
     </>
-  );
-}
-
-
-/** Problems pushed to the phone through a Telegram bot (until Erebor has its own mobile app). */
-function NotifyGroup({ c, save }: Props) {
-  const t = useT();
-  const toast = useApp((s) => s.toast);
-  const n = c.notify;
-  const set = (p: Partial<typeof n>) => save({ ...c, notify: { ...n, ...p } });
-  const test = async () => {
-    try {
-      await api.testNotify();
-      toast("info", t("notify.sent"));
-    } catch (e) {
-      toast("error", translateError(c.language, errorText(e)));
-    }
-  };
-  return (
-    <Group
-      title={t("notify.group")}
-      aside={
-        <Button size="sm" variant="ghost" onClick={test}>
-          {t("notify.test")}
-        </Button>
-      }
-    >
-      <Item icon={<Send />} tone="blue" label="Telegram" hint={t("notify.hint")}>
-        <div className="flex gap-2">
-          <TextField
-            secret
-            label={t("notify.telegramToken")}
-            value={n.telegramToken}
-            placeholder={t("notify.telegramToken")}
-            onCommit={(telegramToken) => set({ telegramToken })}
-          />
-          <TextField
-            label={t("notify.telegramChat")}
-            value={n.telegramChat}
-            placeholder={t("notify.telegramChat")}
-            onCommit={(telegramChat) => set({ telegramChat })}
-          />
-        </div>
-      </Item>
-    </Group>
   );
 }
 

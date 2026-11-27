@@ -22,6 +22,7 @@ The CLI, agent and TUI alone need only Rust ([docs/CLI.md](docs/CLI.md#build-fro
 | `pnpm --filter @erebor/website dev` | website at http://localhost:3000 |
 | `pnpm -r typecheck` / `pnpm test` / `pnpm -r build` | JS checks |
 | `pnpm lint:rust` | `cargo fmt --check` + `clippy -D warnings` |
+| `pnpm check` | everything above + `cargo test` + dependency audits: run before every push and release |
 | `cargo test --workspace` | Rust tests (no real mining: miner processes are simulated) |
 
 ## Build variables
@@ -57,9 +58,10 @@ own.
 ## Conventions
 
 - Command errors are string codes (`wallet_missing`, …) that the UI translates in
-  `src/lib/i18n.ts` (`err.*`).
-- UI text: English is the default; add every key to both `en` and `it` (the
-  `Record<Key, string>` type enforces it).
+  `src/lib/i18n/` (`err.*`).
+- UI text: English is the default; add every key to both `i18n/en.ts` and `i18n/it.ts`
+  (the `Record<Key, string>` type enforces it). Notification texts sent outside the app
+  (system notifications, Telegram) are in `crates/erebor-core/src/notify.rs`.
 - Shared types: change the Rust struct and the interface in `apps/desktop/src/lib/api.ts`
   together.
 - Code, comments and documentation are in English.

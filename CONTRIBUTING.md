@@ -3,7 +3,7 @@
 Thanks! Before opening a pull request:
 
 1. Read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [DEVELOPMENT.md](DEVELOPMENT.md).
-2. Run `pnpm -r typecheck && pnpm test && pnpm lint:rust && cargo test --workspace`.
+2. Run `pnpm check` (typecheck, tests, lint and dependency audits; needs `cargo install --locked cargo-audit`).
 3. Add tests for new logic (especially money, fees, processes and validation).
 4. Update `CHANGELOG.md` when behaviour changes.
 

@@ -9,6 +9,7 @@
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",
     "test:rust": "cargo test --workspace",
-    "lint:rust": "cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings"
+    "lint:rust": "cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings",
+    "check": "pnpm -r typecheck && pnpm -r test && pnpm lint:rust && cargo test --workspace && pnpm audit --prod && cargo audit"
   }
 }

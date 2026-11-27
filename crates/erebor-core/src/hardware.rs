@@ -443,6 +443,16 @@ fn platform_gpus() -> Vec<GpuInfo> {
 
 /// Seconds since the last keyboard or mouse input in this user session, `None` when the
 /// system does not tell (Linux without a supported desktop, headless sessions).
+/// The first of `names` that is running (process name, case-insensitive, `.exe` optional).
+pub fn running_app(names: &[String]) -> Option<String> {
+    let mut sys = System::new();
+    sys.refresh_processes();
+    let norm = |s: &str| s.trim().to_lowercase().trim_end_matches(".exe").to_string();
+    let running: std::collections::HashSet<String> =
+        sys.processes().values().map(|p| norm(p.name())).collect();
+    names.iter().find(|n| running.contains(&norm(n))).cloned()
+}
+
 pub fn idle_secs() -> Option<u64> {
     idle::secs()
 }

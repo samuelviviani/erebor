@@ -1,8 +1,7 @@
 import {
   Bell,
   Boxes,
-  Layers,
-  SlidersHorizontal,
+  ChartColumn,
   CircleCheck,
   CircleX,
   Coins,
@@ -17,39 +16,34 @@ import {
   Zap,
   type LucideIcon,
 } from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { useEffect, useState, type MouseEvent, type ReactNode } from "react";
+import { inApp } from "../lib/api";
 import { useT } from "../lib/i18n";
 import { useApp, useLocalMining, useResolvedTheme, type Page } from "../lib/store";
+import { useUnread } from "./Alerts";
 import { Guide } from "./Guide";
 import { Updater } from "./Updater";
 import { StatusBar } from "./MinerStatus";
 import { cx } from "./ui";
 
-const NAV: { page: Page; icon: LucideIcon }[] = [
-  { page: "dashboard", icon: Home },
-  { page: "coins", icon: Coins },
-  { page: "energy", icon: Zap },
-  { page: "computer", icon: Cpu },
+/** The sections, in this order; this computer's are left out when only other devices are managed. */
+const NAV: { page: Page; icon: LucideIcon; local?: boolean; fleet?: boolean }[] = [
+  { page: "dashboard", icon: Home, local: true },
+  { page: "coins", icon: Coins, local: true },
+  { page: "computer", icon: Cpu, local: true },
+  { page: "energy", icon: Zap, local: true },
+  { page: "devices", icon: Boxes, fleet: true },
+  { page: "stats", icon: ChartColumn, local: true },
 ];
-/** Device management, after a divider: shown once it is in use. */
-const NAV_FLEET: { page: Page; icon: LucideIcon }[] = [
-  { page: "devices", icon: Boxes },
-  { page: "groups", icon: Layers },
-  { page: "profiles", icon: SlidersHorizontal },
-  { page: "alerts", icon: Bell },
-];
-/** Height + gap of one nav item, for the sliding highlight; the divider adds `DIVIDER`. */
+/** Height + gap of one nav item, for the sliding highlight. */
 const STEP = 44;
-const DIVIDER = 12;
 
-/**
- * The sections in the sidebar: this computer's mining unless only other devices are
- * managed, device management once chosen or used.
- */
+/** Device management shows once chosen or used. */
 function useNav() {
   const local = useLocalMining();
   const fleet = useApp((s) => s.config?.defaultView === "devices" || (s.fleet?.devices.length ?? 0) > 1);
-  return [...(local ? NAV : []), ...(fleet ? NAV_FLEET : [])];
+  return NAV.filter((n) => (n.local ? local : n.fleet ? fleet : true));
 }
 
 export function Logo({ className }: { className?: string }) {
@@ -82,6 +76,7 @@ function NavButton({
   on,
   collapsed,
   hint,
+  badge = 0,
   onClick,
 }: {
   p: Page;
@@ -89,6 +84,8 @@ function NavButton({
   on: boolean;
   collapsed: boolean;
   hint: string;
+  /** Unread count: a red pill (a dot when collapsed). */
+  badge?: number;
   onClick: () => void;
 }) {
   const t = useT();
@@ -99,8 +96,9 @@ function NavButton({
       aria-current={on ? "page" : undefined}
       aria-keyshortcuts={hint.replace("⌘", "Meta+")}
       title={collapsed ? `${t(`nav.${p}`)}  ${hint}` : hint}
+      aria-description={badge ? t("notifications.unread", { n: badge }) : undefined}
       className={cx(
-        "press group flex h-10 items-center gap-3 rounded-xl px-3 text-sm transition-colors duration-200",
+        "press group relative flex h-10 items-center gap-3 rounded-xl px-3 text-sm transition-colors duration-200",
         // Collapsed: a square icon button, not a stretched bar.
         collapsed ? "mx-auto w-10 justify-center px-0" : "w-full",
         on ? "font-medium text-fg" : "text-muted hover:bg-nav-active/50 hover:text-fg",
@@ -114,6 +112,14 @@ function NavButton({
         aria-hidden
       />
       {!collapsed && <span className="truncate">{t(`nav.${p}`)}</span>}
+      {badge > 0 &&
+        (collapsed ? (
+          <span aria-hidden className="absolute top-2 right-2 size-2 rounded-full bg-danger ring-2 ring-sidebar" />
+        ) : (
+          <span aria-hidden className="num ml-auto rounded-full bg-danger px-1.5 text-2xs leading-[18px] font-semibold text-white">
+            {badge > 99 ? "99+" : badge}
+          </span>
+        ))}
     </button>
   );
 }
@@ -133,8 +139,7 @@ function Sidebar() {
   const nav = useNav();
   const current = page === "device" ? "devices" : page;
   const idx = nav.findIndex((n) => n.page === current);
-  // The divider sits between this computer's sections and device management, when both show.
-  const divider = nav.length > NAV.length && nav[0] === NAV[0] ? NAV.length : -1;
+  const unread = useUnread();
 
   return (
     <nav
@@ -178,16 +183,11 @@ function Sidebar() {
               "pointer-events-none absolute top-0 h-10 rounded-xl border border-line bg-nav-active shadow-[0_1px_2px_rgb(0_0_0/0.08)] transition-transform duration-400 ease-[var(--ease)]",
               collapsed ? "left-1/2 -ml-5 w-10" : "inset-x-3",
             )}
-            style={{ transform: `translateY(${idx * STEP + (divider >= 0 && idx >= divider ? DIVIDER : 0)}px)` }}
+            style={{ transform: `translateY(${idx * STEP}px)` }}
           />
         )}
         {nav.map(({ page: p, icon }, i) => (
           <li key={p} className="relative">
-            {i === divider && (
-              <div aria-hidden className="flex h-3 items-center px-3">
-                <span className="h-px w-full bg-line" />
-              </div>
-            )}
             <NavButton
               p={p}
               icon={icon}
@@ -200,22 +200,27 @@ function Sidebar() {
         ))}
       </ul>
 
-      {/* Bottom: settings, and beside it the toggle, so collapsing never moves the sections. */}
+      {/* Bottom: notifications, settings, and beside it the toggle, so collapsing never moves the sections. */}
+      <div className="mt-auto px-3">
+        <FooterItem on={page === "notifications"} collapsed={collapsed}>
+          <NavButton
+            p="notifications"
+            icon={Bell}
+            on={page === "notifications"}
+            collapsed={collapsed}
+            hint={`${MOD}.`}
+            badge={unread}
+            onClick={() => setPage("notifications")}
+          />
+        </FooterItem>
+      </div>
       <div
         className={cx(
-          "mt-auto flex gap-1 px-3 pb-3",
+          "mt-1 flex gap-1 px-3 pb-3",
           collapsed && "flex-col-reverse",
         )}
       >
-        <div
-          className={cx(
-            "min-w-0 rounded-xl border",
-            collapsed ? "mx-auto w-10" : "flex-1",
-            page === "settings"
-              ? "border-line bg-nav-active shadow-[0_1px_2px_rgb(0_0_0/0.08)]"
-              : "border-transparent",
-          )}
-        >
+        <FooterItem on={page === "settings"} collapsed={collapsed}>
           <NavButton
             p="settings"
             icon={SettingsIcon}
@@ -224,7 +229,7 @@ function Sidebar() {
             hint={`${MOD},`}
             onClick={() => setPage("settings")}
           />
-        </div>
+        </FooterItem>
         <button
           type="button"
           onClick={toggle}
@@ -239,7 +244,22 @@ function Sidebar() {
   );
 }
 
-/** ⌘1…5 open the sections, ⌘, the settings (Ctrl on Windows and Linux). */
+/** A bottom entry, highlighted in place (the sliding highlight is for the sections). */
+function FooterItem({ on, collapsed, children }: { on: boolean; collapsed: boolean; children: ReactNode }) {
+  return (
+    <div
+      className={cx(
+        "min-w-0 rounded-xl border",
+        collapsed ? "mx-auto w-10" : "flex-1",
+        on ? "border-line bg-nav-active shadow-[0_1px_2px_rgb(0_0_0/0.08)]" : "border-transparent",
+      )}
+    >
+      {children}
+    </div>
+  );
+}
+
+/** ⌘1…6 open the sections, ⌘. the notifications, ⌘, the settings (Ctrl on Windows and Linux). */
 function useShortcuts() {
   const setPage = useApp((s) => s.setPage);
   const nav = useNav();
@@ -248,7 +268,7 @@ function useShortcuts() {
       if (!(IS_MAC ? e.metaKey : e.ctrlKey) || e.altKey || e.shiftKey) return;
       const n = Number(e.key);
       const target =
-        e.key === "," ? "settings" : n >= 1 && n <= nav.length ? nav[n - 1].page : null;
+        e.key === "," ? "settings" : e.key === "." ? "notifications" : n >= 1 && n <= nav.length ? nav[n - 1].page : null;
       if (!target) return;
       e.preventDefault();
       setPage(target);
@@ -351,6 +371,18 @@ function Toasts() {
   );
 }
 
+/**
+ * The top bar works as a title bar: pressing anywhere that isn't a control moves the
+ * window, a double click zooms it. (`data-tauri-drag-region` covers only the element
+ * itself, not the status line inside it.)
+ */
+export function moveWindow(e: MouseEvent) {
+  if (e.button !== 0 || !inApp()) return;
+  if ((e.target as Element).closest("button, a, input, select, textarea, [role=menu], [role=button]")) return;
+  const w = getCurrentWindow();
+  void (e.detail === 2 ? w.toggleMaximize() : w.startDragging());
+}
+
 export function Layout({ children }: { children: ReactNode }) {
   const t = useT();
   const demo = useApp((s) => s.status?.demo);
@@ -364,13 +396,10 @@ export function Layout({ children }: { children: ReactNode }) {
       <main className="canvas min-w-0 flex-1 overflow-y-auto">
         <Updater />
         <div
-          data-tauri-drag-region
+          onMouseDown={moveWindow}
           className="sticky top-0 z-20 border-b border-line bg-bg"
         >
-          <div
-            data-tauri-drag-region
-            className="mx-auto flex max-w-5xl items-center gap-3 px-6 md:px-10"
-          >
+          <div className="mx-auto flex min-h-12 max-w-5xl items-center gap-3 px-6 md:px-10">
             <div className="min-w-0 flex-1">
               {/* This computer's mining state: only when it mines (or is set up to). */}
               {local && <StatusBar control={page !== "dashboard"} />}

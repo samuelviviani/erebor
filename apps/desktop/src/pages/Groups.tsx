@@ -1,13 +1,12 @@
 import { Play, Plus, Square, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { ResultsModal, useFleetPolling, useLang } from "../components/fleet";
-import { PageTitle } from "../components/Layout";
 import { Button, compactInput, ConfirmDialog, cx, Empty } from "../components/ui";
 import { errorText, fleet, type DeviceGroup, type OpResult } from "../lib/api";
 import { translateError, useT } from "../lib/i18n";
 import { useApp } from "../lib/store";
 
-/** Groups ("GPU rigs", "ASIC farm"…): name, electricity price, and actions on all members. */
+/** Devices tab: groups ("GPU rigs", "ASIC farm"…), electricity price and actions on all members. */
 export default function Groups() {
   const t = useT();
   const lang = useLang();
@@ -29,7 +28,7 @@ export default function Groups() {
   };
   return (
     <div className="max-w-3xl">
-      <PageTitle sub={t("fleet.groups.sub")}>{t("nav.groups")}</PageTitle>
+      <p className="mb-4 max-w-xl text-sm leading-relaxed text-muted">{t("fleet.groups.sub")}</p>
       <form
         className="mb-6 flex gap-2"
         onSubmit={(e) => {

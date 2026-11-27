@@ -1,36 +1,35 @@
-import { Suspense, useEffect, useRef } from "react";
+import { Component, Suspense, useEffect, useRef, type ReactNode } from "react";
 import { Layout, Logo } from "./components/Layout";
 import { Button } from "./components/ui";
 import { alertText } from "./lib/alerts";
 import { translateError, useT } from "./lib/i18n";
 import { fleet } from "./lib/api";
 import { useApp, useLocalMining, useResolvedTheme } from "./lib/store";
-import Alerts, { eventText } from "./pages/Alerts";
+import { eventText } from "./components/Alerts";
 import Coins from "./pages/Coins";
 import Computer from "./pages/Computer";
 import Dashboard from "./pages/Dashboard";
 import DeviceDetail from "./pages/DeviceDetail";
 import Devices from "./pages/Devices";
+import Earnings from "./pages/Earnings";
 import Energy from "./pages/Energy";
-import Groups from "./pages/Groups";
 import Onboarding from "./pages/Onboarding";
-import Profiles from "./pages/Profiles";
+import Notifications from "./pages/Notifications";
 import Settings from "./pages/Settings";
 
 const PAGES = {
   dashboard: Dashboard,
+  stats: Earnings,
   coins: Coins,
   energy: Energy,
   computer: Computer,
   settings: Settings,
   devices: Devices,
   device: DeviceDetail,
-  groups: Groups,
-  profiles: Profiles,
-  alerts: Alerts,
+  notifications: Notifications,
 };
 /** This computer's mining pages: they need its setup (onboarding) first. */
-const LOCAL_PAGES = ["dashboard", "coins", "energy", "computer"];
+const LOCAL_PAGES = ["dashboard", "stats", "coins", "energy", "computer"];
 
 export default function App() {
   const { init, refreshStatus, config, page, status, loadError, toast, setupLocal } =
@@ -93,10 +92,41 @@ export default function App() {
   const Page = !localOn && LOCAL_PAGES.includes(page) ? Devices : PAGES[page];
   return (
     <Layout>
-      <Suspense fallback={<div className="skeleton h-8 w-40" />}>
-        <Page />
-      </Suspense>
+      <PageBoundary key={page}>
+        <Suspense fallback={<div className="skeleton h-8 w-40" />}>
+          <Page />
+        </Suspense>
+      </PageBoundary>
     </Layout>
+  );
+}
+
+/**
+ * A page that throws shows a short message instead of a blank window; the sidebar (and
+ * the tray) keep working, so mining can still be stopped. Reset by changing page.
+ */
+class PageBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+  state = { failed: false };
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+  componentDidCatch(e: unknown) {
+    console.error(e);
+  }
+  render() {
+    return this.state.failed ? <PageFailed /> : this.props.children;
+  }
+}
+
+function PageFailed() {
+  const t = useT();
+  return (
+    <div className="p-8 text-sm" role="alert">
+      <p className="text-danger">{t("app.pageFailed")}</p>
+      <Button className="mt-4" onClick={() => location.reload()}>
+        {t("computer.retry")}
+      </Button>
+    </div>
   );
 }
 
@@ -117,7 +147,10 @@ function Unreachable({ error }: { error: string }) {
   );
 }
 
-/** New device warnings and errors as notifications (the first read sets the baseline). */
+/**
+ * Device events into the store (for the notifications page and badge), and new warnings
+ * and errors as toasts (the first read sets the baseline).
+ */
 function useFleetAlerts(on: boolean) {
   const t = useT();
   const lang = useApp((s) => s.config?.language ?? "en");
@@ -127,8 +160,13 @@ function useFleetAlerts(on: boolean) {
     if (!on) return;
     const poll = async () => {
       try {
-        const ev = await fleet.events(last.current ?? 0, 50);
+        const ev = await fleet.events(last.current ?? 0, last.current == null ? 300 : 50);
         const max = Math.max(last.current ?? 0, ...ev.map((e) => e.id));
+        if (ev.length) {
+          const known = new Set(useApp.getState().events.map((e) => e.id));
+          const fresh = ev.filter((e) => !known.has(e.id));
+          useApp.setState((s) => ({ events: [...fresh, ...s.events].sort((a, b) => b.id - a.id).slice(0, 300) }));
+        }
         if (last.current != null) {
           for (const e of ev.filter((e) => e.level !== "info" && e.id > last.current!).reverse()) {
             toast(e.level, `${e.deviceName ?? ""}: ${eventText(t, lang, e)}`);

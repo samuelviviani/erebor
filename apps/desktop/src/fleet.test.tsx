@@ -1,6 +1,7 @@
 import { clearMocks } from "@tauri-apps/api/mocks";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import App from "./App";
+import { niceStep } from "./components/fleet";
 import { installMockBackend } from "./dev/mockBackend";
 import { useApp } from "./lib/store";
 
@@ -18,7 +19,7 @@ test("first start: managing devices skips the mining setup and opens the device 
   expect(backend.config.defaultView).toBe("devices");
   expect(backend.config.onboardingCompleted).toBe(false);
   // Only managing devices: no section about mining on this computer, no status bar for it.
-  for (const name of ["Home", "Coins & wallets", "Energy", "Computer"])
+  for (const name of ["Home", "Coins & wallets", "Energy", "This computer", "Earnings"])
     expect(screen.queryByRole("button", { name })).not.toBeInTheDocument();
   expect(screen.queryByText("Ready to start")).not.toBeInTheDocument();
   // Mining here can still be set up later, from Settings.
@@ -30,7 +31,7 @@ test("first start: managing devices skips the mining setup and opens the device 
 test("device list: simulated devices flagged, hashrate per algorithm, confirmed bulk stop with per-device results", async () => {
   installMockBackend({ onboardingCompleted: true, demoMode: true, defaultView: "devices" }, { devices: true });
   render(<App />);
-  expect(await screen.findByText(/4 simulated device/)).toBeInTheDocument();
+  expect(await screen.findByText("4 simulated")).toBeInTheDocument();
   // Different algorithms are never added together.
   expect(screen.getAllByText(/^(rx\/0|sha256d)$/).length).toBeGreaterThanOrEqual(2);
 
@@ -65,4 +66,19 @@ test("adding a computer needs the 12-symbol code; ASIC actions it can't do are d
   expect(start).toBeDisabled();
   expect(start.parentElement).toHaveAttribute("title", expect.stringMatching(/no reliable stop/));
   await waitFor(() => expect(screen.getByRole("button", { name: /Restart/ })).toBeEnabled());
+});
+
+test("chart axis steps are round: 1, 2 or 5 times a power of ten", () => {
+  expect([0.7, 1.5, 3, 7, 1234, 0.004].map(niceStep)).toEqual([1, 2, 5, 10, 2000, 0.005]);
+});
+
+test("groups and profiles are tabs of the device page; notifications have their own place in the sidebar", async () => {
+  installMockBackend({ onboardingCompleted: true, demoMode: true, defaultView: "devices" }, { devices: true });
+  render(<App />);
+  for (const name of ["Groups", "Mining profiles", "Alerts"]) expect(screen.queryByRole("button", { name })).not.toBeInTheDocument();
+  fireEvent.click(await screen.findByRole("radio", { name: "Groups" }));
+  expect(await screen.findByRole("button", { name: /New group/ })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: /^Notifications/ }));
+  expect(await screen.findByRole("heading", { name: "Notifications", level: 1 })).toBeInTheDocument();
+  expect(screen.getByRole("switch", { name: "Desktop notifications" })).toBeChecked();
 });

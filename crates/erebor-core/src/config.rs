@@ -64,6 +64,8 @@ pub struct Performance {
     /// Mine only after this many minutes without keyboard or mouse input; any input
     /// makes mining wait at once. `None`: mine whether or not the PC is in use.
     pub idle_minutes: Option<u16>,
+    /// Program names (e.g. `eldenring.exe`, `Premiere Pro`): mining waits while one runs.
+    pub pause_apps: Vec<String>,
     /// Power limit for each NVIDIA GPU while mining (W), passed to the miner. It needs
     /// administrator rights; the driver keeps it within the card's own range.
     pub gpu_power_limit_w: Option<u32>,
@@ -80,6 +82,7 @@ impl Default for Performance {
             preset: Preset::Balanced,
             custom_threads_percent: 50,
             idle_minutes: None,
+            pause_apps: Vec::new(),
             gpu_power_limit_w: None,
             gpu_preset: Preset::Performance,
             custom_gpu_percent: 100,
@@ -143,6 +146,10 @@ pub struct Energy {
     pub heating_credit_percent: u8,
     pub solar: Solar,
     pub thermostat: Thermostat,
+    /// Smart plug in front of this computer: its reading is the whole PC's draw.
+    pub plug: Plug,
+    /// Hourly (or 15-minute) market prices, for people on a dynamic tariff.
+    pub dynamic: DynamicPrice,
     /// Mining waits while it loses money at the current price and resumes when it pays.
     pub stop_if_unprofitable: bool,
     /// Minimum estimated net profit per day (currency) below which mining waits.
@@ -197,6 +204,48 @@ impl Default for Thermostat {
     }
 }
 
+/// A smart plug (Shelly, Home Assistant…) read over HTTP: watts drawn by this computer.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct Plug {
+    pub enabled: bool,
+    pub url: String,
+    pub token: String,
+    pub field: String,
+}
+
+impl Default for Plug {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            url: String::new(),
+            token: String::new(),
+            field: "apower".into(),
+        }
+    }
+}
+
+/// Day-ahead market price of a bidding zone (Energy-Charts) plus what the supplier adds.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct DynamicPrice {
+    pub enabled: bool,
+    /// One of `energy::PRICE_ZONES`.
+    pub zone: String,
+    /// Added to the market price per kWh: grid fees, taxes and the supplier's margin.
+    pub surcharge: f64,
+}
+
+impl Default for DynamicPrice {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            zone: "DE-LU".into(),
+            surcharge: 0.15,
+        }
+    }
+}
+
 /// A power meter read over HTTP (Home Assistant, Shelly, an inverter's local API…).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(default, rename_all = "camelCase")]
@@ -224,6 +273,8 @@ impl Default for Energy {
             heating_credit_percent: 0,
             solar: Solar::default(),
             thermostat: Thermostat::default(),
+            plug: Plug::default(),
+            dynamic: DynamicPrice::default(),
             stop_if_unprofitable: false,
             min_profit_per_day: 0.0,
         }
@@ -370,12 +421,47 @@ pub struct CoinPoolChoice {
     pub backup: String,
 }
 
-/// Where problems are pushed. Empty fields: that channel is off.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+/// Where problems are pushed. Empty Telegram fields: that channel is off.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Notify {
     pub telegram_token: String,
     pub telegram_chat: String,
+    /// System notifications from the desktop app.
+    pub desktop: bool,
+    /// No notification between `quiet_start` and `quiet_end` (minutes from midnight).
+    pub quiet: bool,
+    pub quiet_start: u16,
+    pub quiet_end: u16,
+    /// On the 1st of the month: what last month mined, cost and left.
+    pub monthly_summary: bool,
+}
+
+impl Default for Notify {
+    fn default() -> Self {
+        Self {
+            telegram_token: String::new(),
+            telegram_chat: String::new(),
+            desktop: true,
+            quiet: false,
+            quiet_start: 23 * 60,
+            quiet_end: 7 * 60,
+            monthly_summary: true,
+        }
+    }
+}
+
+impl Notify {
+    /// Inside the quiet hours at `minute` (from local midnight)? Windows may cross midnight.
+    pub fn is_quiet(&self, minute: u16) -> bool {
+        let (s, e) = (self.quiet_start, self.quiet_end);
+        self.quiet
+            && if s <= e {
+                minute >= s && minute < e
+            } else {
+                minute >= s || minute < e
+            }
+    }
 }
 
 impl Default for AppConfig {
@@ -534,6 +620,31 @@ impl AppConfig {
         if s.enabled && !(s.url.starts_with("http://") || s.url.starts_with("https://")) {
             return Err("energy.solar.url: must start with http:// or https://".into());
         }
+        let pl = &self.energy.plug;
+        if pl.enabled && !(pl.url.starts_with("http://") || pl.url.starts_with("https://")) {
+            return Err("energy.plug.url: must start with http:// or https://".into());
+        }
+        let dy = &self.energy.dynamic;
+        if !crate::energy::PRICE_ZONES.contains(&dy.zone.as_str()) {
+            return Err("energy.dynamic.zone: unknown".into());
+        }
+        if !(dy.surcharge.is_finite() && (0.0..=5.0).contains(&dy.surcharge)) {
+            return Err("energy.dynamic.surcharge: 0..5".into());
+        }
+        if dy.enabled && self.energy.currency != "EUR" {
+            return Err("energy.dynamic: market prices are in EUR".into());
+        }
+        let apps = &self.performance.pause_apps;
+        if apps.len() > 30
+            || apps
+                .iter()
+                .any(|a| a.trim().is_empty() || a.len() > 64 || a.contains(['/', '\\']))
+        {
+            return Err("performance.pauseApps: up to 30 program names, no paths".into());
+        }
+        if self.notify.quiet_start >= 1440 || self.notify.quiet_end >= 1440 {
+            return Err("notify.quiet: minutes must be < 1440".into());
+        }
         if !self.energy.min_profit_per_day.is_finite() {
             return Err("energy.minProfitPerDay: invalid".into());
         }
@@ -652,7 +763,14 @@ impl AppConfig {
     pub fn save(&self, path: &Path) -> Result<(), String> {
         let tmp = path.with_extension("json.tmp");
         let data = serde_json::to_vec_pretty(self).map_err(|e| e.to_string())?;
-        std::fs::write(&tmp, data).map_err(|e| e.to_string())?;
+        // Owner-only: it holds the Telegram bot token and the meter/thermostat tokens.
+        let _ = std::fs::remove_file(&tmp);
+        let mut o = std::fs::OpenOptions::new();
+        o.write(true).create_new(true);
+        #[cfg(unix)]
+        std::os::unix::fs::OpenOptionsExt::mode(&mut o, 0o600);
+        std::io::Write::write_all(&mut o.open(&tmp).map_err(|e| e.to_string())?, &data)
+            .map_err(|e| e.to_string())?;
         std::fs::rename(&tmp, path).map_err(|e| e.to_string())
     }
 }
@@ -673,6 +791,12 @@ mod tests {
         c.coin_wallets.insert("QTC".into(), "addr".into());
         c.auto_exclude.insert("QTC".into());
         c.save(&p).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&p).unwrap().permissions().mode();
+            assert_eq!(mode & 0o777, 0o600, "config.json holds tokens: owner only");
+        }
         let m = AppConfig::load(&p);
         assert_eq!((m.coin.as_str(), m.version), ("QUANTUS", CONFIG_VERSION));
         assert!(m.coin_wallets.contains_key("QUANTUS") && !m.coin_wallets.contains_key("QTC"));

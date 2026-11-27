@@ -18,7 +18,9 @@ use erebor_core::ipc;
 use erebor_core::remote;
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
+#[cfg(unix)]
+use std::sync::atomic::Ordering;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 
@@ -238,22 +240,12 @@ fn run_until(data_dir: PathBuf, tx: Sender<()>, rx: Receiver<()>) -> Result<(), 
     let start = engine.config().start_on_launch || resume;
     let engine = Arc::new(Mutex::new(engine));
     engine::spawn_loops(engine.clone());
-    // Windows has no local socket yet: there the agent is reached over the remote
-    // protocol only (`erebor-agent init`).
-    let _ipc = match ipc::serve(ipc::Host::new(engine.clone(), "agent", Some(tx))) {
-        Ok(s) => Some(s),
-        Err(e) if e == "ipc_unsupported_platform" => None,
-        Err(e) => return Err(e),
-    };
+    let _ipc = ipc::serve(ipc::Host::new(engine.clone(), "agent", Some(tx)))?;
     println!(
         "erebor-agent {} ready · pid {} · socket {}",
         env!("CARGO_PKG_VERSION"),
         std::process::id(),
-        if _ipc.is_some() {
-            ipc::socket_path(&data_dir).display().to_string()
-        } else {
-            "none on this platform".into()
-        }
+        ipc::socket_path(&data_dir).display()
     );
     // Remote control only when turned on (`erebor-agent init`). If it can't listen, mining
     // still works locally: report and go on.

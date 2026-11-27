@@ -3,26 +3,30 @@ import {
   ArrowRight,
   Boxes,
   Check,
+  Coins,
   Compass,
   Cpu,
+  Gauge,
   Gpu,
+  Hand,
   Loader2,
   Power,
   Receipt,
   ShieldCheck,
+  Thermometer,
+  Wallet,
   Zap,
 } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Logo } from "../components/Layout";
+import { Logo, moveWindow } from "../components/Layout";
 import { PayoutChoice, payoutMode } from "../components/PayoutChoice";
 import { DefenderConsent, JobProgress, MinerSetup } from "../components/shared";
 import {
   Button,
   cx,
   Field,
-  Flag,
+  IconTile,
   inputClass,
-  Row,
   Segmented,
 } from "../components/ui";
 import {
@@ -42,7 +46,7 @@ type Step = (typeof STEPS)[number];
 
 export default function Onboarding() {
   const t = useT();
-  const { config, saveConfig, setConfig, toast, info, status, refreshStatus, setPage, setupLocal, setSetupLocal } =
+  const { config, saveConfig, toast, info, status, refreshStatus, setPage, setupLocal, setSetupLocal } =
     useApp();
   // First choice: mine here, or manage devices (no mining setup needed for that).
   const [use, setUse] = useState<"mining" | "devices">(config!.defaultView === "devices" ? "devices" : "mining");
@@ -190,7 +194,7 @@ export default function Onboarding() {
   return (
     <div className="flex min-h-full">
       {/* Brand side: where you are and what Erebor does for you. */}
-      <aside className="relative hidden w-[340px] shrink-0 flex-col overflow-hidden border-r border-line bg-sidebar p-8 lg:flex">
+      <aside onMouseDown={moveWindow} className="relative hidden w-[340px] shrink-0 flex-col overflow-hidden border-r border-line bg-sidebar p-8 lg:flex">
         <div className="relative flex items-center gap-2.5">
           <Logo className="h-9 w-auto" />
           <span className="text-lg font-semibold tracking-wide">Erebor</span>
@@ -238,7 +242,7 @@ export default function Onboarding() {
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <div className="flex items-center justify-between gap-3 px-6 pt-6 md:px-10">
+        <div onMouseDown={moveWindow} className="flex items-center justify-between gap-3 px-6 pt-6 md:px-10">
           <div className="flex items-center gap-2.5 lg:invisible">
             <Logo className="h-7 w-auto" />
             <span className="font-semibold tracking-wide">Erebor</span>
@@ -247,29 +251,6 @@ export default function Onboarding() {
             <span className="num text-xs text-faint lg:hidden">
               {t("onb.step", { n: idx + 1, t: visible.length })}
             </span>
-            <Segmented
-              label={t("settings.language")}
-              value={lang}
-              // The texts follow the app's config: switch it now, it is saved at the end.
-              onChange={(language) => {
-                setDraft({ ...draft, language });
-                if (config) setConfig({ ...config, language });
-              }}
-              options={[
-                {
-                  value: "en",
-                  label: "",
-                  icon: <Flag lang="en" />,
-                  title: "English",
-                },
-                {
-                  value: "it",
-                  label: "",
-                  icon: <Flag lang="it" />,
-                  title: "Italiano",
-                },
-              ]}
-            />
           </div>
         </div>
 
@@ -472,38 +453,36 @@ export default function Onboarding() {
             {step === "ready" && (
               <Section title={t("onb.ready.title")} sub={t("onb.ready.body")}>
                 {!demo && (
-                  <div className="rounded-2xl border border-line bg-surface px-4">
-                    <Row label={t("onb.ready.payout")}>
-                      <span className="font-mono text-xs">
-                        {shortAddress(draft.wallet)}
-                      </span>
-                    </Row>
-                    <Row label={t("onb.ready.mining")}>{t("coin.auto")}</Row>
-                    <Row label={t("home.mode")}>
-                      {t(`hw.mode.${draft.performance.preset}`)}
-                    </Row>
+                  <div className="divide-y divide-line rounded-2xl border border-line bg-surface shadow-[var(--highlight)]">
+                    <Summary icon={<Wallet />} tone="go" label={t("onb.ready.payout")}>
+                      <span className="font-mono text-xs">{shortAddress(draft.wallet)}</span>
+                      <button type="button" className="ml-3 text-xs text-accent hover:underline" onClick={() => setStep("account")}>
+                        {t("onb.ready.change")}
+                      </button>
+                    </Summary>
+                    <Summary icon={<Coins />} tone="accent" label={t("onb.ready.mining")} hint={t("onb.ready.mining.hint")}>
+                      {t("coin.auto")}
+                    </Summary>
+                    <Summary icon={<Gauge />} tone="perf" label={t("home.mode")} hint={t(`hw.mode.${draft.performance.preset}.desc`)}>
+                      <Segmented
+                        size="sm"
+                        label={t("home.mode")}
+                        value={draft.performance.preset === "custom" ? "balanced" : draft.performance.preset}
+                        onChange={(preset) => setDraft({ ...draft, performance: { ...draft.performance, preset } })}
+                        options={(["eco", "balanced", "performance"] as const).map((m) => ({ value: m, label: t(`hw.mode.${m}`) }))}
+                      />
+                    </Summary>
                   </div>
                 )}
-                <div className="flex flex-col gap-2 pt-2 sm:flex-row">
-                  <Button
-                    variant="primary"
-                    className="h-12 justify-center px-6 text-base sm:flex-1"
-                    onClick={() => finish(true)}
-                    loading={saving}
-                    disabled={!demo && (!live.miner.path || !walletOk)}
-                  >
-                    <Power className="size-4" />
-                    {t("onb.ready.start")}
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    className="h-12 justify-center"
-                    onClick={() => finish(false)}
-                    disabled={saving}
-                  >
-                    {t("onb.ready.later")}
-                  </Button>
-                </div>
+                <ul className="space-y-2 text-sm text-muted">
+                  {draft.safety.stopOnOverheat && (
+                    <Assurance icon={<Thermometer />}>{t("onb.ready.safe.heat", { c: Math.round(draft.safety.maxTempC) })}</Assurance>
+                  )}
+                  <Assurance icon={<Hand />}>{t("onb.ready.safe.stop")}</Assurance>
+                  {!!info?.devFeeWalletConfigured && !demo && (
+                    <Assurance icon={<Receipt />}>{t("onb.ready.safe.fee", { p: info.devFeePercent })}</Assurance>
+                  )}
+                </ul>
               </Section>
             )}
 
@@ -548,7 +527,23 @@ export default function Onboarding() {
                     {t("onb.welcome.demo")}
                   </Button>
                 )}
-                {step !== "ready" && (
+                {step === "ready" ? (
+                  <>
+                    <Button variant="ghost" onClick={() => finish(false)} disabled={saving}>
+                      {t("onb.ready.later")}
+                    </Button>
+                    <Button
+                      variant="primary"
+                      className="px-5"
+                      onClick={() => finish(true)}
+                      loading={saving}
+                      disabled={!demo && (!live.miner.path || !walletOk)}
+                    >
+                      <Power className="size-4" />
+                      {t("onb.ready.start")}
+                    </Button>
+                  </>
+                ) : (
                   <Button
                     variant="primary"
                     className="px-5"
@@ -567,6 +562,31 @@ export default function Onboarding() {
         </div>
       </div>
     </div>
+  );
+}
+
+/** A line of the final summary: what was chosen, and where it can be changed. */
+function Summary({ icon, tone, label, hint, children }: { icon: ReactNode; tone: "go" | "accent" | "perf"; label: string; hint?: string; children: ReactNode }) {
+  return (
+    <div className="flex flex-wrap items-center gap-3 px-4 py-3.5">
+      <IconTile tone={tone}>{icon}</IconTile>
+      <div className="min-w-0 flex-1">
+        <div className="text-sm text-fg">{label}</div>
+        {hint && <div className="text-xs text-faint">{hint}</div>}
+      </div>
+      <div className="flex items-center text-sm text-fg">{children}</div>
+    </div>
+  );
+}
+
+function Assurance({ icon, children }: { icon: ReactNode; children: ReactNode }) {
+  return (
+    <li className="flex items-start gap-2.5">
+      <span aria-hidden className="mt-0.5 text-go [&>svg]:size-4">
+        {icon}
+      </span>
+      {children}
+    </li>
   );
 }
 
