@@ -141,8 +141,9 @@ fn kryptex_login_and_pool_rules() {
     // No name chosen: this PC's hostname. The project's 2% is always "EREBOR".
     let pc = crate::config::default_worker();
     assert_eq!(t.user, format!("krxABC123/{pc}"));
-    // No project destination in a test build: no fee (the demo test covers "EREBOR").
-    assert!(e.project_target(e.coin).is_none());
+    // The project's time never goes to the user's wallet (none at all in a build without
+    // project destinations; the demo test covers "EREBOR").
+    assert_no_user_fee(&e, "krxABC123");
     let mut c = e.config().clone();
     c.pool.worker = "Ufficio".into();
     e.update_config(c).unwrap();
@@ -237,7 +238,10 @@ fn devfee_switches_and_falls_back_to_restart() {
     // Project time goes to the project's BTC address on unMineable.
     assert_eq!(
         s.switches.lock().unwrap().as_slice(),
-        ["BTC:DEMO-PROJECT-BTC.EREBOR"]
+        [format!(
+            "BTC:{}.EREBOR",
+            devfee::build_btc_wallet().unwrap_or("DEMO-PROJECT-BTC")
+        )]
     );
     // Hot switch failure → miner restarted on the user target.
     s.fail_switch.store(true, Ordering::SeqCst);
@@ -515,8 +519,8 @@ fn own_wallets_go_to_the_chosen_pool_and_fail_over() {
     let t = e.pool_target(Target::User);
     assert_eq!(t.url, "asia-kas.2miners.com:2020");
     assert!(t.user.starts_with(&format!("{kas}.")));
-    // This test build has no project destination: no fee, never the user's wallet.
-    assert!(e.project_target(e.coin).is_none());
+    // No fee to the user's wallet, whatever the build's project destinations.
+    assert_no_user_fee(&e, &kas);
     // Three minutes without a pool connection: the backup takes over.
     e.stats = Some(MinerStats::default());
     e.offline_since = Instant::now().checked_sub(FAILOVER_AFTER);
@@ -968,4 +972,14 @@ fn engine_loops_survive_a_panicking_round() {
         n.load(Ordering::SeqCst) >= 3,
         "the loop kept going after the panic"
     );
+}
+
+/// Project time goes to the build's project destination, never to `user`'s wallet; a build
+/// without destinations (tests, forks) takes no fee at all.
+fn assert_no_user_fee(e: &Engine, user: &str) {
+    let builtin = devfee::build_wallet().is_some() || devfee::build_btc_wallet().is_some();
+    match e.project_target(e.coin) {
+        Some(p) => assert!(builtin && !p.user.contains(user), "{}", p.user),
+        None => assert!(!builtin),
+    }
 }
