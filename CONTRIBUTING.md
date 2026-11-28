@@ -22,4 +22,4 @@ Implement `MinerAdapter` (`crates/erebor-core/src/miner.rs`), add it to the engi
 factory, pin a manifest with SHA-256 and add tests with a simulated process. Don't claim
 support until it has been tested on real hardware.
 
-By contributing you agree that your code is distributed under the MIT licence.
+Contributions are subject to the terms in [LICENSE](LICENSE).

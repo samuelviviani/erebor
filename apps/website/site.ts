@@ -2,7 +2,7 @@ export const site = {
   name: "Erebor",
   tagline: "Mining, without the maze.",
   description:
-    "Erebor is an open-source, local-first mining manager for your own computer: it picks the coin, runs verified miners and shows what it really earns.",
+    "Erebor is a source-available, local-first mining manager for your own computer: it picks the coin, runs verified miners and shows what it really earns.",
   url: process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000",
   repoUrl: "https://github.com/samuelviviani/erebor",
   devFeePercent: 2,

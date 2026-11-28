@@ -24,7 +24,7 @@ export default function Home() {
         <p className="mb-4 text-sm font-medium tracking-widest text-accent uppercase">Erebor</p>
         <h1 className="mx-auto max-w-3xl text-4xl font-semibold tracking-tight sm:text-6xl">{site.tagline}</h1>
         <p className="mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-muted">
-          An open-source, local-first mining manager for your own computer. It picks the coin, runs verified miners and shows
+          A source-available, local-first mining manager for your own computer. It picks the coin, runs verified miners and shows
           what it really earns.
         </p>
         <div className="mt-10 flex flex-wrap justify-center gap-3">
@@ -35,7 +35,7 @@ export default function Home() {
             How it works
           </Link>
         </div>
-        <p className="mt-4 text-xs text-faint">Windows · macOS · Linux · Open source · No account</p>
+        <p className="mt-4 text-xs text-faint">Windows · macOS · Linux · Source available · No account</p>
       </section>
 
       <section className="mx-auto max-w-6xl px-4 sm:px-6" aria-label="Preview">
@@ -115,7 +115,7 @@ export default function Home() {
 
       <section className="mx-auto max-w-6xl px-4 pt-24 sm:px-6">
         <div className="rounded-2xl border border-line bg-surface p-8 text-center">
-          <h2 className="text-2xl font-semibold tracking-tight">Open source</h2>
+          <h2 className="text-2xl font-semibold tracking-tight">Source available</h2>
           <p className="mx-auto mt-3 max-w-2xl text-muted">
             Source code, dependencies and licences are public and verifiable. No obfuscated code, no hidden mining, no start
             without your action.

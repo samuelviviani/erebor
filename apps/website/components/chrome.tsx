@@ -43,13 +43,13 @@ export function Footer() {
           <div className="mb-2 flex items-center gap-2 font-semibold text-fg">
             <Logo className="h-5 w-auto" /> Erebor
           </div>
-          <p className="text-faint">Open-source, non-custodial, local-first mining manager.</p>
+          <p className="text-faint">Source-available, non-custodial, local-first mining manager.</p>
         </div>
         <ul className="space-y-2">
           <li><Link href="/download" className="hover:text-fg">Download</Link></li>
           <li><Link href="/docs" className="hover:text-fg">Docs</Link></li>
           <li><Link href="/fees" className="hover:text-fg">Fees</Link></li>
-          <li><Link href="/open-source" className="hover:text-fg">Open source</Link></li>
+          <li><Link href="/open-source" className="hover:text-fg">Source available</Link></li>
         </ul>
         <ul className="space-y-2">
           <li><Link href="/faq" className="hover:text-fg">FAQ</Link></li>

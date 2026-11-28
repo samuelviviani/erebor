@@ -19,11 +19,11 @@ A newcomer must never face advanced features. Those features live behind an expl
 
 ## Product Purpose
 
-Erebor is an open-source, local-first, non-custodial mining manager: it mines on the user's own computer and, on request, manages their other computers, servers, rigs and ASICs from one dashboard. It picks the coin, runs verified miners and shows what mining really earns after electricity. Success is the user mining calmly, without babysitting a miner or wondering whether it is safe or worth it.
+Erebor is a source-available, local-first, non-custodial mining manager: it mines on the user's own computer and, on request, manages their other computers, servers, rigs and ASICs from one dashboard. It picks the coin, runs verified miners and shows what mining really earns after electricity. Success is the user mining calmly, without babysitting a miner or wondering whether it is safe or worth it.
 
 ## Positioning
 
-- Open source (MIT) and local-first: everything runs on the user's machine.
+- Source-available (ESAL) and local-first: everything runs on the user's machine.
 - Only official miner releases (XMRig, SRBMiner-MULTI, lolMiner, cpuminer-opt), checked against a SHA-256 pinned in the repository before install. Miners are downloaded, never bundled.
 - Picks the coin from public profitability data (WhatToMine, Kryptex) and re-checks every half hour; the user can always choose a coin.
 - Shows estimated earnings minus electricity, next to a link to the real pool balance.

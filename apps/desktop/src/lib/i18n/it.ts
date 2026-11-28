@@ -234,7 +234,7 @@ export const it = {
   "settings.exported": "Configurazione copiata negli appunti",
   "settings.delete": "Elimina tutti i dati locali",
   "settings.delete.confirm": "Eliminare configurazione, statistiche e miner installati? Il mining verrà arrestato.",
-  "settings.licenses.desc": "Erebor è distribuito con licenza MIT. XMRig è un progetto separato con licenza GPLv3, scaricato dalle release ufficiali.",
+  "settings.licenses.desc": "Erebor è distribuito con licenza Erebor Source-Available License (ESAL). XMRig è un progetto separato con licenza GPLv3, scaricato dalle release ufficiali.",
   "settings.saved": "Impostazioni salvate",
 
 

@@ -236,7 +236,7 @@ export const en: Record<Key, string> = {
   "settings.exported": "Configuration copied to clipboard",
   "settings.delete": "Delete all local data",
   "settings.delete.confirm": "Delete configuration, statistics and installed miners? Mining will be stopped.",
-  "settings.licenses.desc": "Erebor is MIT licensed. XMRig is a separate GPLv3 project, downloaded from its official releases.",
+  "settings.licenses.desc": "Erebor is distributed under the Erebor Source-Available License (ESAL). XMRig is a separate GPLv3 project, downloaded from its official releases.",
   "settings.saved": "Settings saved",
 
 

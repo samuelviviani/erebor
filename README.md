@@ -9,13 +9,13 @@
 
 ### Mining, without the maze.
 
-An **open-source**, **local-first**, **non-custodial** mining manager.<br>
+A **source-available**, **local-first**, **non-custodial** mining manager.<br>
 It mines on your computer, and manages your other PCs, servers, rigs and ASICs from one dashboard.
 
 [![Release](https://img.shields.io/github/v/release/samuelviviani/erebor?style=flat-square&color=E6A93C&label=release)](https://github.com/samuelviviani/erebor/releases/latest)
 [![CI](https://img.shields.io/github/actions/workflow/status/samuelviviani/erebor/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/samuelviviani/erebor/actions/workflows/ci.yml)
 [![Downloads](https://img.shields.io/github/downloads/samuelviviani/erebor/total?style=flat-square&color=0a0a0a)](https://github.com/samuelviviani/erebor/releases)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
+[![License: ESAL](https://img.shields.io/badge/license-ESAL-blue?style=flat-square)](LICENSE)
 <br>
 ![Windows](https://img.shields.io/badge/Windows-0078D4?style=flat-square&logo=windows&logoColor=white)
 ![Linux](https://img.shields.io/badge/Linux-FCC624?style=flat-square&logo=linux&logoColor=black)
@@ -195,7 +195,7 @@ Full guide in [DEVELOPMENT.md](DEVELOPMENT.md). Pull requests are welcome: pleas
 
 ## License
 
-Erebor is released under the **MIT** license ([LICENSE](LICENSE)).
+Erebor is released under the **Erebor Source-Available License (ESAL)** ([LICENSE](LICENSE)).
 XMRig (GPLv3), SRBMiner-MULTI, lolMiner and cpuminer-opt (GPLv2) are separate projects and
 **are not bundled**: they are downloaded from their official releases and verified with SHA-256.
 Erebor keeps 2% of mining time as its fee, shown in the app and on the website.

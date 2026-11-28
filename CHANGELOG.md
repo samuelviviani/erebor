@@ -9,6 +9,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions: [Sem
 - Add `erebor agent setup` and an `--agent` installer mode for one-step pairing, including a running miner without interruption.
 - Configure UFW for trusted local networks on Linux and improve LAN discovery when broadcast is blocked.
 - Refine the Devices controls, filters, tags and pairing dialog.
+- Align project metadata with the Erebor Source-Available License (ESAL).
 
 ## [0.1.9] - 2026-11-28
 
