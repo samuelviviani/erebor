@@ -410,6 +410,8 @@ export function installMockBackend(initial?: Partial<AppConfig>, opts: { devices
     const a = (args ?? {}) as Record<string, unknown>;
     if (cmd.startsWith("fleet_")) return fleetCall(cmd, a);
     switch (cmd) {
+      case "desktop_pair":
+        return { code: "ABCD-EFGH-JKMN", expiresAt: Math.floor(Date.now() / 1000) + 600 };
       case "app_info":
         return info;
       case "get_config":

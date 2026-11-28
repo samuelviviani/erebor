@@ -1,6 +1,6 @@
 import { HardDrive, Monitor, Radar, RefreshCw } from "lucide-react";
-import { useState } from "react";
-import { errorText, fleet, type DeviceKind, type FoundAgent } from "../lib/api";
+import { useEffect, useState } from "react";
+import { errorText, fleet, type FoundAgent } from "../lib/api";
 import { translateError, useT } from "../lib/i18n";
 import { useApp } from "../lib/store";
 import { useLang } from "./fleet";
@@ -17,14 +17,14 @@ export function AddDevice({ open, onClose }: { open: boolean; onClose: () => voi
   const [mode, setMode] = useState<"computer" | "asic">("computer");
   const [address, setAddress] = useState("");
   const [code, setCode] = useState("");
-  const [kind, setKind] = useState<DeviceKind>("remote_pc");
+  const [ownCode, setOwnCode] = useState("");
   const [port, setPort] = useState("");
   const [name, setName] = useState("");
   const [via, setVia] = useState("");
   const [cidr, setCidr] = useState("");
   const [found, setFound] = useState<FoundAgent[] | null>(null);
   const [scan, setScan] = useState<{ host: string; port: number }[] | null>(null);
-  const [busy, setBusy] = useState<"" | "add" | "discover" | "scan">("");
+  const [busy, setBusy] = useState<"" | "add" | "discover" | "scan" | "own">("");
   const [error, setError] = useState("");
   const gateways = (list?.devices ?? []).filter((d) => d.kind !== "asic" && d.kind !== "local_pc");
 
@@ -47,10 +47,18 @@ export function AddDevice({ open, onClose }: { open: boolean; onClose: () => voi
     setName("");
     onClose();
   };
+  useEffect(() => {
+    if (!open) return;
+    let active = true;
+    setFound(null);
+    fleet.discover().then((items) => { if (active) setFound(items); }).catch((e) => { if (active) setError(translateError(lang, errorText(e))); });
+    return () => { active = false; };
+  }, [open, lang]);
+
   const add = () =>
     run("add", async () => {
       if (mode === "computer") {
-        await fleet.addAgent(address.trim(), code.trim(), kind);
+        await fleet.addAgent(address.trim(), code.trim());
         await done(t("fleet.add.paired"));
       } else {
         await fleet.addAsic(address.trim(), port ? Number(port) : null, name.trim() || null, via || null);
@@ -92,9 +100,17 @@ export function AddDevice({ open, onClose }: { open: boolean; onClose: () => voi
         />
         {mode === "computer" ? (
           <>
+            <div className="rounded-xl border border-line p-3 text-sm">
+              <p className="font-medium text-fg">{t("fleet.add.thisComputer")}</p>
+              <p className="mt-1 text-xs text-muted">{t("fleet.add.thisComputer.hint")}</p>
+              <div className="mt-3 flex flex-wrap items-center gap-3">
+                <Button size="sm" loading={busy === "own"} onClick={() => run("own", async () => setOwnCode((await fleet.pairThisComputer()).code))}>{t("fleet.add.thisComputer.action")}</Button>
+                {ownCode && <span className="num font-semibold tracking-wider" aria-live="polite">{ownCode}</span>}
+              </div>
+            </div>
             <div className="space-y-2 text-sm leading-relaxed">
               <p>{t("fleet.add.computer.how")}</p>
-              <pre className="num overflow-x-auto rounded-xl bg-surface-2 px-3 py-2 text-xs text-fg">erebor-agent init{"\n"}sudo systemctl restart erebor-agent{"\n"}erebor-agent pair</pre>
+              <pre className="num overflow-x-auto rounded-xl bg-surface-2 px-3 py-2 text-xs text-fg">erebor-agent setup</pre>
             </div>
             <div>
               <div className="mb-2 flex items-center justify-between gap-2">
@@ -112,7 +128,7 @@ export function AddDevice({ open, onClose }: { open: boolean; onClose: () => voi
                         type="button"
                         disabled={f.paired}
                         onClick={() => setAddress(f.found.address)}
-                        className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm hover:bg-surface-2 disabled:opacity-50"
+                        className={`flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm hover:bg-surface-2 disabled:opacity-50 ${address === f.found.address ? "bg-surface-2" : ""}`}
                       >
                         <span className="min-w-0">
                           <span className="block truncate font-medium text-fg">{f.found.name}</span>
@@ -127,23 +143,17 @@ export function AddDevice({ open, onClose }: { open: boolean; onClose: () => voi
                 </ul>
               )}
             </div>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Field label={t("fleet.add.address")} hint={t("fleet.add.address.hint")}>
-                <input className={inputClass} value={address} onChange={(e) => setAddress(e.target.value)} placeholder="192.168.1.20" spellCheck={false} />
-              </Field>
-              <Field label={t("fleet.add.code")} hint={t("fleet.add.code.hint")}>
-                <input className={`${inputClass} num uppercase`} value={code} onChange={(e) => setCode(e.target.value)} placeholder="XXXX-XXXX-XXXX" spellCheck={false} autoComplete="off" />
-              </Field>
-            </div>
-            <Field label={t("fleet.add.kind")}>
-              <select className={inputClass} value={kind} onChange={(e) => setKind(e.target.value as DeviceKind)}>
-                {(["remote_pc", "server", "gpu_rig", "cpu_rig"] as const).map((k) => (
-                  <option key={k} value={k}>
-                    {t(`fleet.kind.${k}`)}
-                  </option>
-                ))}
-              </select>
+            <Field label={t("fleet.add.code")} hint={t("fleet.add.code.hint")}>
+              <input className={`${inputClass} num uppercase`} value={code} onChange={(e) => setCode(e.target.value)} placeholder="XXXX-XXXX-XXXX" spellCheck={false} autoComplete="off" />
             </Field>
+            <details className="rounded-xl border border-line p-3">
+              <summary className="cursor-pointer text-sm font-medium">{t("fleet.add.advanced")}</summary>
+              <div className="mt-3">
+                <Field label={t("fleet.add.address")} hint={t("fleet.add.address.hint")}>
+                  <input className={inputClass} value={address} onChange={(e) => setAddress(e.target.value)} placeholder="192.168.1.20" spellCheck={false} />
+                </Field>
+              </div>
+            </details>
           </>
         ) : (
           <>

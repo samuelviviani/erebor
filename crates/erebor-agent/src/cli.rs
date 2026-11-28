@@ -4,7 +4,7 @@ use crate as agent;
 use serde_json::Value;
 use std::path::PathBuf;
 
-const USAGE: &str = "usage: erebor-agent [start|init|pair|status|controllers|revoke|rotate-key|disable|asic] [--data-dir DIR] [--json]\n       erebor-agent --help";
+const USAGE: &str = "usage: erebor-agent [start|setup|init|pair|status|controllers|revoke|rotate-key|disable|asic] [--data-dir DIR] [--json]\n       erebor-agent --help";
 
 /// The `erebor-agent` command line (also `erebor` when started through an
 /// `erebor-agent` symlink, as the release packages install it).
@@ -45,6 +45,59 @@ pub fn cli(args: impl Iterator<Item = String>) {
             _ => pos.push(a),
         }
     }
+    #[cfg(target_os = "linux")]
+    if pos.as_slice() == ["setup"] && dir.is_none() && std::path::Path::new(SYSTEM_DIR).is_dir() {
+        use std::os::unix::fs::MetadataExt;
+        let owner = std::fs::metadata(SYSTEM_DIR).map(|m| m.uid()).ok();
+        if owner != Some(unsafe { libc::geteuid() }) {
+            let exe = std::env::current_exe().unwrap_or_else(|e| {
+                eprintln!("{e}");
+                std::process::exit(1)
+            });
+            let status = std::process::Command::new("sudo")
+                .args(["-u", "erebor-agent"])
+                .arg(&exe)
+                .args(["status", "--json"])
+                .output();
+            let info: Value = status
+                .ok()
+                .filter(|s| s.status.success())
+                .and_then(|s| serde_json::from_slice(&s.stdout).ok())
+                .unwrap_or_else(|| {
+                    eprintln!("erebor-agent: cannot read service status");
+                    std::process::exit(1)
+                });
+            if info["enabled"] != true {
+                let ok = std::process::Command::new("sudo")
+                    .args(["-u", "erebor-agent"])
+                    .arg(&exe)
+                    .arg("init")
+                    .status()
+                    .is_ok_and(|s| s.success());
+                if !ok {
+                    eprintln!("erebor-agent: setup failed");
+                    std::process::exit(1);
+                }
+            }
+            if info["enabled"] != true || info["agentRunning"] != true {
+                let ok = std::process::Command::new("sudo")
+                    .args(["systemctl", "restart", "erebor-agent"])
+                    .status()
+                    .is_ok_and(|s| s.success());
+                if !ok {
+                    eprintln!("erebor-agent: service restart failed");
+                    std::process::exit(1);
+                }
+            }
+            let status = std::process::Command::new("sudo")
+                .args(["-u", "erebor-agent"])
+                .arg(exe)
+                .arg("pair")
+                .args(if json { vec!["--json"] } else { vec![] })
+                .status();
+            std::process::exit(status.ok().and_then(|s| s.code()).unwrap_or(1));
+        }
+    }
     let dir = dir.unwrap_or_else(default_dir);
     let opt = |k: &str| opts.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone());
     let pos: Vec<&str> = pos.iter().map(String::as_str).collect();
@@ -56,6 +109,7 @@ pub fn cli(args: impl Iterator<Item = String>) {
             }
             return;
         }
+        ["setup"] => setup(&dir),
         ["init"] => agent::init(&dir, opt("listen"), opt("no-discovery").is_none()),
         ["pair"] => agent::pair(&dir),
         ["status"] => Ok(agent::remote_status(&dir)),
@@ -89,6 +143,17 @@ pub fn cli(args: impl Iterator<Item = String>) {
     }
 }
 
+fn setup(dir: &std::path::Path) -> Result<Value, String> {
+    let cfg = erebor_core::remote::RemoteConfig::load(dir);
+    if !cfg.enabled {
+        if agent::remote_status(dir)["agentRunning"] == true {
+            return Err("remote control is disabled on the running agent; enable it and restart the service before setup".into());
+        }
+        agent::init(dir, None, true)?;
+    }
+    agent::pair(dir)
+}
+
 fn exit_usage() -> ! {
     eprintln!("{USAGE}");
     std::process::exit(2);
@@ -106,7 +171,7 @@ fn print_human(cmd: &str, v: &Value) {
             println!("This agent's fingerprint: {}", s("fingerprint"));
             println!("Next: restart the agent (sudo systemctl restart erebor-agent), then: erebor-agent pair");
         }
-        "pair" => {
+        "setup" | "pair" => {
             println!("Pairing code: {}", s("code"));
             println!("Valid for 10 minutes, once. In Erebor Desktop: Devices → Add device.");
             for a in v["addresses"].as_array().into_iter().flatten() {

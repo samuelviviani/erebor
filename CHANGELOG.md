@@ -4,6 +4,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions: [Sem
 
 ## [Unreleased]
 
+## [0.1.9] - 2026-11-28
+
+- Pair a desktop computer directly from Devices using a one-time code, without installing the terminal agent.
+- Search the local network when adding a computer, with manual address entry in advanced options.
+- Detect supported device types on pairing and simplify agent setup with `erebor-agent setup`.
+
 ## [0.1.8] - 2026-11-27
 
 ### Added

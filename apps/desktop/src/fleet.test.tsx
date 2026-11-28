@@ -68,6 +68,16 @@ test("adding a computer needs the 12-symbol code; ASIC actions it can't do are d
   await waitFor(() => expect(screen.getByRole("button", { name: /Restart/ })).toBeEnabled());
 });
 
+test("desktop can show a pairing code without the terminal", async () => {
+  const backend = installMockBackend({ onboardingCompleted: true, demoMode: true, defaultView: "devices" }, { devices: true });
+  render(<App />);
+  fireEvent.click(await screen.findByRole("button", { name: /Add device/ }));
+  const dialog = await screen.findByRole("dialog");
+  fireEvent.click(within(dialog).getByRole("button", { name: "Show code" }));
+  expect(await within(dialog).findByText("ABCD-EFGH-JKMN")).toBeInTheDocument();
+  expect(backend.calls).toContain("desktop_pair");
+});
+
 test("chart axis steps are round: 1, 2 or 5 times a power of ten", () => {
   expect([0.7, 1.5, 3, 7, 1234, 0.004].map(niceStep)).toEqual([1, 2, 5, 10, 2000, 0.005]);
 });

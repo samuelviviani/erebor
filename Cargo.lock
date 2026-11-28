@@ -1362,7 +1362,7 @@ dependencies = [
 
 [[package]]
 name = "erebor-agent"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "ctrlc",
  "erebor-core",
@@ -1373,7 +1373,7 @@ dependencies = [
 
 [[package]]
 name = "erebor-cli"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "anstream",
  "anstyle",
@@ -1391,7 +1391,7 @@ dependencies = [
 
 [[package]]
 name = "erebor-core"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -1416,7 +1416,7 @@ dependencies = [
 
 [[package]]
 name = "erebor-desktop"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "erebor-core",
  "serde_json",
@@ -1433,7 +1433,7 @@ dependencies = [
 
 [[package]]
 name = "erebor-tui"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "crossterm",
  "erebor-core",

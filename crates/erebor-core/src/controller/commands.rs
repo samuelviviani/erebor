@@ -8,9 +8,11 @@ pub fn discover(f: &Fleet) -> Result<Value, String> {
         return Err("discovery_disabled".into());
     }
     let known: Vec<String> = f.devices().into_iter().map(|d| d.id).collect();
+    let own_id = crate::fleet::device(&f.data_dir)?.id;
     let found = client::discover(remote::PORT, Duration::from_millis(1500))?;
     Ok(json!(found
         .into_iter()
+        .filter(|x| x.id != own_id)
         .map(|x| {
             let paired = known.contains(&format!("agent:{}", x.id));
             json!({"found": x, "paired": paired})

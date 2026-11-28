@@ -11,6 +11,7 @@ use erebor_core::autostart::{self, Kind, APP_LABEL};
 use erebor_core::controller::LocalCall;
 use erebor_core::engine::{self, Engine};
 use erebor_core::ipc;
+use erebor_core::remote::{self, RemoteConfig};
 use erebor_core::rpc::{self, Shared};
 use erebor_core::sim::Hub;
 use serde_json::Value;
@@ -32,6 +33,8 @@ struct AppState {
     _ipc: Option<ipc::Server>,
     /// Devices managed from here (this PC included); in demo mode a simulated set.
     fleet: Hub,
+    data_dir: PathBuf,
+    remote: Mutex<Option<remote::server::Server>>,
 }
 
 type R<T> = Result<T, Value>;
@@ -290,6 +293,25 @@ async fn call(s: State<'_, Arc<AppState>>, cmd: String, args: Option<Value>) -> 
     let st = s.inner().clone();
     blocking(move || {
         let args = args.unwrap_or(Value::Null);
+        if cmd == "desktop_pair" {
+            let mut cfg = RemoteConfig::load(&st.data_dir);
+            if let Backend::Local(engine) = &st.backend {
+                let mut server = st.remote.lock().map_err(|e| Value::String(e.to_string()))?;
+                if server.is_none() {
+                    let started = remote::server::serve(engine.clone(), &cfg).map_err(Value::String)?;
+                    cfg.enabled = true;
+                    if let Err(e) = cfg.save(&st.data_dir) {
+                        drop(started);
+                        return Err(Value::String(e));
+                    }
+                    *server = Some(started);
+                }
+            } else if !cfg.enabled {
+                return Err(Value::String("remote_agent_disabled".into()));
+            }
+            let p = remote::start_pairing(&st.data_dir).map_err(Value::String)?;
+            return Ok(serde_json::json!({"code": remote::format_code(&p.code), "expiresAt": p.expires_at}));
+        }
         if cmd.starts_with("fleet_") {
             return st.fleet.call(&cmd, &args);
         }
@@ -369,10 +391,23 @@ fn main() {
                 }
             };
             let fleet = Hub::new(&dir, local);
+            let cfg = RemoteConfig::load(&dir);
+            let remote = match &backend {
+                Backend::Local(e) if cfg.enabled => match remote::server::serve(e.clone(), &cfg) {
+                    Ok(server) => Some(server),
+                    Err(e) => {
+                        eprintln!("remote control unavailable: {e}");
+                        None
+                    }
+                },
+                _ => None,
+            };
             let st = Arc::new(AppState {
                 backend,
                 _ipc: ipc,
                 fleet,
+                data_dir: dir.clone(),
+                remote: Mutex::new(remote),
             });
             app.manage(st.clone());
             notifier(app.handle().clone(), st.clone(), dir.clone());

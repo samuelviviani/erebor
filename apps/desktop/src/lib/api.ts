@@ -709,6 +709,7 @@ export interface AsicStatus {
 }
 
 export const fleet = {
+  pairThisComputer: () => call<{ code: string; expiresAt: number }>("desktop_pair"),
   list: () => call<FleetList>("fleet_list"),
   refresh: () => call<void>("fleet_refresh"),
   discover: () => call<FoundAgent[]>("fleet_discover"),

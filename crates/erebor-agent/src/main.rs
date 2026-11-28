@@ -2,6 +2,7 @@
 //! lets paired controllers (Erebor Desktop, `erebor devices`) watch and control it.
 //!
 //!   erebor-agent [start]                 run in the foreground (what services run)
+//!   erebor-agent setup                   prepare remote pairing and show a one-time code
 //!   erebor-agent init [--listen ADDR] [--no-discovery]
 //!                                        turn remote control on (TLS, port 7420)
 //!   erebor-agent pair                    show a one-time pairing code (10 minutes)

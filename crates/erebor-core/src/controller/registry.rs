@@ -83,7 +83,7 @@ impl Fleet {
     ) -> Result<DeviceRec, String> {
         let me = crate::fleet::device(&self.data_dir)?.name;
         let p = client::pair(&self.identity, address, code, &me)?;
-        let d = DeviceRec {
+        let mut d = DeviceRec {
             id: format!("agent:{}", p.device.id),
             kind: kind
                 .filter(|k| !matches!(k, DeviceKind::LocalPc | DeviceKind::Asic))
@@ -98,6 +98,20 @@ impl Fleet {
             added_at: crate::now_unix(),
             last_seen: Some(crate::now_unix()),
         };
+        if kind.is_none() {
+            if let Ok(info) = self.agent_call(&d, "device", &Value::Null) {
+                let hw = &info["hardware"];
+                let gpu_count = hw["gpus"].as_array().map_or(0, Vec::len);
+                let os = hw["osName"].as_str().unwrap_or("").to_lowercase();
+                d.kind = if gpu_count >= 2 {
+                    DeviceKind::GpuRig
+                } else if os.contains("server") {
+                    DeviceKind::Server
+                } else {
+                    DeviceKind::RemotePc
+                };
+            }
+        }
         // Paired again (new code, new address): keep the record, refresh the trust.
         let updated = self
             .db()
