@@ -33,8 +33,7 @@ struct AppState {
     _ipc: Option<ipc::Server>,
     /// Devices managed from here (this PC included); in demo mode a simulated set.
     fleet: Hub,
-    data_dir: PathBuf,
-    remote: Mutex<Option<remote::server::Server>>,
+    remote: Arc<Mutex<Option<remote::server::Server>>>,
 }
 
 type R<T> = Result<T, Value>;
@@ -294,23 +293,18 @@ async fn call(s: State<'_, Arc<AppState>>, cmd: String, args: Option<Value>) -> 
     blocking(move || {
         let args = args.unwrap_or(Value::Null);
         if cmd == "desktop_pair" {
-            let mut cfg = RemoteConfig::load(&st.data_dir);
-            if let Backend::Local(engine) = &st.backend {
-                let mut server = st.remote.lock().map_err(|e| Value::String(e.to_string()))?;
-                if server.is_none() {
-                    let started = remote::server::serve(engine.clone(), &cfg).map_err(Value::String)?;
-                    cfg.enabled = true;
-                    if let Err(e) = cfg.save(&st.data_dir) {
-                        drop(started);
-                        return Err(Value::String(e));
-                    }
-                    *server = Some(started);
+            return match &st.backend {
+                Backend::Local(engine) => {
+                    remote::server::setup(engine, &st.remote).map_err(Value::from)
                 }
-            } else if !cfg.enabled {
-                return Err(Value::String("remote_agent_disabled".into()));
-            }
-            let p = remote::start_pairing(&st.data_dir).map_err(Value::String)?;
-            return Ok(serde_json::json!({"code": remote::format_code(&p.code), "expiresAt": p.expires_at}));
+                Backend::Agent(dir) => ipc::call(dir, "remote_setup", &Value::Null).map_err(|e| {
+                    if e == "unknown_command" || e == "remote_setup_unavailable" {
+                        Value::from("remote_setup_update_required")
+                    } else {
+                        e
+                    }
+                }),
+            };
         }
         if cmd.starts_with("fleet_") {
             return st.fleet.call(&cmd, &args);
@@ -375,8 +369,26 @@ fn main() {
                 }
                 Err(e) => return Err(e.into()),
             };
+            let cfg = RemoteConfig::load(&dir);
+            let remote = Arc::new(Mutex::new(match &backend {
+                Backend::Local(e) if cfg.enabled => match remote::server::serve(e.clone(), &cfg) {
+                    Ok(server) => Some(server),
+                    Err(e) => {
+                        eprintln!("remote control unavailable: {e}");
+                        None
+                    }
+                },
+                _ => None,
+            }));
             let ipc = match &backend {
-                Backend::Local(e) => ipc::serve(ipc::Host::new(e.clone(), "desktop", None)).ok(),
+                Backend::Local(e) => {
+                    let mut host = ipc::Host::new(e.clone(), "desktop", None);
+                    let (engine, server) = (e.clone(), remote.clone());
+                    host.remote_setup = Some(Arc::new(move || {
+                        remote::server::setup(&engine, &server).map_err(Value::from)
+                    }));
+                    ipc::serve(host).ok()
+                }
                 _ => None,
             };
             // This PC in the device list, through the same backend as the rest of the app.
@@ -391,23 +403,11 @@ fn main() {
                 }
             };
             let fleet = Hub::new(&dir, local);
-            let cfg = RemoteConfig::load(&dir);
-            let remote = match &backend {
-                Backend::Local(e) if cfg.enabled => match remote::server::serve(e.clone(), &cfg) {
-                    Ok(server) => Some(server),
-                    Err(e) => {
-                        eprintln!("remote control unavailable: {e}");
-                        None
-                    }
-                },
-                _ => None,
-            };
             let st = Arc::new(AppState {
                 backend,
                 _ipc: ipc,
                 fleet,
-                data_dir: dir.clone(),
-                remote: Mutex::new(remote),
+                remote,
             });
             app.manage(st.clone());
             notifier(app.handle().clone(), st.clone(), dir.clone());

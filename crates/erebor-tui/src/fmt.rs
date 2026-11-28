@@ -76,6 +76,10 @@ pub fn explain(code: &str) -> (String, Option<&'static str>) {
             "Erebor is not running in the background",
             Some("start mining: erebor start · live dashboard: erebor"),
         ),
+        "remote_setup_update_required" => (
+            "the running agent needs to be updated before pairing",
+            Some("restart the agent after updating (mining stops), then run: erebor agent setup"),
+        ),
         "wallet_missing" => (
             "no payout wallet configured",
             Some("erebor wallet set <KRYPTEX_ID>   (or try it first: erebor demo on)"),

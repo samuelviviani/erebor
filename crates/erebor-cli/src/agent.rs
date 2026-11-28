@@ -110,6 +110,76 @@ pub(super) fn agent(dir: &Path, cmd: AgentCmd, json: bool) -> Result<(), Fail> {
             println!("Login service removed.");
             Ok(())
         }
+        AgentCmd::Setup => {
+            ensure_agent(dir, json)?;
+            let mut v = call(dir, "remote_setup", Value::Null);
+            if v.as_ref()
+                .is_err_and(|e| e.code == "unknown_command" || e.code == "remote_setup_unavailable")
+            {
+                let old_version = info
+                    .as_ref()
+                    .ok()
+                    .and_then(|i| i["version"].as_str())
+                    .unwrap_or("");
+                if old_version != env!("CARGO_PKG_VERSION") {
+                    if !json {
+                        eprintln!("Waiting for the updated agent to restart...");
+                    }
+                    let deadline = Instant::now() + Duration::from_secs(15);
+                    while Instant::now() < deadline {
+                        std::thread::sleep(Duration::from_millis(500));
+                        v = call(dir, "remote_setup", Value::Null);
+                        if v.is_ok()
+                            || v.as_ref().is_err_and(|e| {
+                                !matches!(
+                                    e.code.as_str(),
+                                    "unknown_command"
+                                        | "remote_setup_unavailable"
+                                        | "agent_unreachable"
+                                )
+                            })
+                        {
+                            break;
+                        }
+                    }
+                }
+            }
+            let v = v.map_err(|e| {
+                if matches!(
+                    e.code.as_str(),
+                    "unknown_command" | "remote_setup_unavailable" | "agent_unreachable"
+                ) {
+                    Fail::from("remote_setup_update_required".to_string())
+                } else {
+                    e
+                }
+            })?;
+            let mut v = v;
+            let firewall = crate::firewall::configure(v["listen"].as_str(), json);
+            v["firewall"] = json!(firewall);
+            if json {
+                print_json(&v);
+            } else {
+                println!("{}", ui::ok("Ready to connect this computer."));
+                println!(
+                    "Pairing code: {}",
+                    ui::paint(v["code"].as_str().unwrap_or(""), ui::BRAND)
+                );
+                println!("Valid once for 10 minutes. In Erebor: Devices > Add device.");
+                let addresses = v["addresses"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(Value::as_str)
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                if !addresses.is_empty() {
+                    println!("Address: {addresses}");
+                }
+                println!("Firewall: {firewall}");
+            }
+            Ok(())
+        }
         AgentCmd::Init {
             listen,
             no_discovery,

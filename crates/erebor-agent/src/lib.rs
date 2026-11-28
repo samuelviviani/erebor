@@ -240,33 +240,30 @@ fn run_until(data_dir: PathBuf, tx: Sender<()>, rx: Receiver<()>) -> Result<(), 
     let start = engine.config().start_on_launch || resume;
     let engine = Arc::new(Mutex::new(engine));
     engine::spawn_loops(engine.clone());
-    let _ipc = ipc::serve(ipc::Host::new(engine.clone(), "agent", Some(tx)))?;
+    let cfg = remote::RemoteConfig::load(&data_dir);
+    let server = Arc::new(Mutex::new(if cfg.enabled {
+        match remote::server::serve(engine.clone(), &cfg) {
+            Ok(s) => Some(s),
+            Err(e) => {
+                eprintln!("remote control off: {e}");
+                None
+            }
+        }
+    } else {
+        None
+    }));
+    let mut host = ipc::Host::new(engine.clone(), "agent", Some(tx));
+    let (remote_engine, remote_server) = (engine.clone(), server.clone());
+    host.remote_setup = Some(Arc::new(move || {
+        remote::server::setup(&remote_engine, &remote_server).map_err(Value::from)
+    }));
+    let _ipc = ipc::serve(host)?;
     println!(
         "erebor-agent {} ready · pid {} · socket {}",
         env!("CARGO_PKG_VERSION"),
         std::process::id(),
         ipc::socket_path(&data_dir).display()
     );
-    // Remote control only when turned on (`erebor-agent init`). If it can't listen, mining
-    // still works locally: report and go on.
-    let cfg = remote::RemoteConfig::load(&data_dir);
-    let _remote = cfg
-        .enabled
-        .then(|| match remote::server::serve(engine.clone(), &cfg) {
-            Ok(s) => {
-                println!(
-                    "remote control on {} · TLS · fingerprint {} · {} controller(s) paired",
-                    s.addr,
-                    remote::short_fp(&s.ctx.identity.fingerprint),
-                    remote::controllers(&data_dir).len()
-                );
-                Some(s)
-            }
-            Err(e) => {
-                eprintln!("remote control off: {e}");
-                None
-            }
-        });
     if start {
         match engine
             .lock()

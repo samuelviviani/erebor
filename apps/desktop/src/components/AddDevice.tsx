@@ -1,4 +1,4 @@
-import { HardDrive, Monitor, Radar, RefreshCw } from "lucide-react";
+import { Check, ChevronDown, HardDrive, Monitor, Radar, RefreshCw } from "lucide-react";
 import { useEffect, useState } from "react";
 import { errorText, fleet, type FoundAgent } from "../lib/api";
 import { translateError, useT } from "../lib/i18n";
@@ -23,6 +23,7 @@ export function AddDevice({ open, onClose }: { open: boolean; onClose: () => voi
   const [via, setVia] = useState("");
   const [cidr, setCidr] = useState("");
   const [found, setFound] = useState<FoundAgent[] | null>(null);
+  const [discovering, setDiscovering] = useState(false);
   const [scan, setScan] = useState<{ host: string; port: number }[] | null>(null);
   const [busy, setBusy] = useState<"" | "add" | "discover" | "scan" | "own">("");
   const [error, setError] = useState("");
@@ -51,7 +52,8 @@ export function AddDevice({ open, onClose }: { open: boolean; onClose: () => voi
     if (!open) return;
     let active = true;
     setFound(null);
-    fleet.discover().then((items) => { if (active) setFound(items); }).catch((e) => { if (active) setError(translateError(lang, errorText(e))); });
+    setDiscovering(true);
+    fleet.discover().then((items) => { if (active) setFound(items); }).catch((e) => { if (active) setError(translateError(lang, errorText(e))); }).finally(() => { if (active) setDiscovering(false); });
     return () => { active = false; };
   }, [open, lang]);
 
@@ -110,12 +112,12 @@ export function AddDevice({ open, onClose }: { open: boolean; onClose: () => voi
             </div>
             <div className="space-y-2 text-sm leading-relaxed">
               <p>{t("fleet.add.computer.how")}</p>
-              <pre className="num overflow-x-auto rounded-xl bg-surface-2 px-3 py-2 text-xs text-fg">erebor-agent setup</pre>
+              <pre className="num overflow-x-auto rounded-xl bg-surface-2 px-3 py-2 text-xs text-fg">erebor agent setup</pre>
             </div>
             <div>
               <div className="mb-2 flex items-center justify-between gap-2">
                 <span className="text-sm font-medium text-muted">{t("fleet.add.found")}</span>
-                <Button size="sm" variant="ghost" loading={busy === "discover"} onClick={() => run("discover", async () => setFound(await fleet.discover()))}>
+                <Button size="sm" variant="ghost" loading={busy === "discover" || discovering} onClick={() => run("discover", async () => setFound(await fleet.discover()))}>
                   <RefreshCw /> {t("fleet.add.search")}
                 </Button>
               </div>
@@ -128,7 +130,8 @@ export function AddDevice({ open, onClose }: { open: boolean; onClose: () => voi
                         type="button"
                         disabled={f.paired}
                         onClick={() => setAddress(f.found.address)}
-                        className={`flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm hover:bg-surface-2 disabled:opacity-50 ${address === f.found.address ? "bg-surface-2" : ""}`}
+                        aria-pressed={address === f.found.address}
+                        className={`flex w-full items-center justify-between gap-3 px-4 py-3 text-left text-sm transition-colors hover:bg-surface-2 disabled:opacity-50 ${address === f.found.address ? "bg-accent-soft" : ""}`}
                       >
                         <span className="min-w-0">
                           <span className="block truncate font-medium text-fg">{f.found.name}</span>
@@ -136,7 +139,7 @@ export function AddDevice({ open, onClose }: { open: boolean; onClose: () => voi
                             {f.found.address} · v{f.found.version}
                           </span>
                         </span>
-                        <span className="shrink-0 text-xs text-faint">{f.paired ? t("fleet.add.already") : f.found.pairing ? t("fleet.add.waiting") : ""}</span>
+                        <span className="flex shrink-0 items-center gap-2 text-xs text-faint">{f.paired ? t("fleet.add.already") : f.found.pairing ? t("fleet.add.waiting") : ""}{address === f.found.address && <Check className="size-4 text-accent" aria-hidden />}</span>
                       </button>
                     </li>
                   ))}
@@ -147,7 +150,7 @@ export function AddDevice({ open, onClose }: { open: boolean; onClose: () => voi
               <input className={`${inputClass} num uppercase`} value={code} onChange={(e) => setCode(e.target.value)} placeholder="XXXX-XXXX-XXXX" spellCheck={false} autoComplete="off" />
             </Field>
             <details className="rounded-xl border border-line p-3">
-              <summary className="cursor-pointer text-sm font-medium">{t("fleet.add.advanced")}</summary>
+              <summary className="flex cursor-pointer list-none items-center justify-between text-sm font-medium text-fg">{t("fleet.add.advanced")}<ChevronDown className="size-4 text-faint" aria-hidden /></summary>
               <div className="mt-3">
                 <Field label={t("fleet.add.address")} hint={t("fleet.add.address.hint")}>
                   <input className={inputClass} value={address} onChange={(e) => setAddress(e.target.value)} placeholder="192.168.1.20" spellCheck={false} />

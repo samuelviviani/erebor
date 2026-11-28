@@ -50,10 +50,14 @@ pub fn cli(args: impl Iterator<Item = String>) {
         use std::os::unix::fs::MetadataExt;
         let owner = std::fs::metadata(SYSTEM_DIR).map(|m| m.uid()).ok();
         if owner != Some(unsafe { libc::geteuid() }) {
-            let exe = std::env::current_exe().unwrap_or_else(|e| {
-                eprintln!("{e}");
-                std::process::exit(1)
-            });
+            let exe = std::env::args_os()
+                .next()
+                .map(PathBuf::from)
+                .unwrap_or_else(|| {
+                    let e = "missing executable";
+                    eprintln!("{e}");
+                    std::process::exit(1)
+                });
             let status = std::process::Command::new("sudo")
                 .args(["-u", "erebor-agent"])
                 .arg(&exe)
@@ -144,14 +148,16 @@ pub fn cli(args: impl Iterator<Item = String>) {
 }
 
 fn setup(dir: &std::path::Path) -> Result<Value, String> {
-    let cfg = erebor_core::remote::RemoteConfig::load(dir);
-    if !cfg.enabled {
-        if agent::remote_status(dir)["agentRunning"] == true {
-            return Err("remote control is disabled on the running agent; enable it and restart the service before setup".into());
+    erebor_core::ipc::call(dir, "remote_setup", &Value::Null).map_err(|e| {
+        let code = e.as_str().unwrap_or("remote_setup_failed");
+        match code {
+            "agent_unreachable" => "Start the agent first: erebor-agent start".into(),
+            "unknown_command" | "remote_setup_unavailable" => {
+                "Update and restart the running agent, then retry setup".into()
+            }
+            _ => code.into(),
         }
-        agent::init(dir, None, true)?;
-    }
-    agent::pair(dir)
+    })
 }
 
 fn exit_usage() -> ! {

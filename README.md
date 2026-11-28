@@ -126,12 +126,18 @@ everything from Erebor Desktop or the CLI: no account, no cloud, no open router 
 agent.
 
 ```bash
-sh scripts/install-agent.sh                         # on the other computer (Linux/macOS)
-sudo -u erebor-agent erebor-agent pair              # shows a 10-minute code
+curl -fsSL https://raw.githubusercontent.com/samuelviviani/erebor/main/scripts/install.sh | sh -s -- --agent  # on the other computer
+erebor agent setup                                  # show a new 10-minute code later
 erebor devices add 192.168.1.20 --code XXXX-XXXX-XXXX   # here (or Devices → Add device)
 erebor mining start --group "GPU rigs"
 erebor sim --pair                                   # try it all with simulated devices
 ```
+
+On Linux, setup adds TCP and UDP firewall rules for private local networks when UFW is
+active, asking for administrator privileges if needed. Other firewalls may need manual
+rules. Discovery uses LAN broadcast and private subnet probes on Unix; across VPNs or
+other subnets, enter the address. The agent runs in the background; configure a service
+separately if it must start at login.
 
 Guides: [Devices](docs/DEVICES.md) · [Agent on Linux](docs/AGENT-LINUX.md) ·
 [on Windows](docs/AGENT-WINDOWS.md) · [ASICs](docs/ASIC.md) · [Protocol](docs/PROTOCOL.md)

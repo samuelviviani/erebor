@@ -10,6 +10,7 @@
 # Options (after `| sh -s --`):
 #   --version vX.Y.Z  a specific release instead of the latest
 #   --no-onboard      install only; run `erebor onboard` later
+#   --agent           install and prepare this computer for pairing
 #   --prefix DIR      install into DIR/bin (default: ~/.local)
 #   --from-source     build with Rust instead of downloading (also --repo URL, --ref REF)
 #   --yes             no questions (from source: installs Rust with rustup if missing)
@@ -21,6 +22,7 @@ set -eu
 
 GITHUB=samuelviviani/erebor
 ONBOARD=1
+AGENT=0
 PREFIX="${HOME}/.local"
 REPO="${EREBOR_REPO_URL:-https://github.com/$GITHUB.git}"
 REF=""
@@ -30,6 +32,7 @@ VERSION=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --no-onboard) ONBOARD=0 ;;
+    --agent) AGENT=1; ONBOARD=0 ;;
     --prefix) PREFIX="$2"; shift ;;
     --repo) REPO="$2"; SOURCE=1; shift ;;
     --ref) REF="$2"; SOURCE=1; shift ;;
@@ -73,12 +76,21 @@ finish() {
   case ":$PATH:" in
     *":$PREFIX/bin:"*) ;;
     *)
-      shell_rc="$HOME/.profile"
-      case "${SHELL:-}" in */zsh) shell_rc="$HOME/.zshrc" ;; */bash) shell_rc="$HOME/.bashrc" ;; esac
-      printf '\n  %s is not in your PATH. Add it with:\n    echo '\''export PATH="%s/bin:$PATH"'\'' >> %s\n\n' \
-        "$PREFIX/bin" "$PREFIX" "$shell_rc"
+      case "${SHELL:-}" in
+        */fish) printf '\n  %s is not in your PATH. Add it with:\n    fish_add_path "%s/bin"\n\n' "$PREFIX/bin" "$PREFIX" ;;
+        *)
+          shell_rc="$HOME/.profile"
+          case "${SHELL:-}" in */zsh) shell_rc="$HOME/.zshrc" ;; */bash) shell_rc="$HOME/.bashrc" ;; esac
+          printf '\n  %s is not in your PATH. Add it with:\n    echo '\''export PATH="%s/bin:$PATH"'\'' >> %s\n\n' \
+            "$PREFIX/bin" "$PREFIX" "$shell_rc"
+          ;;
+      esac
       ;;
   esac
+  if [ "$AGENT" = 1 ]; then
+    say "Preparing this computer for pairing"
+    exec "$PREFIX/bin/erebor" agent setup
+  fi
   if [ "$ONBOARD" = 1 ] && has_tty; then
     say "Starting the guided setup"
     exec "$PREFIX/bin/erebor" onboard </dev/tty

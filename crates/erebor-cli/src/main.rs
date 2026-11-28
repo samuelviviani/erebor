@@ -7,6 +7,7 @@
 mod agent;
 mod args;
 mod doctor;
+mod firewall;
 mod fleet;
 mod mining;
 mod onboard;

@@ -146,6 +146,32 @@ pub fn serve(engine: Shared, cfg: &RemoteConfig) -> Result<Server, String> {
     Ok(Server { addr, ctx, stop })
 }
 
+/// Enable remote access on the running engine and issue a single-use code.
+pub fn setup(engine: &Shared, server: &Mutex<Option<Server>>) -> Result<Value, String> {
+    let dir = engine
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .data_dir()
+        .to_path_buf();
+    let mut server = server.lock().map_err(|e| e.to_string())?;
+    if server.is_none() {
+        let mut cfg = RemoteConfig::load(&dir);
+        let started = serve(engine.clone(), &cfg)?;
+        cfg.enabled = true;
+        cfg.save(&dir)?;
+        *server = Some(started);
+    }
+    let server = server.as_ref().ok_or("remote_unavailable")?;
+    let pairing = start_pairing(&dir)?;
+    let port = server.addr.port();
+    Ok(
+        json!({"code": format_code(&pairing.code), "expiresAt": pairing.expires_at,
+        "expiresInSecs": PAIRING_TTL_SECS, "listen": server.addr.to_string(),
+        "addresses": fleet::primary_address().into_iter().map(|a| format!("{a}:{port}")).collect::<Vec<_>>(),
+        "fingerprint": short_fp(&server.ctx.identity.fingerprint)}),
+    )
+}
+
 fn read_asics(list: &[AsicEntry]) -> Vec<AsicStatus> {
     std::thread::scope(|s| {
         let hs: Vec<_> = list

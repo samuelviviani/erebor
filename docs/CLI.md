@@ -175,7 +175,7 @@ Shared with the desktop app: `~/.local/share/org.erebor.desktop` (Linux),
 | `erebor mining start\|stop\|restart\|status --device D \| --group G \| --all` | Mining on managed devices, one result per device | ✓ |
 | `erebor groups [list\|create\|delete\|assign]` | Device groups | ✓ |
 | `erebor profiles [list\|show\|create\|apply\|delete]` | Mining profiles | ✓ |
-| `erebor agent init\|pair\|controllers\|revoke\|disable` | Remote control of this computer's agent | ✓ |
+| `erebor agent setup\|init\|pair\|controllers\|revoke\|disable` | Remote control of this computer's agent | ✓ |
 | `erebor sim [--pair]` | Simulated infrastructure for testing ([SIMULATION.md](SIMULATION.md)) | ✓ |
 
 Every command appears in `erebor --help`: none is hidden.

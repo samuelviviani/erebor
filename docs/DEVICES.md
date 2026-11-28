@@ -39,17 +39,29 @@ Simulated devices (demo agents, ASIC simulators) are always marked **Simulated**
 
 ## Add a computer (pairing)
 
-1. Install the agent on it: [Linux](AGENT-LINUX.md) · [Windows](AGENT-WINDOWS.md) ·
-   [macOS](AGENT.md#macos).
-2. On that computer: `erebor-agent pair` (Linux service: `sudo -u erebor-agent erebor-agent pair`).
-   It prints a 12-symbol code (`XXXX-XXXX-XXXX`), valid **10 minutes, once**, and the
-   agent's fingerprint.
-3. In Erebor Desktop: **Devices → Add device → Computer or server**. Pick it from "On this
-   network" or type its address, enter the code, choose the type. Or from a terminal:
+1. On the other computer, install the CLI and prepare it for pairing:
 
    ```bash
-   erebor devices add 192.168.1.20 --code ABCD-EFGH-JKMN --kind gpu-rig
+   curl -fsSL https://raw.githubusercontent.com/samuelviviani/erebor/main/scripts/install.sh | sh -s -- --agent
    ```
+
+   If Erebor is already installed, run `erebor agent setup`. It starts the agent if
+   needed, enables remote access without interrupting a running miner, and shows a
+   single-use code valid for 10 minutes. If an older agent is still running, update and
+   restart it before retrying.
+2. In Erebor Desktop: **Devices → Add device → Computer or server**. Pick it from
+   "On this network", enter the code, and pair. If it is not found, open Advanced options
+   and enter its address. You can also pair from a terminal:
+
+   ```bash
+   erebor devices add 192.168.1.20 --code ABCD-EFGH-JKMN
+   ```
+
+   Discovery uses LAN broadcast and limited private-subnet probes on Unix; it may be
+   unavailable over VPNs or other subnets. TCP port 7420 must be reachable; UDP port
+   7420 is used for discovery. On Linux with UFW active, setup adds rules for detected
+   private local networks and may ask for administrator privileges. For other firewalls
+   or VPNs, check the rules manually and allow access only from networks you trust.
 
 What pairing does: both sides prove they know the code with an HMAC bound to both TLS
 certificates, so nobody in the middle can splice in. Afterwards the controller pins the

@@ -266,6 +266,26 @@ fn first_run_hint() {
     assert!(String::from_utf8_lossy(&o.stderr).contains("erebor onboard"));
 }
 
+#[test]
+fn agent_setup_starts_a_stopped_agent_and_returns_a_code() {
+    let d = tempfile::tempdir().unwrap();
+    let dir = d.path();
+    std::fs::write(dir.join("config.json"), r#"{"demoMode":true}"#).unwrap();
+    let cfg = erebor_core::remote::RemoteConfig {
+        enabled: false,
+        listen: "127.0.0.1:0".into(),
+        discovery: false,
+        asics: vec![],
+    };
+    cfg.save(dir).unwrap();
+    let (code, setup) = json(dir, &["agent", "setup"]);
+    assert_eq!(code, 0, "{setup}");
+    assert_eq!(setup["code"].as_str().unwrap().replace('-', "").len(), 12);
+    assert!(erebor_core::remote::RemoteConfig::load(dir).enabled);
+    assert_eq!(json(dir, &["agent", "status"]).0, 0);
+    assert_eq!(json(dir, &["agent", "stop"]).0, 0);
+}
+
 /// Two real processes: an agent with remote control on (its own data folder, demo
 /// miner) and the CLI as controller (another folder). Pairing through the agent's own
 /// command, remote mining, groups and profiles, revocation; exit codes along the way.
@@ -286,6 +306,7 @@ fn cli_manages_a_remote_agent() {
         &["agent", "init", "--listen", &addr, "--no-discovery"],
     );
     assert_eq!((code, v["enabled"].as_bool()), (0, Some(true)));
+    assert!(erebor(adir, &["agent", "disable"]).status.success());
     let _agent = Guard(
         Command::new(env!("CARGO_BIN_EXE_erebor"))
             .args(["agent", "start", "--foreground"])
@@ -296,6 +317,15 @@ fn cli_manages_a_remote_agent() {
             .unwrap(),
     );
     let t = Instant::now();
+    while json(adir, &["agent", "status"]).0 != 0 {
+        assert!(t.elapsed() < Duration::from_secs(15), "agent did not start");
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    assert_eq!(json(adir, &["mining", "start"]).0, 0);
+    let (setup_code, setup) = json(adir, &["agent", "setup"]);
+    assert_eq!(setup_code, 0, "{setup}");
+    assert_eq!(json(adir, &["status"]).1["state"], "running");
+    let t = Instant::now();
     while std::net::TcpStream::connect(&addr).is_err() {
         assert!(
             t.elapsed() < Duration::from_secs(15),
@@ -305,9 +335,7 @@ fn cli_manages_a_remote_agent() {
     }
 
     // Wrong code refused, the real one pairs once.
-    let (code, v) = json(adir, &["agent", "pair"]);
-    assert_eq!(code, 0);
-    let pair_code = v["code"].as_str().unwrap().to_string();
+    let pair_code = setup["code"].as_str().unwrap().to_string();
     let (code, v) = json(cdir, &["devices", "add", &addr, "--code", "0000-0000-0000"]);
     assert_eq!((code, v["error"].as_str()), (1, Some("pairing_failed")));
     let (code, v) = json(

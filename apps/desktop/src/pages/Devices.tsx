@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, LayoutGrid, Play, Plus, RotateCcw, Rows3, Search, Square, Tag, X } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronDown, LayoutGrid, Play, Plus, RotateCcw, Rows3, Search, Square, Tag, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { AddDevice } from "../components/AddDevice";
 import { ConnBadge, DeviceIcon, HistoryChart, kindLabel, MiningBadge, ResultsModal, SimBadge, useAgo, useFleetPolling, useLang, watts } from "../components/fleet";
@@ -184,12 +184,14 @@ export default function Devices() {
       {o.money.length > 1 && <p className="mb-2 text-xs text-faint">{t("fleet.manyCurrencies", { list: o.money.map((x) => x.currency).join(", ") })}</p>}
       <HistoryChart id={null} live={live} />
 
-      <div className="mt-8 flex flex-wrap items-center gap-2">
+      <div className="mt-8 rounded-2xl border border-line bg-surface p-3 shadow-[var(--highlight)] sm:p-4">
+      <div className="flex flex-wrap items-center gap-2">
         <label className="relative min-w-48 flex-1">
           <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-faint" aria-hidden />
           <input className={cx(compactInput, "w-full pl-9")} value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("fleet.search")} aria-label={t("fleet.search")} />
         </label>
-        <select className={compactInput} value={groupFilter} onChange={(e) => setGroupFilter(e.target.value)} aria-label={t("fleet.filter.group")}>
+        <div className="relative">
+        <select className={cx(compactInput, "min-w-44 appearance-none pr-9")} value={groupFilter} onChange={(e) => setGroupFilter(e.target.value)} aria-label={t("fleet.filter.group")}>
           <option value="">{t("fleet.filter.allGroups")}</option>
           <option value="none">{t("fleet.ungrouped")}</option>
           {data.groups.map((g) => (
@@ -203,11 +205,16 @@ export default function Devices() {
             </option>
           ))}
         </select>
-        <select className={compactInput} value={groupBy} onChange={(e) => setGroupBy(e.target.value as GroupBy)} aria-label={t("fleet.groupBy")}>
+        <ChevronDown className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-faint" aria-hidden />
+        </div>
+        <div className="relative">
+        <select className={cx(compactInput, "min-w-44 appearance-none pr-9")} value={groupBy} onChange={(e) => setGroupBy(e.target.value as GroupBy)} aria-label={t("fleet.groupBy")}>
           <option value="none">{t("fleet.groupBy.none")}</option>
           <option value="group">{t("fleet.groupBy.group")}</option>
           <option value="kind">{t("fleet.groupBy.kind")}</option>
         </select>
+        <ChevronDown className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-faint" aria-hidden />
+        </div>
         <Segmented
           size="sm"
           label={t("fleet.view")}
@@ -219,7 +226,7 @@ export default function Devices() {
           ]}
         />
       </div>
-      <div className="mt-3">
+      <div className="mt-3 overflow-x-auto border-t border-line pt-3">
         <Segmented
           size="sm"
           label={t("fleet.filter")}
@@ -227,6 +234,7 @@ export default function Devices() {
           onChange={setFilter}
           options={(["all", "online", "offline", "mining", "problems"] as const).map((f) => ({ value: f, label: `${t(`fleet.filter.${f}`)} ${counts[f]}` }))}
         />
+      </div>
       </div>
 
       {sel.length > 0 && (
@@ -242,7 +250,7 @@ export default function Devices() {
             <RotateCcw /> {t("fleet.restart")}
           </Button>
           <select
-            className={cx(compactInput, "h-8 text-xs")}
+            className={cx(compactInput, "h-8 rounded-full border-line-strong bg-surface-2 px-3 text-xs")}
             value=""
             aria-label={t("fleet.applyProfile")}
             onChange={(e) => {
@@ -258,7 +266,7 @@ export default function Devices() {
             ))}
           </select>
           <select
-            className={cx(compactInput, "h-8 text-xs")}
+            className={cx(compactInput, "h-8 rounded-full border-line-strong bg-surface-2 px-3 text-xs")}
             value=""
             aria-label={t("fleet.assignGroup")}
             onChange={(e) => e.target.value && run(async () => void (await fleet.assignGroup(ids, e.target.value === "none" ? null : Number(e.target.value))))}
@@ -279,7 +287,7 @@ export default function Devices() {
               if (list.length) run(async () => (await fleet.tag(ids, list), setTagText("")));
             }}
           >
-            <input className={cx(compactInput, "h-8 w-28 text-xs")} value={tagText} onChange={(e) => setTagText(e.target.value)} placeholder={t("fleet.tags.ph")} aria-label={t("fleet.tags.add")} />
+            <input className={cx(compactInput, "h-8 w-32 rounded-full border-line-strong bg-surface-2 px-3 text-xs")} value={tagText} onChange={(e) => setTagText(e.target.value)} placeholder={t("fleet.tags.ph")} aria-label={t("fleet.tags.add")} />
             <Button size="sm" variant="ghost" type="submit" aria-label={t("fleet.tags.add")}>
               <Tag />
             </Button>
@@ -421,8 +429,10 @@ function TableRow({ r, checked, onCheck, onOpen }: { r: DeviceRow; checked: bool
             </button>
             {r.simulated && <SimBadge />}
           </div>
-          <div className="truncate text-xs text-faint">
-            {[kindLabel(t, r.kind), r.coin ?? r.algo, r.groupName, ...r.tags.map((x) => `#${x}`)].filter(Boolean).join(" · ")}
+          <div className="flex min-w-0 items-center gap-1.5 overflow-hidden text-xs text-faint">
+            <span className="shrink-0">{kindLabel(t, r.kind)}</span>
+            {r.groupName && <span className="truncate">· {r.groupName}</span>}
+            <DeviceTags tags={r.tags} />
           </div>
         </div>
       </div>
@@ -461,6 +471,7 @@ function Card({ r, checked, onCheck, onOpen }: { r: DeviceRow; checked: boolean;
         {r.conn === "online" && <MiningBadge mining={r.mining} />}
         {r.simulated && <SimBadge />}
       </div>
+      {r.tags.length > 0 && <div className="mt-3 flex min-w-0 items-center gap-1.5 overflow-hidden"><DeviceTags tags={r.tags} /></div>}
       <dl className="mt-3 grid grid-cols-3 gap-2 text-xs">
         <div>
           <dt className="text-faint">{t("fleet.col.hashrate")}</dt>
@@ -477,4 +488,11 @@ function Card({ r, checked, onCheck, onOpen }: { r: DeviceRow; checked: boolean;
       </dl>
     </div>
   );
+}
+
+function DeviceTags({ tags }: { tags: string[] }) {
+  if (tags.length === 0) return null;
+  return <span className="flex min-w-0 items-center gap-1 overflow-hidden" title={tags.join(", ")}>
+    {tags.map((tag) => <span key={tag} className="shrink-0 rounded-full border border-line bg-surface-2 px-1.5 py-0.5 text-2xs font-medium text-muted">#{tag}</span>)}
+  </span>;
 }

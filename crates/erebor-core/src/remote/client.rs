@@ -208,8 +208,76 @@ pub struct Found {
     pub pairing: bool,
 }
 
-/// Ask agents on this network to identify themselves (UDP broadcast to `port`). Agents
-/// with discovery turned off, or on other subnets, don't answer: add those by address.
+/// Limit active discovery to private addresses within the actual interface subnet.
+#[cfg(any(unix, test))]
+fn subnet_targets(ip: std::net::Ipv4Addr, netmask: std::net::Ipv4Addr) -> Vec<std::net::Ipv4Addr> {
+    if !ip.is_private() {
+        return Vec::new();
+    }
+    let mask = u32::from(netmask);
+    let prefix = mask.leading_ones();
+    if !(16..=30).contains(&prefix) || mask != u32::MAX << (32 - prefix) {
+        return Vec::new();
+    }
+    let prefix = prefix.max(24);
+    let mask = u32::MAX << (32 - prefix);
+    let first = u32::from(ip) & mask;
+    (first + 1..first + !mask)
+        .filter(|n| *n != u32::from(ip))
+        .map(std::net::Ipv4Addr::from)
+        .collect()
+}
+
+#[cfg(unix)]
+fn local_discovery_targets() -> Vec<std::net::Ipv4Addr> {
+    let mut interfaces = std::ptr::null_mut();
+    // SAFETY: getifaddrs initializes the list on success; the list is freed once below.
+    if unsafe { libc::getifaddrs(&mut interfaces) } != 0 {
+        return Vec::new();
+    }
+    let mut targets = Vec::new();
+    let mut current = interfaces;
+    while !current.is_null() && targets.len() < 1024 {
+        // SAFETY: current is an entry in the list returned by getifaddrs.
+        let entry = unsafe { &*current };
+        if !entry.ifa_addr.is_null()
+            && !entry.ifa_netmask.is_null()
+            && entry.ifa_flags & libc::IFF_UP as u32 != 0
+            && entry.ifa_flags & libc::IFF_LOOPBACK as u32 == 0
+            && unsafe { (*entry.ifa_addr).sa_family as i32 } == libc::AF_INET
+        {
+            // SAFETY: AF_INET entries have sockaddr_in address and mask structures.
+            let (ip, mask) = unsafe {
+                let ip = &*(entry.ifa_addr as *const libc::sockaddr_in);
+                let mask = &*(entry.ifa_netmask as *const libc::sockaddr_in);
+                (
+                    std::net::Ipv4Addr::from(ip.sin_addr.s_addr.to_ne_bytes()),
+                    std::net::Ipv4Addr::from(mask.sin_addr.s_addr.to_ne_bytes()),
+                )
+            };
+            for target in subnet_targets(ip, mask) {
+                if !targets.contains(&target) {
+                    targets.push(target);
+                }
+                if targets.len() >= 1024 {
+                    break;
+                }
+            }
+        }
+        current = entry.ifa_next;
+    }
+    // SAFETY: interfaces came from a successful getifaddrs call.
+    unsafe { libc::freeifaddrs(interfaces) };
+    targets
+}
+
+#[cfg(not(unix))]
+fn local_discovery_targets() -> Vec<std::net::Ipv4Addr> {
+    Vec::new()
+}
+
+/// Ask agents on this network to identify themselves, including private subnet probes
+/// on Unix when firewalls discard broadcast. Other subnets still need an address.
 pub fn discover(port: u16, wait: Duration) -> Result<Vec<Found>, String> {
     let s = UdpSocket::bind("0.0.0.0:0").map_err(|e| e.to_string())?;
     s.set_broadcast(true).map_err(|e| e.to_string())?;
@@ -219,6 +287,9 @@ pub fn discover(port: u16, wait: Duration) -> Result<Vec<Found>, String> {
         format!("127.0.0.1:{port}"),
     ] {
         let _ = s.send_to(server::DISCOVER_PROBE, &target);
+    }
+    for target in local_discovery_targets() {
+        let _ = s.send_to(server::DISCOVER_PROBE, (target, port));
     }
     let t = Instant::now();
     let mut out: Vec<Found> = Vec::new();
@@ -245,4 +316,25 @@ pub fn discover(port: u16, wait: Duration) -> Result<Vec<Found>, String> {
         }
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod discovery_tests {
+    use super::*;
+    #[test]
+    fn targets_stay_inside_private_interface_subnet() {
+        let targets = subnet_targets(
+            "192.168.1.37".parse().unwrap(),
+            "255.255.255.128".parse().unwrap(),
+        );
+        assert_eq!(targets.len(), 125);
+        assert!(targets.iter().all(|ip| ip.octets()[3] < 127
+            && *ip != "192.168.1.37".parse::<std::net::Ipv4Addr>().unwrap()));
+        assert!(
+            subnet_targets("8.8.8.8".parse().unwrap(), "255.255.255.0".parse().unwrap()).is_empty()
+        );
+        assert!(
+            subnet_targets("10.1.1.2".parse().unwrap(), "255.0.0.0".parse().unwrap()).is_empty()
+        );
+    }
 }

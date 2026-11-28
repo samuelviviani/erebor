@@ -221,6 +221,8 @@ pub(crate) enum AgentCmd {
     InstallService,
     /// Remove the login service.
     UninstallService,
+    /// Prepare this computer for pairing and show a one-time code.
+    Setup,
     /// Accept paired controllers over the network (TLS, port 7420). Applies at next start.
     Init {
         /// Address to listen on (default 0.0.0.0:7420; a VPN address limits it to the VPN).

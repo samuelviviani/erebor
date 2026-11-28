@@ -19,6 +19,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::Sender;
+use std::sync::Arc;
 
 pub const PROTOCOL_VERSION: u32 = 1;
 
@@ -75,6 +76,7 @@ pub struct Host {
     /// Set only by the agent: lets `erebor agent stop` end the process.
     pub shutdown: Option<Sender<()>>,
     pub started: i64,
+    pub remote_setup: Option<Arc<dyn Fn() -> Result<Value, Value> + Send + Sync>>,
 }
 
 impl Host {
@@ -84,6 +86,7 @@ impl Host {
             owner,
             shutdown,
             started: crate::now_unix(),
+            remote_setup: None,
         }
     }
 }
@@ -114,6 +117,10 @@ pub fn handle(host: &Host, line: &str) -> Reply {
         return Reply::Err("protocol_version".into());
     }
     match req.cmd.as_str() {
+        "remote_setup" => match &host.remote_setup {
+            Some(setup) => setup().into(),
+            None => Reply::Err("remote_setup_unavailable".into()),
+        },
         "shutdown" => match &host.shutdown {
             Some(tx) => {
                 let _ = tx.send(());
