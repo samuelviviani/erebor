@@ -39,6 +39,7 @@
     ],
     "category": "Utility",
     "license": "LicenseRef-ESAL-1.0",
+    "licenseFile": "../../../LICENSE.md",
     "shortDescription": "Mining manager: transparent, non-custodial, local-first.",
     "longDescription": "Erebor manages CPU mining through XMRig. It never holds funds or private keys; rewards are paid by the pool directly to the user's wallet."
   },
