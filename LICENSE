@@ -33,19 +33,19 @@ This is a proprietary source-available license and is not an open-source license
 
 Subject to compliance with this License, the Copyright Holder grants users a worldwide, royalty-free, non-exclusive, non-transferable, and non-sublicensable license to:
 
-a. Download, install, and execute official, unmodified releases of the Software for their intended purpose.
+(a) Download, install, and execute official, unmodified releases of the Software for their intended purpose.
 
-b. Use official releases for personal, professional, or organizational activities, including cryptocurrency mining and the management of mining infrastructure.
+(b) Use official releases for personal, professional, or organizational activities, including cryptocurrency mining and the management of mining infrastructure.
 
-c. Access, download, read, and examine the publicly available source code.
+(c) Access, download, read, and examine the publicly available source code.
 
-d. Conduct lawful security audits, technical analysis, and vulnerability assessments.
+(d) Conduct lawful security audits, technical analysis, and vulnerability assessments.
 
-e. Report bugs, vulnerabilities, and technical issues to the Copyright Holder.
+(e) Report bugs, vulnerabilities, and technical issues to the Copyright Holder.
 
-f. Make copies strictly necessary for the expressly permitted activities.
+(f) Make copies strictly necessary for the expressly permitted activities.
 
-g. Modify, compile, execute, and test the source code exclusively for authorized contribution purposes, as established in Section 8.
+(g) Modify, compile, execute, and test the source code exclusively for authorized contribution purposes, as established in Section 8.
 
 These permissions do not convey ownership of the Software or authorize its incorporation into other products or services.
 
@@ -53,31 +53,31 @@ These permissions do not convey ownership of the Software or authorize its incor
 
 Except where expressly permitted under Section 8, authorized in writing by the Copyright Holder, required by applicable platform terms, or permitted by mandatory applicable law, no individual, organization, or legal entity may:
 
-a. Modify, alter, adapt, translate, or extend the Software or its source code.
+(a) Modify, alter, adapt, translate, or extend the Software or its source code.
 
-b. Create, publish, distribute, or commercialize derivative works based on the Software.
+(b) Create, publish, distribute, or commercialize derivative works based on the Software.
 
-c. Copy, extract, or incorporate protected portions of the source code into another software project, product, or service.
+(c) Copy, extract, or incorporate protected portions of the source code into another software project, product, or service.
 
-d. Redistribute, resell, sublicense, rent, or otherwise make the Software available to third parties outside the permissions expressly granted under this License.
+(d) Redistribute, resell, sublicense, rent, or otherwise make the Software available to third parties outside the permissions expressly granted under this License.
 
-e. Publish or distribute modified versions of the Software as independent applications or projects.
+(e) Publish or distribute modified versions of the Software as independent applications or projects.
 
-f. Rebrand the Software, remove its original identity, or present it as an independently developed product.
+(f) Rebrand the Software, remove its original identity, or present it as an independently developed product.
 
-g. Claim authorship, ownership, or intellectual property rights over the original Software or any portion belonging to the Copyright Holder.
+(g) Claim authorship, ownership, or intellectual property rights over the original Software or any portion belonging to the Copyright Holder.
 
-h. Use protected portions of the Software to develop, distribute, or operate another product or competing service.
+(h) Use protected portions of the Software to develop, distribute, or operate another product or competing service.
 
-i. Remove, conceal, or modify copyright notices, attribution statements, license notices, or ownership information.
+(i) Remove, conceal, or modify copyright notices, attribution statements, license notices, or ownership information.
 
-j. Circumvent, disable, or modify mechanisms implemented for developer compensation, mining fees, licensing, or software integrity, except for legitimate development and testing strictly necessary for an authorized contribution. Such testing must not be used to obtain unauthorized financial benefits.
+(j) Circumvent, disable, or modify mechanisms implemented for developer compensation, mining fees, licensing, or software integrity, except for legitimate development and testing strictly necessary for an authorized contribution. Such testing must not be used to obtain unauthorized financial benefits.
 
-k. Offer the Software as a hosted, white-label, or commercial redistribution service without prior written authorization.
+(k) Offer the Software as a hosted, white-label, or commercial redistribution service without prior written authorization.
 
-l. Publish unofficial releases, installers, executable binaries, or other distributable versions of modified Software outside the authorized contribution process.
+(l) Publish unofficial releases, installers, executable binaries, or other distributable versions of modified Software outside the authorized contribution process.
 
-m. Use modified versions of the Software for production activities, personal mining, or commercial mining unrelated to authorized development and testing.
+(m) Use modified versions of the Software for production activities, personal mining, or commercial mining unrelated to authorized development and testing.
 
 These restrictions apply regardless of whether the prohibited activity is performed for commercial or non-commercial purposes.
 
@@ -125,19 +125,19 @@ The Copyright Holder encourages community participation in the improvement, secu
 
 As a limited exception to the restrictions established in Section 4, users are expressly authorized to:
 
-a. Download and clone the official source code repository.
+(a) Download and clone the official source code repository.
 
-b. Create forks of the official repository on GitHub.
+(b) Create forks of the official repository on GitHub.
 
-c. Modify, compile, execute, and test the source code exclusively for the purpose of developing and validating proposed improvements to the official project.
+(c) Modify, compile, execute, and test the source code exclusively for the purpose of developing and validating proposed improvements to the official project.
 
-d. Develop bug fixes, security patches, performance optimizations, new features, documentation improvements, and other contributions.
+(d) Develop bug fixes, security patches, performance optimizations, new features, documentation improvements, and other contributions.
 
-e. Publish proposed modifications within GitHub forks and branches strictly for the purpose of preparing, submitting, reviewing, and maintaining pull requests to the official Erebor repository.
+(e) Publish proposed modifications within GitHub forks and branches strictly for the purpose of preparing, submitting, reviewing, and maintaining pull requests to the official Erebor repository.
 
-f. Submit proposed improvements through GitHub pull requests for review by the Copyright Holder.
+(f) Submit proposed improvements through GitHub pull requests for review by the Copyright Holder.
 
-g. Collaborate with other contributors on proposed improvements, provided that such collaboration remains directed toward the official Erebor project and complies with this License.
+(g) Collaborate with other contributors on proposed improvements, provided that such collaboration remains directed toward the official Erebor project and complies with this License.
 
 These permissions are granted exclusively for the purpose of contributing to the official Erebor project.
 
@@ -168,15 +168,15 @@ By intentionally submitting a contribution to the official Erebor repository for
 
 This license authorizes the Copyright Holder to:
 
-a. Use, reproduce, modify, adapt, and maintain the contribution.
+(a) Use, reproduce, modify, adapt, and maintain the contribution.
 
-b. Integrate the contribution into Erebor or its future versions.
+(b) Integrate the contribution into Erebor or its future versions.
 
-c. Publish, distribute, and commercialize the contribution as part of the Software.
+(c) Publish, distribute, and commercialize the contribution as part of the Software.
 
-d. License and sublicense the contribution under existing or future licensing terms.
+(d) License and sublicense the contribution under existing or future licensing terms.
 
-e. Create and distribute derivative works incorporating the contribution.
+(e) Create and distribute derivative works incorporating the contribution.
 
 Contributors represent that they possess the necessary rights to submit their contributions and grant the permissions established in this section.
 
@@ -303,11 +303,11 @@ Any permission beyond the scope of this License must be obtained through prior w
 
 **Copyright Holder:** Samuel Viviani
 
-**Contact:** contact@samuelviviani.com
+**Contact:** [contact@samuelviviani.com](mailto:contact@samuelviviani.com)
 
-**Official repository:** https://github.com/samuelviviani/erebor
+**Official repository:** <https://github.com/samuelviviani/erebor>
 
-**License identifier:** LicenseRef-ESAL-1.0
+**License identifier:** `LicenseRef-ESAL-1.0`
 
 ---
 
